@@ -1,0 +1,22 @@
+# Commit Scopes for go-aip
+# Use these scopes in conventional commits: type(scope): description
+# The scope is optional: omit it for repository-wide changes. Never use `root`.
+# Only the first word of a non-comment line is a scope.
+# Example: feat(projection): select fields by a read mask
+
+# Repository scopes
+deps                        # Dependency updates (Dependabot writes build(deps): bump ...)
+README                      # Root README
+docs                        # Documentation
+
+# Packages
+aip                         # Root package: Google API Improvement Proposals helpers
+filter                      # AIP-160 filtering
+orderby                     # AIP-132 ordering
+projection                  # AIP-157 partial responses
+pagination                  # AIP-158 pagination
+fieldmask                   # AIP-134 and AIP-161 field masks
+
+# Tooling
+devtools                    # Development tool dependencies
+ci                          # GitHub Actions workflows and scripts
