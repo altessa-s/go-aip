@@ -360,6 +360,10 @@ syntax, typed cursor operands, storage validation, `system.columns` schema check
 builds the schema filter translator in contract mode with the engine's decimal format and timestamp precision; embed it to override selected
 behavior and pass it to `sqlbase.NewListEngine`.
 
+`MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
+the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` (it is
+`sqlbase.MustNewListEngine` with `ListDialect` fixed) and wraps the `NewListEngine` error.
+
 | Aspect           | ClickHouse                                                                                                                                                                                                            |
 |------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Syntax           | Backtick identifiers, `?` placeholders, `LIMIT n`; the table may be `database.table`                                                                                                                                  |
@@ -510,6 +514,7 @@ if cols == "" {
 | `DefaultMaxDataBudget`          | Default literal validation budget of the schema translator                                   |
 | `ListDialect`                   | The ClickHouse `sqlbase.ListDialect`, with the contract-mode filter translator               |
 | `NewListEngine`                 | `sqlbase.NewListEngine` with `ListDialect` fixed                                             |
+| `MustNewListEngine`             | Panicking `NewListEngine` for package-level declarations fixed in code                       |
 | `ListEngineOption`              | Alias of `sqlbase.ListEngineOption` (the `sqlbase.WithList…` options)                        |
 | `OrderDialect`                  | The ClickHouse `sqlbase.OrderDialect`, for `sqlbase.NewOrderTranslator` or a resolver        |
 | `NewOrderTranslator`            | `sqlbase.OrderTranslator` with the ClickHouse dialect                                        |
