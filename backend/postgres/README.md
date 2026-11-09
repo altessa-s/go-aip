@@ -575,6 +575,10 @@ if cols == "" {
 `sqlbase.ListEngineOption`; the options (`sqlbase.WithListColumns`, `WithListScopeKeys`, `WithListParentKey`, `WithListIDColumn`, `WithListIDType`,
 `WithListTimestampPrecision`, `WithListMaxTime`, …) are documented with the [sqlbase listing engine](../sqlbase/README.md#listing-engine).
 
+`MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
+the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` (it is
+`sqlbase.MustNewListEngine` with `ListDialect` fixed) and wraps the `NewListEngine` error.
+
 `ListDialect` is the PostgreSQL `sqlbase.ListDialect`: syntax (row-value cursor comparisons), storage validation, schema checks, index management
 with advisory locking, and `NewTranslator`, which builds this package's schema filter translator in listing contract mode with the engine's timestamp
 precision and text collation. Its zero value is ready to use; embed it in a custom dialect to override selected methods and pass that to
@@ -639,6 +643,7 @@ page, err := list.List(ctx, "widgets.List", req, sqlbase.Scope{"tenant_id": req.
 | `NewProjectionTranslator`       | `sqlbase.ProjectionTranslator` with the PostgreSQL dialect                                            |
 | `ProjectionOption`              | Alias of `sqlbase.ProjectionOption`                                                                   |
 | `NewListEngine`                 | `sqlbase.ListEngine` with `ListDialect`                                                               |
+| `MustNewListEngine`             | Panicking `NewListEngine` for package-level declarations fixed in code                                |
 | `ListEngineOption`              | Alias of `sqlbase.ListEngineOption`                                                                   |
 | `ListDialect`                   | The PostgreSQL `sqlbase.ListDialect`                                                                  |
 
