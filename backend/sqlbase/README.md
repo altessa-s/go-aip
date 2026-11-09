@@ -568,6 +568,10 @@ The application owns the table and its data; the engine emits parameterized quer
 values, and scanning. `List(ctx, subject, request, Scope)` requires every configured scope key; `WithListParentKey` explicitly binds a scope key to
 `Request.Parent`. `WithListMaxTime` defaults to ten seconds; zero uses the caller deadline. `WithListErrorMapper` replaces query-failure classification.
 
+`MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
+the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` and wraps the
+`NewListEngine` error.
+
 `ListDialect` composes `ListSyntax`, `ListFilterDialect`, `ListSchemaDialect`, and `ListIndexDialect`. The backend dialects implement every method;
 sqlbase supplies only database-neutral building blocks (`DecodeCursor`, `ExpandKeysetPredicate`, `CheckListColumns` and the `ListSchemaConfig` helpers).
 A dialect that also implements the optional `ListSortKeyDialect` renders the SELECT expression of each non-identity sort key, as `IdentityExpression`
@@ -823,6 +827,7 @@ the same mapping to schema checks.
 | `ListEngineOption`      | Functional option of NewListEngine; every option is named WithList….                                                                                                            |
 | `ListEngine`            | ListEngine serves one SQL keyset page at a time. Build a ListEngine once per table and share it between concurrent requests.                                                    |
 | `NewListEngine`         | NewListEngine constructs a keyset list over a required ListDialect. dest returns Scan destinations in the same order as columns.                                                |
+| `MustNewListEngine`     | MustNewListEngine is NewListEngine for package-level declarations with static configuration: it panics on an invalid configuration.                                             |
 | `DefaultSQLKind`        | DefaultSQLKind returns the built-in SQL storage class, or Unknown for a custom kind. A custom WithListKindResolver can delegate its remaining kinds to this function.           |
 | `ListOrderKey`          | ListOrderKey describes a physical cursor key, including the final unique identity.                                                                                              |
 

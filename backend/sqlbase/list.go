@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -153,6 +154,20 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 	l.compilePlans()
 
 	return l, nil
+}
+
+// MustNewListEngine is [NewListEngine] for package-level declarations with static configuration: it returns the engine
+// NewListEngine builds and panics on an invalid configuration. The panic value is an error prefixed with
+// "sqlbase.MustNewListEngine: " that wraps the NewListEngine error, so errors.Is(recovered, [listing.ErrInvalidSchema])
+// holds. Use NewListEngine where the configuration comes from input rather than code.
+func MustNewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Schema, table string, columns []string, dest func(*T) []any,
+	dialect ListDialect, opts ...ListEngineOption) *ListEngine[T] {
+	l, err := NewListEngine(q, codec, schema, table, columns, dest, dialect, opts...)
+	if err != nil {
+		panic(fmt.Errorf("sqlbase.MustNewListEngine: %w", err))
+	}
+
+	return l
 }
 
 func invalid(format string, args ...any) error {
