@@ -2,7 +2,7 @@
 # Use these scopes in conventional commits: type(scope): description
 # The scope is optional: omit it for repository-wide changes. Never use `root`.
 # Only the first word of a non-comment line is a scope.
-# Example: feat(projection): select fields by a read mask
+# Example: feat(backend/mongo): translate size() on arrays
 
 # Repository scopes
 deps                        # Dependency updates (Dependabot writes build(deps): bump ...)
@@ -10,12 +10,70 @@ README                      # Root README
 docs                        # Documentation
 
 # Packages
-aip                         # Root package: Google API Improvement Proposals helpers
-filter                      # AIP-160 filtering
-orderby                     # AIP-132 ordering
-projection                  # AIP-157 partial responses
-pagination                  # AIP-158 pagination
-fieldmask                   # AIP-134 and AIP-161 field masks
+aip                                  # Root package: documentation of the module
+apierror                             # AIP-193 error model: status, error info and field violations
+apierror/aipmap                      # AIP-193 mapping rules for go-aip sentinels
+backend/clickhouse                   # ClickHouse filter, order, projection, schema and listing
+backend/clickhouse/clickhousetest    # ClickHouse conformance expectations for tests
+backend/lua                          # Lua filter
+backend/mariadb                      # MariaDB and MySQL filter, order, projection, schema and listing
+backend/mariadb/mariadbtest          # MariaDB conformance expectations for tests
+backend/meili                        # Meilisearch filter, order and projection
+backend/memory                       # In-memory order, projection and listing engine
+backend/mongo                        # MongoDB filter, order, projection, schema, list engine, value encoding and BSON codecs
+backend/mongo/mongotest              # MongoDB conformance expectations and index plan assertions for tests
+backend/postgres                     # PostgreSQL filter, order, projection, schema and listing
+backend/postgres/postgrestest        # PostgreSQL conformance expectations for tests
+backend/redis                        # Redis Query Engine (RediSearch) filter, order, projection and schema
+backend/sqlbase                      # Shared SQL building, schema, value decoding, order, projection and listing engine
+backend/sqlbase/sqlbasetest          # Scripted database/sql driver for SQL dialect tests
+backend/sqlbase/sqltype              # Type checker and literal model of the schema-aware SQL translators
+batch                                # AIP-231/233/234/235 batch method helpers
+decimal128                           # IEEE 754 decimal128 representability and canonical form of decimals
+etag                                 # AIP-154 entity tags: formatting, parsing and preconditions
+fieldbehavior                        # AIP-203 field behavior enforcement
+fieldinfo                            # AIP-202 field formats (google.api.field_info)
+fieldmask                            # AIP-134 and AIP-161 field masks and update planning
+fieldmask/extract                    # update_mask and read_mask extraction from requests
+fieldmask/internal/maskpath          # Field mask path grammar, schema walk and limits
+fieldmask/internal/maskwalk          # Field mask filter and prune walk
+fieldmask/update                     # AIP-134/154/163/203 update masks, plans and patches
+fieldpolicy                          # Shared field access, allow-lists and storage mapping
+filter                               # AIP-160 filter AST, policy and errors
+filter/evaluator                     # In-memory filter evaluation
+filter/filtertest                    # Filter test helpers for consumers
+filter/functions                     # Custom filter functions
+filter/internal/regexcache           # Compiled regular expression cache
+filter/parser                        # CEL filter parser
+filter/regexanchor                   # RE2 end-of-text anchors for PCRE and ICU
+integration/crossbackend             # Cross-backend checks, test-only nested module
+integration/docker                   # Live database integration tests, test-only nested module
+internal/behavior                    # Field behavior annotations
+internal/literalvalue                # Literal value conversions
+internal/lru                         # LRU cache of the parsers
+internal/proto                       # Protobuf test fixtures
+internal/telemetry                   # Parse metrics shared by the parsers
+internal/testhelpers                 # Shared test helpers
+internal/typename                    # Bounded type names of error messages
+listing                              # AIP-132 list schema, profile and compilation
+listing/evaluation                   # In-memory evaluation of compiled lists
+listing/listingtest                  # Listing engine conformance suite
+metrics                              # Consumer-side metrics API
+orderby                              # AIP-132 ordering
+orderby/orderbytest                  # Order test helpers for consumers
+pagination/page                      # Driver-free page result
+pagination/pagetoken                 # Page token codecs, signers and pagers
+pagination/pagetoken/pagetokentest   # Page token test helpers for consumers
+projection                           # AIP-157 partial responses
+projection/projectiontest            # Projection test helpers and conformance suite
+projection/protopath                 # Proto descriptor validation of projection paths (AIP-161)
+requestid                            # AIP-155 request identification and deduplication
+requestid/requestidtest              # Request ID store conformance suite
+resourcename                         # AIP-122/123/159 resource names and patterns
+softdelete                           # AIP-164/165 soft delete, undelete and purge
+state                                # AIP-216 resource states and transitions
+unreachable                          # AIP-217 unreachable resources in List
+validateonly                         # AIP-163 validate-only requests
 
 # Tooling
 devtools                    # Development tool dependencies

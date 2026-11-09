@@ -1,0 +1,49 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package requestidtest.v1;
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.requestidtest.v1";
+option java_multiple_files = true;
+
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/requestidtest/v1;requestidtestv1";
+
+import "google/api/field_info.proto";
+
+// Book is the resource the AIP-155 fixtures create.
+message Book {
+  // The resource name of the book.
+  string name = 1;
+  // The title of the book.
+  string title = 2;
+  // A large payload to exceed response size limits.
+  bytes cover = 3;
+}
+
+// CreateBookRequest is the AIP-155 request shape: a standard Create request
+// with an optional request_id annotated as a UUID4.
+message CreateBookRequest {
+  // The parent resource where this book will be created.
+  string parent = 1;
+  // The ID to use for the book.
+  string book_id = 2;
+  // The book to create.
+  Book book = 3;
+  // A unique identifier for this request. Restricted to 36 ASCII characters.
+  string request_id = 4 [(google.api.field_info).format = UUID4];
+  // If set, validate the request but do not create the book.
+  bool validate_only = 5;
+  // A numeric field, for an option naming a field of the wrong kind.
+  int64 page_size = 6;
+  // A repeated string field, for an option naming a list.
+  repeated string tags = 7;
+}
+
+// GetBookRequest is a request without a request_id field.
+message GetBookRequest {
+  // The name of the book to get.
+  string name = 1;
+}

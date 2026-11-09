@@ -1,0 +1,59 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package softdeletetest.v1;
+
+option java_package = "io.altessa.grpc.softdeletetest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/softdeletetest/v1;softdeletetestv1";
+
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+
+// Book is a soft-deletable resource (AIP-164) with the AIP-148 delete_time
+// and purge_time fields.
+message Book {
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+  string title = 2;
+  google.protobuf.Timestamp delete_time = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  google.protobuf.Timestamp purge_time = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string etag = 5;
+}
+
+// Shelf has a delete_time and an expire_time but no purge_time.
+message Shelf {
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+  google.protobuf.Timestamp delete_time = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  google.protobuf.Timestamp expire_time = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Note has no delete_time.
+message Note {
+  string name = 1;
+}
+
+// Draft has a delete_time that is not OUTPUT_ONLY.
+message Draft {
+  google.protobuf.Timestamp delete_time = 1;
+}
+
+// Scroll has a delete_time of the wrong type.
+message Scroll {
+  string delete_time = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  repeated google.protobuf.Timestamp purge_time = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// PurgeBooksRequest is the AIP-165 request shape.
+message PurgeBooksRequest {
+  string parent = 1 [(google.api.field_behavior) = REQUIRED];
+  string filter = 2 [(google.api.field_behavior) = REQUIRED];
+  bool force = 3 [(google.api.field_behavior) = REQUIRED];
+}
+
+// PurgeTopicsRequest is the AIP-165 request of a top-level resource.
+message PurgeTopicsRequest {
+  string filter = 1 [(google.api.field_behavior) = REQUIRED];
+  bool force = 2 [(google.api.field_behavior) = REQUIRED];
+}

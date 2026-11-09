@@ -9,8 +9,8 @@ checks=0
 
 # Two package scopes of this repository; the shared cases below use them so
 # that no case depends on another repository's package names.
-scope_a=aip
-scope_b=filter
+scope_a=filter
+scope_b=orderby
 for scope in "$scope_a" "$scope_b" deps README docs devtools ci; do
     if ! awk '!/^[[:space:]]*#/ && NF {print $1}' commit_scopes.txt | grep -Fxq -- "$scope"; then
         printf 'Scope %s used by these checks is missing from commit_scopes.txt\n' "$scope" >&2

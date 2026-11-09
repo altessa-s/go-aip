@@ -43,7 +43,7 @@ range rules in a scratch repository.
 ## Examples
 
 ```text
-feat(filter): parse AIP-160 filter expressions
+feat(filter/parser): accept enum names in membership lists
 fix(orderby): reject duplicate order fields
 build(deps): bump golang.org/x/sys from 0.48.0 to 0.49.0
 build: pin the options generator
@@ -83,8 +83,8 @@ root change that breaks a released sub-module fails the check. The Makefile vari
 accepted, pinned to the tagged commit as `<tag>@<commit>`. Sub-modules must not import the root module's `internal` packages, which a consumer's
 newer root release may change.
 
-`NESTED_CHECK_MODULES` is empty in this repository, so the Makefile defines no `NESTED_BUILD_ACCEPT`.
+In this repository `NESTED_BUILD_ACCEPT` is empty: every released tag of a checked sub-module must build against the root.
 
 `make ci` and the `lint` job of [`ci.yml`](../workflows/ci.yml) run it through `make nested-build-check` in every repository; with an empty
 `NESTED_CHECK_MODULES` it prints "no nested modules" and exits successfully.
-No sub-module of this repository is consumed with a root release, so the check has nothing to build.
+The `lint` job checks out the full history and tags for it, since the released sub-module tags are built too.

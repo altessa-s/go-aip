@@ -1,0 +1,107 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package batchtest.v1;
+
+option java_package = "io.altessa.grpc.batchtest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/batchtest/v1;batchtestv1";
+
+import "google/protobuf/field_mask.proto";
+
+// Book is the resource of the batch request fixtures, named
+// publishers/{publisher}/books/{book}.
+message Book {
+  string name = 1;
+  string title = 2;
+}
+
+// GetBookRequest is the standard Get request (AIP-131).
+message GetBookRequest {
+  string name = 1;
+}
+
+// CreateBookRequest is the standard Create request (AIP-133).
+message CreateBookRequest {
+  string parent = 1;
+  Book book = 2;
+  string book_id = 3;
+  bool validate_only = 4;
+}
+
+// UpdateBookRequest is the standard Update request (AIP-134).
+message UpdateBookRequest {
+  Book book = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  bool allow_missing = 3;
+}
+
+// DeleteBookRequest is the standard Delete request (AIP-135).
+message DeleteBookRequest {
+  string name = 1;
+  string etag = 2;
+}
+
+// BatchGetBooksRequest is the AIP-231 request of resource names.
+message BatchGetBooksRequest {
+  string parent = 1;
+  repeated string names = 2;
+}
+
+// BatchGetBooksNestedRequest is the AIP-231 request of nested requests.
+message BatchGetBooksNestedRequest {
+  string parent = 1;
+  repeated GetBookRequest requests = 2;
+}
+
+// BatchCreateBooksRequest is the AIP-233 request.
+message BatchCreateBooksRequest {
+  string parent = 1;
+  repeated CreateBookRequest requests = 2;
+  bool validate_only = 3;
+}
+
+// BatchUpdateBooksRequest is the AIP-234 request with a hoisted update mask.
+message BatchUpdateBooksRequest {
+  string parent = 1;
+  repeated UpdateBookRequest requests = 2;
+  google.protobuf.FieldMask update_mask = 3;
+  // allow_missing is declared with another kind than the nested field, so it
+  // is not a hoisted field.
+  string allow_missing = 4;
+}
+
+// BatchDeleteBooksRequest is the AIP-235 request of nested requests.
+message BatchDeleteBooksRequest {
+  string parent = 1;
+  repeated DeleteBookRequest requests = 2;
+}
+
+// UpdateBookByIDRequest addresses its resource by a nested message without a
+// name, so it has no resource name.
+message UpdateBookByIDRequest {
+  Ref ref = 1;
+  repeated Book books = 2;
+  Book book = 3;
+}
+
+// Ref is a reference without a name field.
+message Ref {
+  string id = 1;
+}
+
+// BatchUpdateBooksByIDRequest nests requests whose resource is the first
+// singular message field with a name, after one without.
+message BatchUpdateBooksByIDRequest {
+  string parent = 1;
+  repeated UpdateBookByIDRequest requests = 2;
+}
+
+// NotBatchRequest has neither requests nor names.
+message NotBatchRequest {
+  string parent = 1;
+  repeated int32 names = 2;
+  repeated string requests = 3;
+}

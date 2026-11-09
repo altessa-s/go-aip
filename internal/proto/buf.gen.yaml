@@ -1,0 +1,7 @@
+version: v2
+plugins:
+  # protoc-gen-go runs at the google.golang.org/protobuf version pinned in the
+  # root go.mod, so the generated code matches the runtime it links against.
+  - local: [ "go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go" ]
+    out: gen
+    opt: paths=source_relative

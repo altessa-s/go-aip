@@ -1,0 +1,77 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package unreachabletest.v1;
+
+option java_package = "io.altessa.grpc.unreachabletest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/unreachabletest/v1;unreachabletestv1";
+
+import "google/api/field_behavior.proto";
+
+// UnreachableTestService holds request and response shapes for the AIP-217
+// descriptor checks of the unreachable package: one conforming method and one
+// method per violated rule.
+service UnreachableTestService {
+  // ListBooks conforms: a bool return_partial_success and an UNORDERED_LIST
+  // repeated string unreachable.
+  rpc ListBooks(ListBooksRequest) returns (ListBooksResponse);
+  // ListShelves has no return_partial_success and an unreachable field that is
+  // not annotated with UNORDERED_LIST.
+  rpc ListShelves(ListShelvesRequest) returns (ListShelvesResponse);
+  // ListAuthors has a singular unreachable string.
+  rpc ListAuthors(ListAuthorsRequest) returns (ListAuthorsResponse);
+  // ListPublishers has return_partial_success of the wrong type and no
+  // unreachable field.
+  rpc ListPublishers(ListPublishersRequest) returns (ListPublishersResponse);
+}
+
+// ListBooksRequest opts into partial success.
+message ListBooksRequest {
+  string parent = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+  bool return_partial_success = 4;
+}
+
+// ListBooksResponse reports unreachable resources.
+message ListBooksResponse {
+  repeated string books = 1;
+  string next_page_token = 2;
+  repeated string unreachable = 3 [(google.api.field_behavior) = UNORDERED_LIST];
+}
+
+// ListShelvesRequest has no partial success flag.
+message ListShelvesRequest {
+  string parent = 1;
+}
+
+// ListShelvesResponse misses the UNORDERED_LIST annotation.
+message ListShelvesResponse {
+  repeated string shelves = 1;
+  repeated string unreachable = 2;
+}
+
+// ListAuthorsRequest has no partial success flag.
+message ListAuthorsRequest {
+  string parent = 1;
+}
+
+// ListAuthorsResponse has a singular unreachable field.
+message ListAuthorsResponse {
+  repeated string authors = 1;
+  string unreachable = 2;
+}
+
+// ListPublishersRequest has a partial success flag that is not a bool.
+message ListPublishersRequest {
+  string parent = 1;
+  int32 return_partial_success = 2;
+}
+
+// ListPublishersResponse has no unreachable field.
+message ListPublishersResponse {
+  repeated string publishers = 1;
+}

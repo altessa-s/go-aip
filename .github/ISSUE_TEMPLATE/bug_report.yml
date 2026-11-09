@@ -32,11 +32,69 @@ body:
       description: Which package is affected?
       options:
         - aip
-        - filter
-        - orderby
-        - projection
-        - pagination
+        - apierror
+        - apierror/aipmap
+        - backend/clickhouse
+        - backend/clickhouse/clickhousetest
+        - backend/lua
+        - backend/mariadb
+        - backend/mariadb/mariadbtest
+        - backend/meili
+        - backend/memory
+        - backend/mongo
+        - backend/mongo/mongotest
+        - backend/postgres
+        - backend/postgres/postgrestest
+        - backend/redis
+        - backend/sqlbase
+        - backend/sqlbase/sqlbasetest
+        - backend/sqlbase/sqltype
+        - batch
+        - decimal128
+        - etag
+        - fieldbehavior
+        - fieldinfo
         - fieldmask
+        - fieldmask/extract
+        - fieldmask/internal/maskpath
+        - fieldmask/internal/maskwalk
+        - fieldmask/update
+        - fieldpolicy
+        - filter
+        - filter/evaluator
+        - filter/filtertest
+        - filter/functions
+        - filter/internal/regexcache
+        - filter/parser
+        - filter/regexanchor
+        - integration/crossbackend
+        - integration/docker
+        - internal/behavior
+        - internal/literalvalue
+        - internal/lru
+        - internal/proto
+        - internal/telemetry
+        - internal/testhelpers
+        - internal/typename
+        - listing
+        - listing/evaluation
+        - listing/listingtest
+        - metrics
+        - orderby
+        - orderby/orderbytest
+        - pagination/page
+        - pagination/pagetoken
+        - pagination/pagetoken/pagetokentest
+        - projection
+        - projection/projectiontest
+        - projection/protopath
+        - requestid
+        - requestid/requestidtest
+        - resourcename
+        - softdelete
+        - state
+        - unreachable
+        - validateonly
         - devtools
         - ci
         - other

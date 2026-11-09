@@ -1,0 +1,168 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package statetest.v1;
+
+option java_package = "io.altessa.grpc.statetest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/statetest/v1;statetestv1";
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+
+// Book conforms to AIP-216: a nested State enum with STATE_UNSPECIFIED as its
+// zero value, unprefixed values and an OUTPUT_ONLY state field.
+message Book {
+  // State is the lifecycle of a book.
+  enum State {
+    // The default value. This value is used if the state is omitted.
+    STATE_UNSPECIFIED = 0;
+    // The book is being written.
+    DRAFT = 1;
+    // The book is published.
+    PUBLISHED = 2;
+    // The book is archived.
+    ARCHIVED = 3;
+    // The book is deleted.
+    DELETED = 4;
+  }
+
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+  string title = 2;
+  State state = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Job conforms with a top-level enum whose name ends in State.
+message Job {
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+  JobState job_state = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// JobState is a top-level state enum; AIP-216 prefers it nested in Job.
+enum JobState {
+  // The default value.
+  JOB_STATE_UNSPECIFIED = 0;
+  // The job is running.
+  RUNNING = 1;
+  // The job succeeded.
+  SUCCEEDED = 2;
+}
+
+// Shelf breaks every value rule: the state field is writable, the zero value is
+// misnamed, the values carry the enum prefix and READY is a discouraged term.
+message Shelf {
+  // State is the lifecycle of a shelf.
+  enum State {
+    // Misnamed zero value.
+    UNKNOWN = 0;
+    // Prefixed value.
+    STATE_ACTIVE = 1;
+    // Discouraged synonym of ACTIVE.
+    READY = 2;
+  }
+
+  string name = 1;
+  State state = 2;
+}
+
+// Order uses Status instead of State and an enum name without the State suffix
+// on its state field.
+message Order {
+  // Status is the term AIP-216 reserves for HTTP and gRPC statuses.
+  enum Status {
+    // The default value.
+    STATUS_UNSPECIFIED = 0;
+    // The order is active.
+    ACTIVE = 1;
+  }
+
+  // Lifecycle does not end in State.
+  enum Lifecycle {
+    // The default value.
+    LIFECYCLE_UNSPECIFIED = 0;
+    // The order is active.
+    OPEN = 1;
+  }
+
+  string name = 1;
+  Status status = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  Lifecycle state = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// StateTestService holds state transition methods for the AIP-216 method
+// checks: PublishBook conforms, the others each break rules.
+service StateTestService {
+  // PublishBook conforms.
+  rpc PublishBook(PublishBookRequest) returns (Book) {
+    option (google.api.http) = {
+      post: "/v1/{name=books/*}:publish"
+      body: "*"
+    };
+  }
+
+  // SoftDeleteBook conforms with a multi-word verb.
+  rpc SoftDeleteBook(SoftDeleteBookRequest) returns (Book) {
+    option (google.api.http) = {
+      post: "/v1/{name=books/*}:softDelete"
+      body: "*"
+    };
+  }
+
+  // ArchiveBook uses GET, a partial body and a mismatched verb.
+  rpc ArchiveBook(ArchiveBookRequest) returns (Book) {
+    option (google.api.http) = {
+      get: "/v1/{name=books/*}:store"
+    };
+  }
+
+  // Unpublish has no resource in its name, a request without a name field and
+  // returns a message other than the resource.
+  rpc Unpublish(UnpublishRequest) returns (UnpublishResponse);
+
+  // RestoreBook uses a request message named after another method and has a
+  // POST without a custom verb.
+  rpc RestoreBook(PublishBookRequest) returns (Book) {
+    option (google.api.http) = {
+      post: "/v1/{name=books/*}"
+      body: "book"
+    };
+  }
+
+  // CancelJob has a snake_case custom verb.
+  rpc CancelJob(CancelJobRequest) returns (Job) {
+    option (google.api.http) = {
+      post: "/v1/{name=jobs/*}:cancel_job"
+      body: "*"
+    };
+  }
+}
+
+// PublishBookRequest names the book to publish.
+message PublishBookRequest {
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// SoftDeleteBookRequest names the book to delete.
+message SoftDeleteBookRequest {
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// ArchiveBookRequest names the book to archive.
+message ArchiveBookRequest {
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// UnpublishRequest has no name field.
+message UnpublishRequest {
+  string book = 1;
+}
+
+// UnpublishResponse is not the resource.
+message UnpublishResponse {}
+
+// CancelJobRequest names the job to cancel.
+message CancelJobRequest {
+  int64 name = 1;
+}

@@ -1,0 +1,87 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package etagtest.v1;
+
+option java_package = "io.altessa.grpc.etagtest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/etagtest/v1;etagtestv1";
+
+import "google/api/field_behavior.proto";
+
+// Book is an AIP-154 resource: it carries an etag field and a mix of field
+// shapes the content hash covers. Consumed by the etag and validateonly
+// suites.
+message Book {
+  // IDENTIFIER: the resource name.
+  string name = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+  // A plain mutable field.
+  string title = 2;
+
+  // AIP-154 etag: never part of the content hash.
+  string etag = 3;
+
+  // OUTPUT_ONLY: server-managed, excluded from a weak content hash.
+  string update_time = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Singular sub-message: dotted hash paths walk into it.
+  Shelf shelf = 5;
+
+  // Repeated and map fields: hash paths name them whole.
+  repeated string tags = 6;
+  map<string, string> labels = 7;
+}
+
+// Shelf is the sub-message of a Book.
+message Shelf {
+  // A plain nested field.
+  string theme = 1;
+
+  // OUTPUT_ONLY nested field.
+  string audit = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// CreateBookRequest is the AIP-133 Create shape with AIP-163 validate_only.
+message CreateBookRequest {
+  // The resource to create.
+  Book book = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // AIP-163: validate the request without creating the resource.
+  bool validate_only = 2;
+}
+
+// DeleteBookRequest is the AIP-135 Delete shape with an AIP-154 etag and an
+// AIP-163 validate_only flag.
+message DeleteBookRequest {
+  // The resource name.
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // AIP-154: the etag the client last read.
+  string etag = 2 [(google.api.field_behavior) = OPTIONAL];
+
+  // AIP-163: validate the request without deleting the resource.
+  bool validate_only = 3;
+}
+
+// Malformed has etag and validate_only fields of the wrong kinds: the
+// descriptor-driven accessors refuse them.
+message Malformed {
+  // Not a string.
+  int64 etag = 1;
+
+  // Not a bool.
+  string validate_only = 2;
+}
+
+// Lists has repeated etag and validate_only fields: the accessors refuse
+// them as well.
+message Lists {
+  // Repeated, not singular.
+  repeated string etag = 1;
+
+  // Repeated, not singular.
+  repeated bool validate_only = 2;
+}

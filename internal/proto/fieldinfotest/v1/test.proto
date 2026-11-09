@@ -1,0 +1,101 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package fieldinfotest.v1;
+
+option java_package = "io.altessa.grpc.fieldinfotest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/fieldinfotest/v1;fieldinfotestv1";
+
+import "google/api/field_behavior.proto";
+import "google/api/field_info.proto";
+import "google/protobuf/any.proto";
+
+// Host carries every google.api.field_info format on singular, optional,
+// repeated, map and oneof string fields, plus nested, repeated and map
+// message fields that are walked recursively. It is consumed by the fieldinfo
+// and fieldbehavior test suites.
+message Host {
+  // UUID4: an RFC 9562 version 4 UUID.
+  string uid = 1 [(google.api.field_info).format = UUID4];
+
+  // IPV4: a dotted-decimal IPv4 address.
+  string ipv4_address = 2 [(google.api.field_info).format = IPV4];
+
+  // IPV6: an RFC 4291 IPv6 address.
+  string ipv6_address = 3 [(google.api.field_info).format = IPV6];
+
+  // IPV4_OR_IPV6: either address family.
+  string ip_address = 4 [(google.api.field_info).format = IPV4_OR_IPV6];
+
+  // Repeated string with a format: every element is validated.
+  repeated string dns_servers = 5 [(google.api.field_info).format = IPV4_OR_IPV6];
+
+  // Map with a format: every value is validated, keys are not.
+  map<string, string> peers = 6 [(google.api.field_info).format = IPV6];
+
+  // Singular nested message: walked when populated.
+  Interface primary = 7;
+
+  // Repeated nested messages: every element is walked.
+  repeated Interface interfaces = 8;
+
+  // Map of nested messages: every value is walked.
+  map<string, Interface> named_interfaces = 9;
+
+  // No AIP-202 format: a custom format (email) may be assigned by the caller.
+  string contact_email = 10;
+
+  // Any with referenced types: exposed, never validated.
+  google.protobuf.Any payload = 11 [
+    (google.api.field_info).referenced_types = {type_name: "Interface"},
+    (google.api.field_info).referenced_types = {type_name: "*"}
+  ];
+
+  // Explicit presence with a format.
+  optional string backup_ipv4 = 12 [(google.api.field_info).format = IPV4];
+
+  // OUTPUT_ONLY with a format: cleared or skipped on input, never validated.
+  string request_id = 13 [
+    (google.api.field_behavior) = OUTPUT_ONLY,
+    (google.api.field_info).format = UUID4
+  ];
+
+  // A format on a non-string field (AIP-202 forbids it): ignored by validation.
+  bytes raw_address = 14 [(google.api.field_info).format = IPV4];
+
+  // REQUIRED without a format.
+  string display_name = 15 [(google.api.field_behavior) = REQUIRED];
+
+  // Recursive message: walked up to the depth limit.
+  Host parent = 16;
+
+  // Oneof members with formats.
+  oneof endpoint {
+    string endpoint_ipv4 = 17 [(google.api.field_info).format = IPV4];
+    string endpoint_ipv6 = 18 [(google.api.field_info).format = IPV6];
+  }
+}
+
+// Interface is a nested message with formatted fields.
+message Interface {
+  // No format.
+  string mac = 1;
+
+  // IPV4_OR_IPV6 inside a nested message.
+  string address = 2 [(google.api.field_info).format = IPV4_OR_IPV6];
+
+  // IMMUTABLE with a format.
+  string interface_id = 3 [
+    (google.api.field_behavior) = IMMUTABLE,
+    (google.api.field_info).format = UUID4
+  ];
+}
+
+// Plain has no format anywhere in its descriptor tree: the walk skips it.
+message Plain {
+  string name = 1;
+  Plain child = 2;
+}

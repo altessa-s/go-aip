@@ -4,17 +4,21 @@ MAKEFLAGS      			+= --warn-undefined-variables
 MAKEFLAGS      			+= --no-builtin-rules
 MODULE         			:= github.com/altessa-s/go-aip
 # Directories holding a go.mod, root first. Every Go target runs in each one.
-MODULES        			:= .
-# Sub-modules released with the root under the same version. Empty: no
-# sub-module is released together with the root, so make release tags only
-# VERSION.
-NESTED_MODULES 			:=
+# Every backend is a separate module so its dependencies (database
+# drivers, SDKs) stay out of the root module's requirements.
+MODULES        			:= . backend/sqlbase backend/postgres backend/mariadb backend/clickhouse backend/mongo backend/redis backend/meili backend/lua backend/memory integration/crossbackend integration/docker
+# Sub-modules released with the root under the same version, dependencies
+# first: make release tags <dir>/VERSION for each of them.
+NESTED_MODULES 			:= backend/sqlbase backend/postgres backend/mariadb backend/clickhouse backend/mongo backend/redis backend/meili backend/lua backend/memory
 # Sub-modules nested-build-check vets against the root without replace
 # directives, together with the latest released <dir>/v* tag of each: every
 # sub-module a consumer combines with a root release, so NESTED_MODULES and
 # after them the sub-modules released on their own. Test-only modules stay out.
-# Empty: no sub-module is consumed with a root release, so the check is a no-op.
 NESTED_CHECK_MODULES 	:= $(NESTED_MODULES)
+# Released sub-module tags whose breakage against the current root is
+# accepted by nested-build-check, as <tag>@<commit> entries.
+NESTED_BUILD_ACCEPT 	?=
+export NESTED_BUILD_ACCEPT
 # make release VERSION=vX.Y.Z. VERSION is taken literally (its value is never
 # expanded by make) and the release recipes read it from the environment,
 # quoted, never spliced into shell source; a SemVer check
@@ -41,9 +45,13 @@ COPYRIGHT_PKG  			:= github.com/altessa-s/go-copyright-checker
 # - DUPL_THRESHOLD: token threshold (higher -> fewer matches)
 # - DUPL_PATH: scan root
 # - DUPL_IGNORE_REGEX: paths to exclude from dupl output; we treat these as generated/noise.
+#   It also skips these files, which repeat code of another module by design:
+#   backend/postgres/postgrestest/filter.go: golden conformance table of one backend; it shares the case layout of the other backends' tables by design
+#   backend/clickhouse/clickhousetest/filter.go: golden conformance table of one backend; it shares the case layout of the other backends' tables by design
+#   backend/mariadb/mariadbtest/filter.go: golden conformance table of one backend; it shares the case layout of the other backends' tables by design
 DUPL_THRESHOLD ?= 130
 DUPL_PATH ?= .
-DUPL_IGNORE_REGEX ?= (_gen\.go|_string\.go|_test\.go)
+DUPL_IGNORE_REGEX ?= (_gen\.go|_string\.go|_test\.go|^(\./)?backend/postgres/postgrestest/filter\.go$$|^(\./)?backend/clickhouse/clickhousetest/filter\.go$$|^(\./)?backend/mariadb/mariadbtest/filter\.go$$)
 
 # gosec rule classes excluded globally because they are by-design or redundant
 # for an API helper library. Verified false positives in KEPT rules are suppressed
@@ -58,7 +66,7 @@ GOSEC_EXCLUDED_RULES ?= G104,G115,G117,G702,G703,G704,G705
 # - FUZZTIME: per-target budget. `go test -fuzz` accepts exactly one target per
 #   package per invocation, so `make fuzz` walks them and this is the cost of a
 #   single target, not of the whole sweep.
-# - FUZZPKG: restricts the sweep, e.g. FUZZPKG=./
+# - FUZZPKG: restricts the sweep, e.g. FUZZPKG=./pagination/pagetoken
 FUZZTIME ?= 30s
 FUZZPKG ?= ./...
 # The recipes read both from the environment, quoted, and never splice them
@@ -106,19 +114,19 @@ fmt-check: $(BIN)/golangci-lint ## Fail when make fmt would rewrite a file
 	done
 
 .PHONY: lint
-lint: tidy fmt ## Tidy, format and run the linter
+lint: tidy fmt ## Tidy, format and run the linter in every module
 	@$(MAKE) --no-print-directory golangci
 
 .PHONY: golangci
-golangci: $(BIN)/golangci-lint ## Run golangci-lint without rewriting files (as CI does)
+golangci: $(BIN)/golangci-lint ## Run golangci-lint in every module without rewriting files (as CI does)
 	@for m in $(MODULES); do (cd $$m && "$$REPO_BIN"/golangci-lint run ./...) || exit 1; done
 
 .PHONY: tidy
-tidy: ## Run go mod tidy
+tidy: ## Run go mod tidy in every module
 	@for m in $(MODULES); do (cd $$m && go mod tidy) || exit 1; done
 
 .PHONY: generate
-generate: $(BIN)/optgen $(BIN)/golangci-lint ## Build the pinned optgen and golangci-lint into bin/, run go generate and format the output
+generate: $(BIN)/optgen $(BIN)/golangci-lint ## Build the pinned optgen and golangci-lint into bin/, run go generate and format the output in every module
 	@for m in $(MODULES); do (cd $$m && PATH="$$REPO_BIN:$$PATH" go generate ./...) || exit 1; done
 	@# optgen formats with gofmt -w; golangci-lint fmt then applies the gci
 	@# import order of .golangci.yml to the generated files only (generated
@@ -159,12 +167,12 @@ generate-check: ## Fail when make generate changes, adds or removes generated fi
 	if [ $$stale -ne 0 ]; then echo "generated files are stale: run make generate and commit the result"; exit 1; fi
 
 .PHONY: vet
-vet: ## Run go vet and fail when a go fix modernizer would rewrite code (as CI does)
+vet: ## Run go vet and fail when a go fix modernizer would rewrite code in every module (as CI does)
 	@for m in $(MODULES); do (cd $$m && go vet ./...) || exit 1; done
 	@for m in $(MODULES); do (cd $$m && go fix -diff ./...) || { echo "go fix -diff is not empty in $$m: run go fix ./..."; exit 1; }; done
 
 .PHONY: build
-build: ## Build all packages (honors GOOS/GOARCH)
+build: ## Build all packages in every module (honors GOOS/GOARCH)
 	@for m in $(MODULES); do (cd $$m && go build ./...) || exit 1; done
 
 .PHONY: test
@@ -211,7 +219,7 @@ test-coverage-func: ## Run tests and show formatted per-package coverage
 	  }'
 
 .PHONY: coverage
-coverage: ## Run tests with race detector and shuffle, writing the profile to coverage.out
+coverage: ## Run tests with race detector and shuffle in every module, writing the profile to coverage.out
 	@# The profile is assembled in coverage.tmp and moved to coverage.out only
 	@# when the tests of every module passed and each module wrote its own
 	@# profile with the atomic header, so a failed or skipped run (GOFLAGS=-n,
@@ -232,8 +240,7 @@ coverage: ## Run tests with race detector and shuffle, writing the profile to co
 # when any test binary covered it. Every line is validated: the header must
 # name a cover mode and each block must read "file:l.c,l.c statements count";
 # a malformed or empty profile fails, and so does a profile without blocks
-# unless the repository is a skeleton without statements (template parameter
-# allow_empty_coverage), which reports 100%.
+# (go test writes the header even when no test runs).
 .PHONY: coverage-total
 coverage-total: ## Print the total statement coverage of coverage.out
 	@awk 'NR == 1 { if ($$0 !~ /^mode: (set|count|atomic)$$/) bad = NR; next } \
@@ -242,13 +249,17 @@ coverage-total: ## Print the total statement coverage of coverage.out
 	  END { if (NR == 0) { print "coverage-total: coverage.out is empty" > "/dev/stderr"; exit 1 } \
 	        if (bad) { printf "coverage-total: malformed coverage.out line %d\n", bad > "/dev/stderr"; exit 1 } \
 	        for (b in size) { stmts += size[b]; if (b in hit) covered += size[b] } \
-	        if (stmts == 0) { print "coverage-total: no statements to cover (allow_empty_coverage)" > "/dev/stderr"; print "total:\t(statements)\t100.0%"; exit 0 } \
+	        if (stmts == 0) { print "coverage-total: no statements in coverage.out" > "/dev/stderr"; exit 1 } \
 	        printf "total:\t(statements)\t%.1f%%\n", covered * 100 / stmts }' coverage.out
 
 .PHONY: test-all
 test-all: coverage ## Run tests with race detector, shuffle, and coverage
 	@$(MAKE) --no-print-directory coverage-total
 	@rm -f coverage.out
+
+.PHONY: test-integration-docker
+test-integration-docker: ## Run the live database suites (needs Docker; nested module integration/docker)
+	@go -C integration/docker test -race -tags integration_docker -count=1 -timeout 20m ./...
 
 .PHONY: bench
 bench: ## Run all benchmarks
@@ -388,11 +399,11 @@ print-nested-modules: ## Print the nested module directories released with the r
 	@printf '%s\n' $(NESTED_MODULES)
 
 .PHONY: print-nested-check-modules
-print-nested-check-modules: ## Print the sub-module directories nested-build-check builds against the root, one per line
+print-nested-check-modules: ## Print the sub-module directories nested-build-check checks against the root, one per line
 	@printf '%s\n' $(NESTED_CHECK_MODULES)
 
 .PHONY: nested-build-check
-nested-build-check: ## Build every sub-module of NESTED_CHECK_MODULES against the root without replace directives; a no-op when it is empty (see .github/scripts/nested-build-check.sh)
+nested-build-check: ## Vet every sub-module of NESTED_CHECK_MODULES and build its latest released tag against the root without replace directives; a no-op when it is empty (see .github/scripts/nested-build-check.sh)
 	@bash .github/scripts/nested-build-check.sh
 
 # release-preflight refuses a release from anything but a clean main that
@@ -444,28 +455,67 @@ done
 endef
 
 .PHONY: release
-release: ## Semantic versioning - create and push a new release tag (clean main equal to origin/main only, one push URL for origin)
+# The release checks first that no tag it creates exists locally or on origin,
+# then rewrites the nested go.mod files, commits and tags. It pushes in two
+# steps because GitHub creates no push event when more than three tags are
+# pushed at once: first main and the nested tags atomically (they trigger no
+# workflow), then the root tag alone, which starts the Release workflow; its
+# check finds the nested tags already on origin. If a step before or during
+# the first push fails, it rolls back what it did locally (the tags it created
+# and the commit, by resetting main to the commit it started from; the tree
+# was clean) and says so; the atomic push did not change origin. When a push
+# reports failure, it compares the tags on origin with the local ones
+# (release-pushed): the first push rolls back only when none of its tags
+# landed; once it landed, nothing is rolled back and a failed root tag push
+# says how to push the root tag.
+release: ## Tag VERSION for the root module and <dir>/VERSION for every nested module, then push them (clean main equal to origin/main only, one push URL for origin)
 	@bash .github/scripts/check-release-version.sh "$$VERSION"
 	@$(release-preflight)
-	@tags=("$$VERSION"); $(release-tags-free)
-	@echo "Creating release $$VERSION..."
-	@git tag -a "$$VERSION" -m "Release $$VERSION"
-	@tags=("$$VERSION"); git push origin "refs/tags/$$VERSION" || { \
+	@tags=("$$VERSION"); for m in $(NESTED_MODULES); do tags+=("$$m/$$VERSION"); done; \
+	$(release-tags-free); \
+	start=$$(git rev-parse HEAD); created=(); \
+	rollback() { \
+		echo "release $$VERSION failed; rolling back the local changes:" >&2; \
+		for t in "$${created[@]}"; do git tag -d "$$t" >/dev/null && echo "  deleted the local tag $$t" >&2; done; \
+		git reset -q --hard "$$start" && echo "  reset main to $$start" >&2; \
+		echo "the atomic push did not change origin; check with: "'git ls-remote --tags "$$(git remote get-url --push origin)"' >&2; \
+		exit 1; \
+	}; \
+	for m in $(NESTED_MODULES); do \
+		for dep in $$(grep -oE '(^|[[:space:]])$(MODULE)(/[^[:space:]]+)?[[:space:]]+v' "$$m/go.mod" | awk '{print $$1}' | sort -u); do \
+			go -C "$$m" mod edit -require="$$dep@$$VERSION" || rollback; \
+		done; \
+	done; \
+	if [ -n "$$(git status --porcelain)" ]; then \
+		git commit -q -m "build: require go-aip $$VERSION in the nested modules" -- $(addsuffix /go.mod,$(NESTED_MODULES)) || rollback; \
+	fi; \
+	for t in "$${tags[@]}"; do git tag -a "$$t" -m "Release $$t" || rollback; created+=("$$t"); done; \
+	all=("$${tags[@]}"); tags=("$${all[@]:1}"); \
+	refs=(); for t in "$${tags[@]}"; do refs+=("refs/tags/$$t"); done; \
+	if ! git push --atomic origin HEAD "$${refs[@]}"; then \
 		$(release-pushed); \
 		case $$pushed in \
-		yes) echo "git push failed, but origin has the local $$VERSION: the release was pushed; the local tag is kept" >&2; exit 1 ;; \
-		no) git tag -d "$$VERSION" >/dev/null; echo "push failed and origin has no local $$VERSION; deleted the local tag $$VERSION" >&2; exit 1 ;; \
-		*) echo "git push failed and origin could not be verified; the local tag $$VERSION is kept: compare "'git ls-remote --tags "$$(git remote get-url --push origin)"'" with it before retrying" >&2; exit 1 ;; \
+		yes) echo "git push failed, but origin has main and every nested tag of $$VERSION" >&2 ;; \
+		no) rollback ;; \
+		*) echo "git push failed and origin could not be verified; the local commit and tags are kept: compare "'git ls-remote --tags "$$(git remote get-url --push origin)"'" with the local tags before retrying" >&2; exit 1 ;; \
 		esac; \
-	}
-	@echo "Release $$VERSION created and pushed"
+	fi; \
+	tags=("$$VERSION"); \
+	if ! git push origin "refs/tags/$$VERSION"; then \
+		$(release-pushed); \
+		if [ "$$pushed" != yes ]; then \
+			echo "main and the nested tags of $$VERSION are on origin, the root tag is not confirmed; the local tags are kept: push it with git push origin refs/tags/$$VERSION" >&2; exit 1; \
+		fi; \
+		echo "git push failed, but origin has the local $$VERSION" >&2; \
+	fi; \
+	echo "Released $$VERSION for . $(NESTED_MODULES)"
 
 .PHONY: gosec
 gosec: $(BIN)/gosec ## Run gosec static security scanner (see GOSEC_EXCLUDED_RULES)
 	@for m in $(MODULES); do (cd $$m && "$$REPO_BIN"/gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./...) || exit 1; done
 
 .PHONY: govulncheck
-govulncheck: $(BIN)/govulncheck ## Run govulncheck
+govulncheck: $(BIN)/govulncheck ## Run govulncheck in every module
 	@for m in $(MODULES); do (cd $$m && "$$REPO_BIN"/govulncheck ./...) || exit 1; done
 
 .PHONY: security-scan

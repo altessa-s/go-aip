@@ -1,0 +1,45 @@
+module github.com/altessa-s/go-aip/integration/crossbackend
+
+go 1.27.0
+
+toolchain go1.27.3
+
+require (
+	github.com/altessa-s/go-aip v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/clickhouse v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/lua v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/mariadb v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/meili v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/memory v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/postgres v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/redis v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-aip/backend/sqlbase v0.0.0-00010101000000-000000000000
+	github.com/altessa-s/go-atlas-core v0.3.3
+	github.com/shopspring/decimal v1.4.0
+	github.com/stretchr/testify v1.12.1
+	github.com/yuin/gopher-lua v1.1.2
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260818201246-1b0934165a6f
+)
+
+require (
+	cel.dev/cel-go v0.33.2 // indirect
+	cel.dev/expr v0.25.1 // indirect
+	github.com/altessa-s/go-kryptos v0.1.4 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
+)
+
+replace (
+	github.com/altessa-s/go-aip => ../..
+	github.com/altessa-s/go-aip/backend/clickhouse => ../../backend/clickhouse
+	github.com/altessa-s/go-aip/backend/lua => ../../backend/lua
+	github.com/altessa-s/go-aip/backend/mariadb => ../../backend/mariadb
+	github.com/altessa-s/go-aip/backend/meili => ../../backend/meili
+	github.com/altessa-s/go-aip/backend/memory => ../../backend/memory
+	github.com/altessa-s/go-aip/backend/postgres => ../../backend/postgres
+	github.com/altessa-s/go-aip/backend/redis => ../../backend/redis
+	github.com/altessa-s/go-aip/backend/sqlbase => ../../backend/sqlbase
+)

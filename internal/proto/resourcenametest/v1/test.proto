@@ -1,0 +1,155 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package resourcenametest.v1;
+
+option java_package = "io.altessa.grpc.resourcenametest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/resourcenametest/v1;resourcenametestv1";
+
+import "google/api/resource.proto";
+import "google/protobuf/field_mask.proto";
+
+// File-level resource definitions (AIP-123): types without a message of
+// their own, referenced by the multi-pattern Shelf below.
+option (google.api.resource_definition) = {
+  type: "library.example.com/Project"
+  pattern: "projects/{project}"
+};
+option (google.api.resource_definition) = {
+  type: "library.example.com/Organization"
+  pattern: "organizations/{organization}"
+};
+
+// Publisher is a top-level resource: its parent is the root.
+message Publisher {
+  option (google.api.resource) = {
+    type: "library.example.com/Publisher"
+    pattern: "publishers/{publisher}"
+    singular: "publisher"
+    plural: "publishers"
+  };
+
+  string name = 1;
+  string display_name = 2;
+}
+
+// Book is nested under Publisher.
+message Book {
+  option (google.api.resource) = {
+    type: "library.example.com/Book"
+    pattern: "publishers/{publisher}/books/{book}"
+    singular: "book"
+    plural: "books"
+  };
+
+  string name = 1;
+  string title = 2;
+}
+
+// Shelf has several patterns: the first matching one wins.
+message Shelf {
+  option (google.api.resource) = {
+    type: "library.example.com/Shelf"
+    pattern: "projects/{project}/shelves/{shelf}"
+    pattern: "organizations/{organization}/shelves/{shelf}"
+    singular: "shelf"
+    plural: "shelves"
+  };
+
+  string name = 1;
+}
+
+// PublisherConfig is a singleton (AIP-156) of a Publisher.
+message PublisherConfig {
+  option (google.api.resource) = {
+    type: "library.example.com/PublisherConfig"
+    pattern: "publishers/{publisher}/config"
+    singular: "publisherConfig"
+    plural: "publisherConfigs"
+  };
+
+  string name = 1;
+}
+
+// Edition uses a custom name field.
+message Edition {
+  option (google.api.resource) = {
+    type: "library.example.com/Edition"
+    pattern: "publishers/{publisher}/books/{book}/editions/{edition}"
+    name_field: "resource_name"
+  };
+
+  string resource_name = 1;
+}
+
+// GetBookRequest is a standard Get (AIP-131).
+message GetBookRequest {
+  string name = 1 [(google.api.resource_reference).type = "library.example.com/Book"];
+}
+
+// ListBooksRequest is a standard List (AIP-132) whose parent is referenced
+// by child type.
+message ListBooksRequest {
+  string parent = 1 [(google.api.resource_reference).child_type = "library.example.com/Book"];
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+// CreateBookRequest is a standard Create (AIP-133) whose parent names the
+// parent type directly.
+message CreateBookRequest {
+  string parent = 1 [(google.api.resource_reference).type = "library.example.com/Publisher"];
+  Book book = 2;
+  string book_id = 3;
+}
+
+// UpdateBookRequest is a standard Update (AIP-134): the name is inside the
+// resource.
+message UpdateBookRequest {
+  Book book = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+// BatchGetBooksRequest references many names (AIP-231).
+message BatchGetBooksRequest {
+  string parent = 1 [(google.api.resource_reference).child_type = "library.example.com/Book"];
+  repeated string names = 2 [(google.api.resource_reference).type = "library.example.com/Book"];
+}
+
+// ListShelvesRequest has a multi-pattern child type.
+message ListShelvesRequest {
+  string parent = 1 [(google.api.resource_reference).child_type = "library.example.com/Shelf"];
+}
+
+// ListPublishersRequest lists a top-level collection.
+message ListPublishersRequest {
+  string parent = 1 [(google.api.resource_reference).child_type = "library.example.com/Publisher"];
+}
+
+// GetPublisherConfigRequest reads a singleton.
+message GetPublisherConfigRequest {
+  string name = 1 [(google.api.resource_reference).type = "library.example.com/PublisherConfig"];
+}
+
+// UpdateEditionRequest updates a resource with a custom name field.
+message UpdateEditionRequest {
+  Edition edition = 1;
+}
+
+// AnyResourceRequest references any resource type ("*").
+message AnyResourceRequest {
+  string resource = 1 [(google.api.resource_reference).type = "*"];
+}
+
+// UnknownTypeRequest references a type nobody registered.
+message UnknownTypeRequest {
+  string name = 1 [(google.api.resource_reference).type = "library.example.com/Missing"];
+}
+
+// Plain has no resource annotation.
+message Plain {
+  string name = 1;
+}

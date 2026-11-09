@@ -7,6 +7,17 @@ updates:
   - package-ecosystem: gomod
     directories:
       - /
+      - /backend/sqlbase
+      - /backend/postgres
+      - /backend/mariadb
+      - /backend/clickhouse
+      - /backend/mongo
+      - /backend/redis
+      - /backend/meili
+      - /backend/lua
+      - /backend/memory
+      - /integration/crossbackend
+      - /integration/docker
       - /devtools
     target-branch: develop
     schedule:

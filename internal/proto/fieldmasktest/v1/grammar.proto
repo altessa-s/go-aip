@@ -1,0 +1,50 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package fieldmasktest.v1;
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.fieldmasktest.v1";
+option java_multiple_files = true;
+
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/fieldmasktest/v1;fieldmasktestv1";
+
+import "google/protobuf/struct.proto";
+
+// Catalog covers the field mask path grammar: repeated and map fields of
+// every map key kind, nested messages with multi-word names and a dynamic
+// google.protobuf.Struct.
+message Catalog {
+  // Display name of the catalog.
+  string display_name = 1;
+  // Shipping address, a nested message with a multi-word name.
+  Shelf shipping_address = 2;
+  // Repeated message field.
+  repeated Shelf shelves = 3;
+  // Repeated scalar field.
+  repeated string tags = 4;
+  // Map keyed by int32 with message values.
+  map<int32, Shelf> shelves_by_id = 5;
+  // Map keyed by int64 with scalar values.
+  map<int64, string> notes_by_id = 6;
+  // Map keyed by uint32 with scalar values.
+  map<uint32, string> codes = 7;
+  // Map keyed by bool with scalar values.
+  map<bool, string> flags = 8;
+  // Map keyed by string with message values.
+  map<string, Shelf> shelves_by_name = 9;
+  // Dynamic structured data.
+  google.protobuf.Struct extra_data = 10;
+}
+
+// Shelf is the element, value and nested message type of Catalog.
+message Shelf {
+  // Display name of the shelf.
+  string display_name = 1;
+  // Street of the shelf location.
+  string street = 2;
+  // Position of the shelf.
+  int32 position = 3;
+}
