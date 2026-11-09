@@ -18,4 +18,7 @@ paths = [
     # never committed, may contain documentation examples.
     '''\.claude/.*''',
 ]
-regexes = []
+# Documentation example of a relative resource name (the resourcename.FullName doc comment), not a key.
+regexes = [
+    '''^publishers/123$''',
+]
