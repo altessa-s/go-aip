@@ -10,6 +10,11 @@ MODULES        			:= . backend/sqlbase backend/postgres backend/mariadb backend/
 # Sub-modules released with the root under the same version, dependencies
 # first: make release tags <dir>/VERSION for each of them.
 NESTED_MODULES 			:= backend/sqlbase backend/postgres backend/mariadb backend/clickhouse backend/mongo backend/redis backend/meili backend/lua backend/memory
+# Test-only sub-modules: never tagged, but they require modules of this
+# repository through replace directives, so make release raises those
+# requirements to VERSION in its commit too (go mod tidy would otherwise want
+# the version the nested modules now require).
+TEST_MODULES 			:= integration/crossbackend integration/docker
 # Sub-modules nested-build-check vets against the root without replace
 # directives, together with the latest released <dir>/v* tag of each: every
 # sub-module a consumer combines with a root release, so NESTED_MODULES and
@@ -124,6 +129,14 @@ golangci: $(BIN)/golangci-lint ## Run golangci-lint in every module without rewr
 .PHONY: tidy
 tidy: ## Run go mod tidy in every module
 	@for m in $(MODULES); do (cd $$m && go mod tidy) || exit 1; done
+
+.PHONY: tidy-check
+# CI runs go with the default -mod=readonly and never tidies, so a go.mod or
+# go.sum that go mod tidy would change fails there ("updates to go.mod
+# needed"); make lint tidies first and would hide it, so make ci runs this
+# check before lint.
+tidy-check: ## Fail when go mod tidy would change go.mod or go.sum in every module (as CI does)
+	@for m in $(MODULES); do (cd $$m && go mod tidy -diff) || { echo "go.mod or go.sum in $$m is not tidy: run make tidy"; exit 1; }; done
 
 .PHONY: generate
 generate: $(BIN)/optgen $(BIN)/golangci-lint ## Build the pinned optgen and golangci-lint into bin/, run go generate and format the output in every module
@@ -380,9 +393,9 @@ dupl-check: $(BIN)/dupl ## Fail if dupl finds duplicates (ignoring generated fil
 .PHONY: ci
 # ci runs its steps one after the other even under make -j: lint rewrites
 # files that fmt-check and generate-check read, so they must not overlap. Each
-# step may still use -j inside.
-CI_STEPS := lint vet fmt-check generate-check test-all security-scan dupl-check nested-build-check
-ci: ## Run full CI checks locally, one step after the other (lint, vet, generated files, test, security, dupl, nested modules)
+# step may still use -j inside. tidy-check runs before lint, which tidies.
+CI_STEPS := tidy-check lint vet fmt-check generate-check test-all security-scan dupl-check nested-build-check
+ci: ## Run full CI checks locally, one step after the other (tidy check, lint, vet, generated files, test, security, dupl, nested modules)
 	@for step in $(CI_STEPS); do $(MAKE) --no-print-directory $$step || exit 1; done
 
 .PHONY: clean
@@ -468,6 +481,9 @@ endef
 # (release-pushed): the first push rolls back only when none of its tags
 # landed; once it landed, nothing is rolled back and a failed root tag push
 # says how to push the root tag.
+# The requirements of TEST_MODULES on this repository's modules are raised to
+# VERSION in the same commit (tags do not exist yet, so go mod edit rather
+# than go mod tidy), so the test-only modules stay tidy after the release.
 release: ## Tag VERSION for the root module and <dir>/VERSION for every nested module, then push them (clean main equal to origin/main only, one push URL for origin)
 	@bash .github/scripts/check-release-version.sh "$$VERSION"
 	@$(release-preflight)
@@ -481,13 +497,13 @@ release: ## Tag VERSION for the root module and <dir>/VERSION for every nested m
 		echo "the atomic push did not change origin; check with: "'git ls-remote --tags "$$(git remote get-url --push origin)"' >&2; \
 		exit 1; \
 	}; \
-	for m in $(NESTED_MODULES); do \
+	for m in $(NESTED_MODULES) $(TEST_MODULES); do \
 		for dep in $$(grep -oE '(^|[[:space:]])$(MODULE)(/[^[:space:]]+)?[[:space:]]+v' "$$m/go.mod" | awk '{print $$1}' | sort -u); do \
 			go -C "$$m" mod edit -require="$$dep@$$VERSION" || rollback; \
 		done; \
 	done; \
 	if [ -n "$$(git status --porcelain)" ]; then \
-		git commit -q -m "build: require go-aip $$VERSION in the nested modules" -- $(addsuffix /go.mod,$(NESTED_MODULES)) || rollback; \
+		git commit -q -m "build: require go-aip $$VERSION in the nested and test-only modules" -- $(addsuffix /go.mod,$(NESTED_MODULES) $(TEST_MODULES)) || rollback; \
 	fi; \
 	for t in "$${tags[@]}"; do git tag -a "$$t" -m "Release $$t" || rollback; created+=("$$t"); done; \
 	all=("$${tags[@]}"); tags=("$${all[@]:1}"); \

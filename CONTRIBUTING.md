@@ -199,10 +199,11 @@ needs Docker). Add a new module to `MODULES` in the template parameters and to `
 | `make generate` | Build pinned optgen and golangci-lint into `bin/`, regenerate options and format them |
 | `make generate-check` | Fail when `make generate` changes, adds or removes generated files (as CI does) |
 | `make tidy` | Run go mod tidy in every module |
+| `make tidy-check` | Fail when `go mod tidy` would change `go.mod` or `go.sum` in every module (as CI does) |
 | `make govulncheck` | Run govulncheck in every module |
 | `make gosec` | Run gosec in every module |
 | `make security-scan` | Run govulncheck and gosec |
-| `make ci` | Run the full CI checks locally, one step after the other (lint, vet, generated files, tests, security, dupl, nested modules) |
+| `make ci` | Run the full CI checks locally, one step after the other (tidy check, lint, vet, generated files, tests, security, dupl, nested modules) |
 | `make nested-build-check` | Vet every sub-module of `NESTED_CHECK_MODULES` and build its latest released tag against the root without `replace` directives (a no-op when it is empty) |
 | `make print-nested-check-modules` | Print the sub-module directories `make nested-build-check` checks against the root |
 | `make release` | Tag `VERSION` for the root and every nested module, then push the tags (clean `main` equal to `origin/main` only, one push URL for `origin`) |
@@ -233,6 +234,10 @@ when none of its tags landed and keeps the local commit and tags when all of the
 queried; after it landed nothing is rolled back, and a failed root tag push keeps the local tags and prints the command that pushes the root
 tag. The release workflow rejects a root tag without matching nested tags, a nested module that requires another version of this repository,
 and a sub-module missing from the Makefile's `NESTED_MODULES`.
+
+The release commit also raises the requirements of the test-only modules (the Makefile's `TEST_MODULES`) on this repository's modules to the
+new version: they build against the checkout through `replace` directives, and without that `go mod tidy` would want the version the nested
+modules now require.
 
 Nested modules may import only exported packages of the root module, never `internal/...`, because a consumer can combine a nested module
 release with a newer root release. `make nested-build-check` (run by `make ci` and the CI lint job) vets every sub-module of
