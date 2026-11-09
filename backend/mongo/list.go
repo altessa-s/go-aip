@@ -7,6 +7,7 @@ package mongo
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -116,6 +117,20 @@ func NewListEngine[D any](coll *mongo.Collection, codec pagetoken.Signer, schema
 	}
 
 	return l, nil
+}
+
+// MustNewListEngine is [NewListEngine] for package-level declarations with static configuration, such as a planning engine
+// (var widgets = mongo.MustNewListEngine[Widget](nil, nil, widgetSchema)): it returns the engine NewListEngine builds and panics
+// on an invalid configuration. The panic value is an error prefixed with "mongo.MustNewListEngine: " that wraps the
+// NewListEngine error, so errors.Is(recovered, [listing.ErrInvalidSchema]) holds. Use NewListEngine where the configuration
+// comes from input rather than code.
+func MustNewListEngine[D any](coll *mongo.Collection, codec pagetoken.Signer, schema *listing.Schema, opts ...ListEngineOption) *ListEngine[D] {
+	l, err := NewListEngine[D](coll, codec, schema, opts...)
+	if err != nil {
+		panic(fmt.Errorf("mongo.MustNewListEngine: %w", err))
+	}
+
+	return l
 }
 
 func invalid(format string, args ...any) error {

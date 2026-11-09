@@ -12,16 +12,16 @@ go get github.com/altessa-s/go-aip/backend/mongo
 
 The MongoDB backend of go-aip, in one package:
 
-| Part                                            | Main API                                                                                              |
-|-------------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| [Storage schema](#storage-schema)               | `Schema`, `NewSchema`, `DefaultSchema`, `SchemaOption`, `CheckSizeOperand`, `MaxSizeOperand`          |
-| [Filter translator](#filter-translator)         | `FilterTranslator`, `NewFilterTranslator`, `NewFilterTranslatorWithSchema`, `FilterOption`            |
-| [Evaluator profile](#evaluator-profile)         | `Schema.BindEvaluator`: `evaluator.WithProfile(schema)`                                               |
-| [Order translator](#order-translator)           | `OrderTranslator`, `NewOrderTranslator`, `OrderOption`                                                |
-| [Projection translator](#projection-translator) | `ProjectionTranslator`, `NewProjectionTranslator`, `ProjectionOption`, `DefaultIDField`               |
-| [List engine](#list-engine)                     | `ListEngine`, `NewListEngine`, `ListEngineOption`; test helpers in [`mongotest`](mongotest/README.md) |
-| [Value encoding](#value-encoding)               | `ValueEncoding`, `BSONEncoding`, `ValueEncodingOption`                                                |
-| [Codecs](#codecs)                               | `NewRegistry`, `RegisterDateType`, `DateOption`                                                       |
+| Part                                            | Main API                                                                                                                   |
+|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| [Storage schema](#storage-schema)               | `Schema`, `NewSchema`, `DefaultSchema`, `SchemaOption`, `CheckSizeOperand`, `MaxSizeOperand`                               |
+| [Filter translator](#filter-translator)         | `FilterTranslator`, `NewFilterTranslator`, `NewFilterTranslatorWithSchema`, `FilterOption`                                 |
+| [Evaluator profile](#evaluator-profile)         | `Schema.BindEvaluator`: `evaluator.WithProfile(schema)`                                                                    |
+| [Order translator](#order-translator)           | `OrderTranslator`, `NewOrderTranslator`, `OrderOption`                                                                     |
+| [Projection translator](#projection-translator) | `ProjectionTranslator`, `NewProjectionTranslator`, `ProjectionOption`, `DefaultIDField`                                    |
+| [List engine](#list-engine)                     | `ListEngine`, `NewListEngine`, `MustNewListEngine`, `ListEngineOption`; test helpers in [`mongotest`](mongotest/README.md) |
+| [Value encoding](#value-encoding)               | `ValueEncoding`, `BSONEncoding`, `ValueEncodingOption`                                                                     |
+| [Codecs](#codecs)                               | `NewRegistry`, `RegisterDateType`, `DateOption`                                                                            |
 
 Every option is prefixed with its kind: `WithSchema…`, `WithFilter…`, `WithOrder…`, `WithProjection…`, `WithList…`, `WithValueEncoding…`,
 `WithDate…`. `WithFilterOptions`, `WithOrderOptions` and `WithProjectionOptions` carry the storage options of the core packages
@@ -582,6 +582,10 @@ precision that is not a positive multiple of a millisecond, a negative time cap,
 anything but a declared pattern, given twice, reused, or naming (or renaming) the built-in index. A nil collection plans only: `Sort`, `Index`
 and `Indexes` work without a connection.
 
+`MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`; a planning
+engine with a nil collection, say): it returns the engine `NewListEngine` builds and panics on a refused one with an error that starts
+`mongo.MustNewListEngine: ` and wraps the `NewListEngine` error.
+
 ### Scope
 
 `WithListScopeKeys` declares the BSON paths every query pins by equality (the parent of a child list); they prefix every pattern index. `List` refuses
@@ -783,6 +787,7 @@ The filter translator records `filter_mongo_translate_duration_seconds`.
 | `NewProjectionTranslator`                                                                                                  | A projection translator bound to the shared `projection.Policy`; `projection.ErrPolicyRequired` for a nil policy.             |
 | `ListEngine`                                                                                                               | A keyset list over a collection (`listing.Engine[D, bson.D]`): `List`, `Sort`, `Index`, `Indexes`, `EnsureIndexes`, `Schema`. |
 | `NewListEngine`                                                                                                            | A list engine of a collection (nil plans only) under a listing schema.                                                        |
+| `MustNewListEngine`                                                                                                        | Panicking `NewListEngine` for package-level declarations fixed in code (as `listing.MustSchema`).                             |
 | `ValueEncoding`, `BSONEncoding`                                                                                            | The MongoDB `evaluator.ValueEncoding`.                                                                                        |
 | `NewRegistry`, `RegisterDateType`                                                                                          | The codec registry and the calendar-date codec of a date type.                                                                |
 | `SchemaOption`, `FilterOption`, `OrderOption`, `ProjectionOption`, `ListEngineOption`, `ValueEncodingOption`, `DateOption` | The functional options of each kind.                                                                                          |
