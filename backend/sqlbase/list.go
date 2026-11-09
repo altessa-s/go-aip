@@ -158,8 +158,8 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 
 // MustNewListEngine is [NewListEngine] for package-level declarations with static configuration: it returns the engine
 // NewListEngine builds and panics on an invalid configuration. The panic value is an error prefixed with
-// "sqlbase.MustNewListEngine: " that wraps the NewListEngine error, so errors.Is(recovered, [listing.ErrInvalidSchema])
-// holds. Use NewListEngine where the configuration comes from input rather than code.
+// "sqlbase.MustNewListEngine: " that wraps the NewListEngine error, so errors.Is on the recovered value matches whatever NewListEngine
+// returned ([listing.ErrInvalidSchema] for an invalid schema). Use NewListEngine where the configuration comes from input rather than code.
 func MustNewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Schema, table string, columns []string, dest func(*T) []any,
 	dialect ListDialect, opts ...ListEngineOption) *ListEngine[T] {
 	l, err := NewListEngine(q, codec, schema, table, columns, dest, dialect, opts...)

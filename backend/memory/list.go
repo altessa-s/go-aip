@@ -124,8 +124,8 @@ func NewListEngine[T, ID any](
 // widgetSchema, widgetID, widgetFields)): it returns the engine
 // NewListEngine builds and panics on an invalid configuration. The panic
 // value is an error prefixed with "memory.MustNewListEngine: " that wraps
-// the NewListEngine error, so errors.Is(recovered,
-// [listing.ErrInvalidSchema]) holds. Use NewListEngine where the
+// the NewListEngine error, so errors.Is on the recovered value matches whatever NewListEngine
+// returned ([listing.ErrInvalidSchema] for an invalid schema). Use NewListEngine where the
 // configuration comes from input rather than code.
 func MustNewListEngine[T, ID any](
 	codec pagetoken.Signer, schema *listing.Schema, id func(T) ID, fields func(T) map[string]any, opts ...ListEngineOption,
