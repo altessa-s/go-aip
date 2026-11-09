@@ -41,6 +41,10 @@ MariaDB has no `NULLS FIRST/LAST`: an order key whose null placement differs fro
 collation, decimal format and timestamp precision; it rejects UUID ids, and array fields need `sqlbase.WithListArrayStorage(sqlbase.ArraysJSON)`. See
 the [listing section of sqlbase](../sqlbase/README.md#listing-engine) for the engine contract.
 
+`MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
+the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` (it is
+`sqlbase.MustNewListEngine` with `ListDialect` fixed) and wraps the `NewListEngine` error.
+
 ## Filter
 
 Translates a `filter.Node` AST into a MariaDB SQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with `?` placeholders plus
@@ -422,6 +426,7 @@ Order, projection and listing options are the `sqlbase` ones (`OrderOption`, `Pr
 | `ProjectionOption`              | Alias of `sqlbase.ProjectionOption`.                                                                                                                                                     |
 | `ListDialect`                   | The MariaDB dialect of `sqlbase.NewListEngine`: syntax, storage validation, schema checks, index DDL and the filter translator in contract mode. Embed it to override selected behavior. |
 | `NewListEngine`                 | `sqlbase.NewListEngine` with `ListDialect{}`; returns `*sqlbase.ListEngine[T]`.                                                                                                          |
+| `MustNewListEngine`             | Panicking `NewListEngine` for package-level declarations fixed in code; panics with an error that wraps the `NewListEngine` error.                                                       |
 | `ListEngineOption`              | Alias of `sqlbase.ListEngineOption`.                                                                                                                                                     |
 
 ## Related packages
