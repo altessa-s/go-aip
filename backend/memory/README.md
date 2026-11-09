@@ -150,6 +150,10 @@ and orders the matches after the page token's position in a bounded heap; `ListE
 `List` without the items, so a caller can reject a bad request before loading them (the page token is checked by `List`). A nil signer
 serves one page and rejects a page token.
 
+`MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
+the engine `NewListEngine` builds and panics on a refused one with an error that starts `memory.MustNewListEngine: ` and wraps the
+`NewListEngine` error.
+
 ```go
 list, err := memory.NewListEngine(codec, widgetSchema, func(w Widget) string { return w.ID }, widgetValues)
 if err := list.Validate(ctx, req); err != nil { return err } // optional: reject a bad request before loading the items
@@ -227,6 +231,7 @@ to one request. The caller's slice is never modified.
 | `ProjectionOption`                                | Option of `NewProjectionTranslator`                                                            |
 | `Projection`                                      | `Apply(doc)`, `ApplyProto(msg)`, `Selection()`                                                 |
 | `ListEngine[T]`, `NewListEngine`                  | `Validate(ctx, req)`, `List(ctx, subject, req, items)`                                         |
+| `MustNewListEngine`                               | Panicking `NewListEngine` for package-level declarations fixed in code                         |
 | `ListEngineOption`                                | Option of `NewListEngine`                                                                      |
 | `RequestProfile`                                  | `BindBudget` binds a custom profile to request accounting without mutating it                  |
 | `ErrWorkBudget`                                   | A list request exceeded its scan, materialization or work limit; wraps `listing.ErrWorkBudget` |

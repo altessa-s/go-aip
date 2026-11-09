@@ -119,6 +119,25 @@ func NewListEngine[T, ID any](
 	return &ListEngine[T]{opts: o, schema: schema, codec: codec, id: func(it T) any { return id(it) }, fields: fields, profile: selected, reader: reader}, nil
 }
 
+// MustNewListEngine is [NewListEngine] for package-level declarations with
+// static configuration (var widgets = memory.MustNewListEngine(nil,
+// widgetSchema, widgetID, widgetFields)): it returns the engine
+// NewListEngine builds and panics on an invalid configuration. The panic
+// value is an error prefixed with "memory.MustNewListEngine: " that wraps
+// the NewListEngine error, so errors.Is(recovered,
+// [listing.ErrInvalidSchema]) holds. Use NewListEngine where the
+// configuration comes from input rather than code.
+func MustNewListEngine[T, ID any](
+	codec pagetoken.Signer, schema *listing.Schema, id func(T) ID, fields func(T) map[string]any, opts ...ListEngineOption,
+) *ListEngine[T] {
+	m, err := NewListEngine(codec, schema, id, fields, opts...)
+	if err != nil {
+		panic(fmt.Errorf("memory.MustNewListEngine: %w", err))
+	}
+
+	return m
+}
+
 // Validate checks req without listing: the page size, the parent, the order
 // and the filter, with the errors of [ListEngine.List]. A caller that has to load
 // the items first validates the request before paying for the load. The
