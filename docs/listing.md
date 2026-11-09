@@ -150,16 +150,18 @@ cannot appear in it (it shares the client's filter policy); scope such fields in
 
 ## Engines and storage
 
-| Engine                                                                               | Source                                           | Requirements                                                                                                                                              |
-|--------------------------------------------------------------------------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [`memory.NewListEngine`](../backend/memory/README.md#list-engine)                    | `[]T`, typed id and field callbacks              | Small collections; filtering and sorting repeat per page; positive aligned cursor precision                                                               |
-| [`postgres.NewListEngine`](../backend/postgres/README.md#list-engine)                | Querier, table, projection, scan callback, Scope | NOT NULL required/Optional columns, nullable Presence, C-collated text, arrays without null elements                                                      |
-| [`mariadb.NewListEngine`](../backend/mariadb/README.md#order-projection-and-listing) | Same SQL port                                    | utf8mb4_nopad_bin text, signed BIGINT, indexable CHAR/VARCHAR sort/scope text; no IDUUID                                                                  |
-| [`clickhouse.NewListEngine`](../backend/clickhouse/README.md#list-engine)            | Same SQL port                                    | String/Int64/Float64/Bool/DateTime64(3)/Decimal columns, `Nullable(T)` only for Presence, `Array(T)` without `Nullable` elements; no IDUUID, no collation |
-| [`mongo.NewListEngine`](../backend/mongo/README.md#list-engine)                      | Collection, `bson.D` scope, document type `D`    | Declared patterns (no unrestricted order), page size up to `MaxListPageSize`, BSON values of the declared kind, whole-millisecond cursor precision        |
+| Engine                                                                                                    | Source                                           | Requirements                                                                                                                                              |
+|-----------------------------------------------------------------------------------------------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [`memory.NewListEngine`](../backend/memory/README.md#list-engine), `MustNewListEngine`                    | `[]T`, typed id and field callbacks              | Small collections; filtering and sorting repeat per page; positive aligned cursor precision                                                               |
+| [`postgres.NewListEngine`](../backend/postgres/README.md#list-engine), `MustNewListEngine`                | Querier, table, projection, scan callback, Scope | NOT NULL required/Optional columns, nullable Presence, C-collated text, arrays without null elements                                                      |
+| [`mariadb.NewListEngine`](../backend/mariadb/README.md#order-projection-and-listing), `MustNewListEngine` | Same SQL port                                    | utf8mb4_nopad_bin text, signed BIGINT, indexable CHAR/VARCHAR sort/scope text; no IDUUID                                                                  |
+| [`clickhouse.NewListEngine`](../backend/clickhouse/README.md#list-engine), `MustNewListEngine`            | Same SQL port                                    | String/Int64/Float64/Bool/DateTime64(3)/Decimal columns, `Nullable(T)` only for Presence, `Array(T)` without `Nullable` elements; no IDUUID, no collation |
+| [`mongo.NewListEngine`](../backend/mongo/README.md#list-engine), `MustNewListEngine`                      | Collection, `bson.D` scope, document type `D`    | Declared patterns (no unrestricted order), page size up to `MaxListPageSize`, BSON values of the declared kind, whole-millisecond cursor precision        |
 
 The SQL engines are the shared [sqlbase](../backend/sqlbase/README.md#listing-engine) `ListEngine` with the backend's `ListDialect` fixed;
-`sqlbase.NewListEngine` takes an application dialect.
+`sqlbase.NewListEngine` takes an application dialect. `MustNewListEngine` (in sqlbase too) takes the same arguments as `NewListEngine`: for a
+package-level declaration fixed in code, like `listing.MustSchema`, it panics on a refused configuration with an error that wraps the
+`NewListEngine` error.
 
 MariaDB arrays are disabled by default. Select WithListArrayStorage(ArraysJSON) to store them as JSON arrays; keep JSON numbers and booleans typed,
 decimal values in the configured domain, and timestamp elements as UTC RFC 3339 strings. Text and JSON array columns use utf8mb4_nopad_bin, including
