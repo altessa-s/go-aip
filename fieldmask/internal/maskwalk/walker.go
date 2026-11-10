@@ -322,7 +322,7 @@ func (op dynamicMask[M]) structFields(msk M, s *structpb.Struct) {
 	wildcard, hasWildcard := msk[maskpath.Wildcard]
 
 	for key, val := range s.GetFields() {
-		sub, named := msk[key]
+		sub, named := KeyMask(msk, key)
 
 		switch {
 		case named:

@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
 )
 
@@ -121,7 +122,7 @@ func mergeDynamicStruct(ds, ss *structpb.Struct, msk fieldmask.FieldMask) {
 	}
 
 	for _, key := range slices.Sorted(maps.Keys(ss.GetFields())) {
-		if _, named := msk[key]; !named {
+		if _, named := maskwalk.KeyMask(msk, key); !named {
 			set(key, mergeDynamic(ds.GetFields()[key], ss.GetFields()[key], w))
 		}
 	}
@@ -194,7 +195,7 @@ func checkDynamicCounts(dv, sv *structpb.Value, sub fieldmask.FieldMask, path st
 
 	if w, ok := sub[maskpath.Wildcard]; ok {
 		for _, key := range slices.Sorted(maps.Keys(ss.GetFields())) {
-			if _, named := sub[key]; named {
+			if _, named := maskwalk.KeyMask(sub, key); named {
 				continue
 			}
 
