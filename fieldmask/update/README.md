@@ -291,12 +291,14 @@ Share the same policy options across `ApplyMask`, `Apply`, `ValidateStrict`, `Fr
 `WithAtomicMessage(nil)` disables atomic boundaries. `WithResolver` accepts a `fieldbehavior.Resolver` for planning and nested update traversal; nil
 uses the `google.api.field_behavior` annotations. Predicates and resolvers shared between goroutines must support concurrent calls.
 
-A singular message of an atomic type named whole (`owner`, or reached through `*` or a replaced parent) is copied whole by the merge, so it cannot
-keep a stored `IMMUTABLE` or `IDENTIFIER` field below the atomic boundary as an expanded message does. Every such field reached through its singular
-messages (`OUTPUT_ONLY` ones excepted, and collections, whose elements are new values) must equal the stored one, absence included: a change is
-refused, and without `WithCurrent` the replacement is refused, since it cannot keep values it does not know. Its `REQUIRED` fields are checked as
-written, `IMMUTABLE` ones included. A keyed element of an atomic type named whole (`delegates.k`) is a new value, as any element named whole: the
-merge replaces the stored entry with the request's, and its `IMMUTABLE` values are not compared.
+A singular message of an atomic type is a protected leaf when its type holds an `IMMUTABLE` or `IDENTIFIER` field, directly, in a singular
+sub-message, or as a repeated or map field: the merge copies it whole, so it cannot keep such a stored field as an expanded message does. Wherever it is
+written whole (named, reached through `*`, or through a replaced message, an unprotected wrapper included, which is expanded to reach it), every such
+field must equal the stored one, absence included, a protected collection compared whole; the first change is refused. Without `WithCurrent` the
+replacement is refused, with one violation, since it cannot keep values it does not know. The protected fields of a type are found once, by a schema
+walk that visits each type once; `OUTPUT_ONLY` fields and the elements of unprotected collections, which a replacement writes as new values, are not
+compared. Its `REQUIRED` fields are checked as written, `IMMUTABLE` ones included. A keyed element of an atomic type named whole (`delegates.k`) is a
+new value, as any element named whole: the merge replaces the stored entry with the request's, and its `IMMUTABLE` values are not compared.
 
 ## Errors
 

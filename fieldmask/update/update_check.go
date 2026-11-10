@@ -83,6 +83,8 @@ type updateCheck struct {
 	// values.
 	expandVisits, expandLeaves, expandNesting int
 	validationOnly                            bool
+	// atomicPaths caches [atomicProtectedPath] per atomic type.
+	atomicPaths map[protoreflect.FullName]protectedPath
 }
 
 // newUpdateCheck returns the check of an update of req whose stored value is
@@ -339,86 +341,118 @@ func (u *updateCheck) isAtomic(md protoreflect.MessageDescriptor) bool {
 	return md != nil && u.policy.atomicMessage != nil && u.policy.atomicMessage(md) && !maskpath.IsDynamicMessage(md)
 }
 
-// checkAtomicProtected compares the protected values below fd, a singular
-// message of an atomic type written whole in each pair: the merge copies the
-// value whole, so it cannot keep a stored IMMUTABLE or IDENTIFIER field below
-// the atomic boundary as an expansion keeps it in another message. Every such
-// field reached through singular messages (OUTPUT_ONLY ones excepted, and
-// collections, whose elements a replacement writes as new values) must equal
-// the stored one, absence included: a change is a violation, and without the
-// stored resource every such field is, since the replacement cannot keep
-// values it does not know (AIP-203).
+// atomicProtected is [atomicProtectedPath] of md, computed once per type for
+// the check.
+func (u *updateCheck) atomicProtected(md protoreflect.MessageDescriptor) (string, annotations.FieldBehavior) {
+	if p, ok := u.atomicPaths[md.FullName()]; ok {
+		return p.path, p.behavior
+	}
+
+	path, b := atomicProtectedPath(md, map[protoreflect.FullName]bool{}, u.policy)
+
+	if u.atomicPaths == nil {
+		u.atomicPaths = map[protoreflect.FullName]protectedPath{}
+	}
+
+	u.atomicPaths[md.FullName()] = protectedPath{path: path, behavior: b}
+
+	return path, b
+}
+
+// protectedPath is the first field an atomic type must keep
+// ([atomicProtectedPath]).
+type protectedPath struct {
+	path     string
+	behavior annotations.FieldBehavior
+}
+
+// checkAtomicProtected checks fd, a singular message of an atomic type
+// written whole in each pair, as a protected leaf: the merge copies the value
+// whole, so it cannot keep a stored IMMUTABLE or IDENTIFIER field below the
+// atomic boundary as an expansion keeps it in another message. When the type
+// holds such a field ([atomicProtectedPath]), every one of them — reached
+// through singular messages, a protected repeated or map field compared whole —
+// must equal the stored one, absence included: the first change is a
+// violation. Without the stored resource the replacement is one violation,
+// since it cannot keep values it does not know (AIP-203).
 func (u *updateCheck) checkAtomicProtected(fd protoreflect.FieldDescriptor, pairs []msgPair) {
-	if fd.IsList() || fd.IsMap() || !u.isAtomic(fd.Message()) {
+	if !isAtomicValue(fd, u.policy) {
+		return
+	}
+
+	first, b := u.atomicProtected(fd.Message())
+	if first == "" {
 		return
 	}
 
 	for _, p := range pairs {
-		u.compareProtected(fd.Message(), behavior.Child(p.req, fd), behavior.Child(p.cur, fd), behavior.JoinPath(p.path, string(fd.Name())),
-			map[protoreflect.FullName]bool{}, 0)
+		path := behavior.JoinPath(p.path, string(fd.Name()))
+
+		if !u.verify {
+			u.fail(behavior.ProtectedViolation(behavior.JoinPath(path, first), b, false))
+			continue
+		}
+
+		if diff, b, ok := u.protectedDiff(fd.Message(), behavior.Child(p.req, fd), behavior.Child(p.cur, fd), path, 0); ok {
+			u.fail(behavior.ProtectedViolation(diff, b, true))
+		}
 	}
 }
 
-// compareProtected is [updateCheck.checkAtomicProtected] for the message of
-// type md whose request and stored values are r and c (nil when absent), at
-// path prefix. onPath guards the schema walk of recursive types without the
-// stored resource; with it the values are followed, as deep as the REQUIRED
-// walks go.
-func (u *updateCheck) compareProtected(md protoreflect.MessageDescriptor, r, c protoreflect.Message, prefix string,
-	onPath map[protoreflect.FullName]bool, depth int,
-) {
+// protectedDiff returns the path and behavior of the first protected field
+// ([atomicProtectedPath]) of the message of type md whose request and stored
+// values r and c (nil when absent) differ, at path prefix. It follows the
+// values, only into sub-messages of a type that holds a protected field,
+// within the REQUIRED walk depth and the shared work budget; a refusal
+// stops it.
+func (u *updateCheck) protectedDiff(md protoreflect.MessageDescriptor, r, c protoreflect.Message, prefix string, depth int,
+) (string, annotations.FieldBehavior, bool) {
 	if depth > requiredMaxDepth {
 		u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", prefix, requiredMaxDepth,
 			fieldbehavior.ErrMaxDepthExceeded))
 
-		return
+		return "", 0, false
 	}
 
-	wasOnPath := onPath[md.FullName()]
-	onPath[md.FullName()] = true
-
-	defer func() {
-		if !wasOnPath {
-			delete(onPath, md.FullName())
-		}
-	}()
+	if u.expandVisits++; !u.withinVisits(prefix) {
+		return "", 0, false
+	}
 
 	fields := md.Fields()
 	for i := range fields.Len() {
 		f := fields.Get(i)
-		if f.IsList() || f.IsMap() {
-			continue
-		}
-
 		path := behavior.JoinPath(prefix, string(f.Name()))
 
 		switch b := u.policy.serverManaged(f); b { //nolint:exhaustive // serverManaged returns only these or UNSPECIFIED.
 		case annotations.FieldBehavior_OUTPUT_ONLY:
 			continue
 		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
-			switch {
-			case !u.verify:
-				u.fail(behavior.ProtectedViolation(path, b, false))
-			case !behavior.SameValue(r, c, f):
-				u.fail(behavior.ProtectedViolation(path, b, true))
+			if !behavior.SameValue(r, c, f) {
+				return path, b, true
 			}
 
 			continue
 		}
 
-		if f.Message() == nil || maskpath.IsDynamicMessage(f.Message()) {
+		if f.IsList() || f.IsMap() || f.Message() == nil || maskpath.IsDynamicMessage(f.Message()) {
 			continue
 		}
 
-		rc, cc := behavior.Child(r, f), behavior.Child(c, f)
+		if sub, _ := u.atomicProtected(f.Message()); sub == "" {
+			continue // nothing below to keep
+		}
 
-		switch {
-		case u.verify && rc == nil && cc == nil:
-		case !u.verify && onPath[f.Message().FullName()]:
-		default:
-			u.compareProtected(f.Message(), rc, cc, path, onPath, depth+1)
+		rc, cc := behavior.Child(r, f), behavior.Child(c, f)
+		if rc == nil && cc == nil {
+			continue
+		}
+
+		if diff, b, ok := u.protectedDiff(f.Message(), rc, cc, path, depth+1); ok || u.refusal != nil {
+			return diff, b, ok
 		}
 	}
+
+	return "", 0, false
 }
 
 // checkWrittenRequired records the REQUIRED fields left empty in the value of

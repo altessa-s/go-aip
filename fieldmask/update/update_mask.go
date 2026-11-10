@@ -724,9 +724,59 @@ func hasProtectedDescendants(md protoreflect.MessageDescriptor, visited map[prot
 		if policy.expandable(fd) && !visited[fd.Message().FullName()] && hasProtectedDescendants(fd.Message(), visited, policy) {
 			return true
 		}
+
+		// An atomic value holding a protected field is compared, not
+		// expanded: the message holding it is expanded to reach it.
+		if isAtomicValue(fd, policy) {
+			if path, _ := atomicProtectedPath(fd.Message(), map[protoreflect.FullName]bool{}, policy); path != "" {
+				return true
+			}
+		}
 	}
 
 	return false
+}
+
+// isAtomicValue reports whether fd is a singular message field of a type the
+// policy keeps whole ([WithAtomicMessage]); the dynamic Struct, Value and
+// ListValue never are.
+func isAtomicValue(fd protoreflect.FieldDescriptor, policy *options) bool {
+	md := fd.Message()
+
+	return !fd.IsList() && !fd.IsMap() && md != nil && policy.atomicMessage != nil && policy.atomicMessage(md) && !maskpath.IsDynamicMessage(md)
+}
+
+// atomicProtectedPath returns the path below a value of md, written whole,
+// of the first field that value must keep, with its behavior, or "" when there
+// is none: an IMMUTABLE or IDENTIFIER field of md or of a singular
+// sub-message at any depth, a repeated or map field included (compared
+// whole). OUTPUT_ONLY fields and the elements of other collections, which a
+// replacement writes as new values, are not descended. visited breaks
+// recursion on self-referential schemas.
+func atomicProtectedPath(md protoreflect.MessageDescriptor, visited map[protoreflect.FullName]bool, policy *options) (string, annotations.FieldBehavior) {
+	visited[md.FullName()] = true
+
+	fields := md.Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+
+		switch b := serverManagedBehavior(fd, policy); b { //nolint:exhaustive // serverManagedBehavior returns only these or UNSPECIFIED.
+		case annotations.FieldBehavior_OUTPUT_ONLY:
+			continue
+		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
+			return string(fd.Name()), b
+		}
+
+		if fd.IsList() || fd.IsMap() || fd.Message() == nil || maskpath.IsDynamicMessage(fd.Message()) || visited[fd.Message().FullName()] {
+			continue
+		}
+
+		if sub, b := atomicProtectedPath(fd.Message(), visited, policy); sub != "" {
+			return behavior.JoinPath(string(fd.Name()), sub), b
+		}
+	}
+
+	return "", annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED
 }
 
 // serverManagedBehavior returns the server-managed behavior of fd that
