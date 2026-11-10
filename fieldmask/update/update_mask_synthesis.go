@@ -5,6 +5,8 @@
 package update
 
 import (
+	"slices"
+
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -33,6 +35,8 @@ import (
 //     kept, to be compared, but never lets its parent be named whole: the
 //     mask names the sub-message's set fields instead, so echoing an
 //     unchanged IMMUTABLE value does not replace the whole sub-message);
+//     a set IMMUTABLE value, a top-level field of [WithImmutableFields]
+//     included, is never descended into: it is named and compared whole;
 //   - the absent singular sub-messages of a populated one whose schema holds
 //     a server-managed field (OUTPUT_ONLY, IDENTIFIER or IMMUTABLE) at any
 //     depth.
@@ -124,7 +128,13 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 		fd := fields.Get(i)
 
 		path := behavior.JoinPath(prefix, string(fd.Name()))
-		switch serverManagedBehavior(fd, policy) {
+
+		b := serverManagedBehavior(fd, policy)
+		if prefix == "" && b == annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED && slices.Contains(policy.immutableFields, string(fd.Name())) {
+			b = annotations.FieldBehavior_IMMUTABLE // a top-level field the policy makes immutable
+		}
+
+		switch b {
 		case annotations.FieldBehavior_OUTPUT_ONLY:
 			// Never written by the update: a nested one is skipped so its
 			// parent is masked by its other set fields, a top-level one is
@@ -142,10 +152,14 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 			case prefix == "":
 			case !msg.Has(fd):
 				*paths = append(*paths, path)
-				continue
 			default:
 				*descend = append(*descend, path)
 			}
+
+			// Never descended: an IMMUTABLE value the request sets is named
+			// whole and compared whole, so a sub-message neither drops out of
+			// the mask nor is compared through a few of its fields.
+			continue
 		default:
 		}
 
