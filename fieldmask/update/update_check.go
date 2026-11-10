@@ -463,31 +463,41 @@ func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair
 // map field fd, for the elements it addresses (see [elementMasks]): a
 // sub-mask through a key or the "*" wildcard is checked against the element
 // pairs it addresses, and an element named whole is a replacement whose
-// REQUIRED fields are checked. A sub-mask emptied by the check is deleted.
+// REQUIRED fields are checked. A sub-mask emptied by the check is deleted
+// once every element is checked: the elements "*" addresses are those no key
+// named in the mask as sent, whichever key a check empties and whatever its
+// spelling sorts before "*" ("", punctuation).
 func (u *updateCheck) checkElements(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, pairs []msgPair, path string) {
 	elem := wildcardElementDescriptor(fd, u.policy)
 	if elem == nil {
 		return
 	}
 
-	for _, key := range slices.Sorted(maps.Keys(nested)) {
-		if nested[key] == nil && (fd.IsMap() || key == maskpath.Wildcard) {
-			u.checkWholeElements(fd, key, nested, pairs)
+	// named is the selection as sent; nested is cleaned below.
+	named := maps.Clone(nested)
+
+	for _, key := range slices.Sorted(maps.Keys(named)) {
+		if named[key] == nil && (fd.IsMap() || key == maskpath.Wildcard) {
+			u.checkWholeElements(fd, key, named, pairs)
 		}
 	}
 
-	named := slices.Collect(maps.Keys(nested))
+	var emptied []string
 
-	for key, sub := range elementMasks(fd, nested) {
-		u.checkMask(sub, elem, elementPairs(fd, key, nested, pairs), elementPath(path, key))
+	for key, sub := range elementMasks(fd, named) {
+		u.checkMask(sub, elem, elementPairs(fd, key, named, pairs), elementPath(path, key))
 
 		if len(sub) == 0 {
-			delete(nested, key)
+			emptied = append(emptied, key)
 		}
+	}
+
+	for _, key := range emptied {
+		delete(nested, key)
 	}
 
 	if fd.IsMap() {
-		u.pinWildcard(fd, nested, named, pairs, path)
+		u.pinWildcard(fd, nested, slices.Collect(maps.Keys(named)), pairs, path)
 	}
 }
 

@@ -205,3 +205,44 @@ func TestWildcardBesideNoOpKeyBelowList(t *testing.T) {
 	require.True(t, ok, "%v", err)
 	require.Equal(t, "inners.*.m.*", be.Violations[0].Path)
 }
+
+// TestWildcardExclusionsIgnoreKeyOrder pins that the entries a "*" sub-path
+// addresses are those no key names in the mask as sent, whatever the key
+// sorts before "*": ["delegates.*.email", "delegates.<key>.org"] with the
+// org unchanged and the email of that entry empty, beside an entry j with a
+// new email, succeeds for the empty key, punctuation keys and a plain key
+// alike, and writes back j's email only.
+func TestWildcardExclusionsIgnoreKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{"", "!", "#k", ")", "k"} {
+		t.Run("key "+key, func(t *testing.T) {
+			t.Parallel()
+
+			stored := delegatesAccount(map[string][2]string{key: {"x@example.com", "o"}, "j": {"j@example.com", "jo"}})
+			req := delegatesAccount(map[string][2]string{key: {"", "o"}, "j": {"new@example.com", "jo"}})
+			paths := []string{"delegates.*.email", delegatePath(key) + ".org"}
+
+			got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, proto.Clone(req), update.WithCurrent(stored))
+			require.NoError(t, err)
+			require.Equal(t, []string{"delegates.j.email"}, got.ToPaths())
+
+			spec, err := update.NewSpec(&pb.Account{})
+			require.NoError(t, err)
+
+			plan, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: paths}, update.WithCurrent(stored))
+			require.NoError(t, err)
+			require.Equal(t, []string{"delegates.j.email"}, plan.Paths)
+		})
+	}
+}
+
+// delegatePath returns the mask path of the delegates entry key, quoted as the
+// path grammar requires.
+func delegatePath(key string) string {
+	if key == "k" {
+		return "delegates.k"
+	}
+
+	return "delegates.`" + key + "`"
+}
