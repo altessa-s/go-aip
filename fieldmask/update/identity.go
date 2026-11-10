@@ -9,14 +9,17 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/altessa-s/go-aip/fieldmask"
 )
 
 // KeepIdentity reduces msg to the fields that address it under the update
 // policy: its set IDENTIFIER fields that are not also OUTPUT_ONLY and the
 // top-level identity fields of the policy ([WithIdentityFields]; id and etag
 // by default) — the fields [Apply] keeps whatever the mask selects. Every
-// other top-level field is cleared, and so is every OUTPUT_ONLY value left
-// below a kept field (a message-valued identity field), as Apply clears them.
+// other top-level field is cleared, and so are the OUTPUT_ONLY values left
+// below a kept field (a message-valued identity field), exactly as Apply
+// clears them: the protected values of an atomic message are kept whole.
 //
 // [Apply] and [ApplyMask] leave the message untouched when the mask ends up
 // empty (an empty update_mask, a mask whose every path is dropped): the
@@ -55,5 +58,12 @@ func KeepIdentity(msg proto.Message, opts ...Option) error {
 		return true
 	})
 
-	return clearOutputOnly(msg, policy)
+	// Apply keeps these fields as whole entries of its mask and clears the
+	// OUTPUT_ONLY values below them the same way.
+	kept := make(fieldmask.FieldMask, len(keep))
+	for _, fd := range keep {
+		kept[string(fd.Name())] = nil
+	}
+
+	return clearOutputOnlyKeeping(msg, kept, policy)
 }

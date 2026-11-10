@@ -70,6 +70,15 @@ func TestKeepIdentity(t *testing.T) {
 			want: map[string]string{"id": "r-1", "etag": "e", "status.note": "note", "status.inner.x": "x"},
 		},
 		{
+			name: "atomic message identity field",
+			opts: []update.Option{
+				update.WithIdentityFields("status"),
+				update.WithAtomicMessage(func(md protoreflect.MessageDescriptor) bool { return md.Name() == "Status" }),
+				resolve("inner", annotations.FieldBehavior_IMMUTABLE),
+			},
+			want: map[string]string{"status.note": "note", "status.inner.x": "x", "status.inner.server": "client"},
+		},
+		{
 			name: "output-only identity field",
 			opts: []update.Option{resolve("etag", annotations.FieldBehavior_OUTPUT_ONLY)},
 			want: map[string]string{"id": "r-1"},
