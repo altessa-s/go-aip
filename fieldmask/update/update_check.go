@@ -319,6 +319,7 @@ func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protor
 	}
 
 	u.checkWrittenRequired(fd, pairs)
+	u.checkAtomicProtected(fd, pairs)
 
 	if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
 		return
@@ -329,6 +330,94 @@ func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protor
 		msk[name] = sub
 	} else {
 		delete(msk, name)
+	}
+}
+
+// isAtomic reports whether md is a message type the policy keeps whole
+// ([WithAtomicMessage]); the dynamic Struct, Value and ListValue never are.
+func (u *updateCheck) isAtomic(md protoreflect.MessageDescriptor) bool {
+	return md != nil && u.policy.atomicMessage != nil && u.policy.atomicMessage(md) && !maskpath.IsDynamicMessage(md)
+}
+
+// checkAtomicProtected compares the protected values below fd, a singular
+// message of an atomic type written whole in each pair: the merge copies the
+// value whole, so it cannot keep a stored IMMUTABLE or IDENTIFIER field below
+// the atomic boundary as an expansion keeps it in another message. Every such
+// field reached through singular messages (OUTPUT_ONLY ones excepted, and
+// collections, whose elements a replacement writes as new values) must equal
+// the stored one, absence included: a change is a violation, and without the
+// stored resource every such field is, since the replacement cannot keep
+// values it does not know (AIP-203).
+func (u *updateCheck) checkAtomicProtected(fd protoreflect.FieldDescriptor, pairs []msgPair) {
+	if fd.IsList() || fd.IsMap() || !u.isAtomic(fd.Message()) {
+		return
+	}
+
+	for _, p := range pairs {
+		u.compareProtected(fd.Message(), behavior.Child(p.req, fd), behavior.Child(p.cur, fd), behavior.JoinPath(p.path, string(fd.Name())),
+			map[protoreflect.FullName]bool{}, 0)
+	}
+}
+
+// compareProtected is [updateCheck.checkAtomicProtected] for the message of
+// type md whose request and stored values are r and c (nil when absent), at
+// path prefix. onPath guards the schema walk of recursive types without the
+// stored resource; with it the values are followed, as deep as the REQUIRED
+// walks go.
+func (u *updateCheck) compareProtected(md protoreflect.MessageDescriptor, r, c protoreflect.Message, prefix string,
+	onPath map[protoreflect.FullName]bool, depth int,
+) {
+	if depth > requiredMaxDepth {
+		u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", prefix, requiredMaxDepth,
+			fieldbehavior.ErrMaxDepthExceeded))
+
+		return
+	}
+
+	wasOnPath := onPath[md.FullName()]
+	onPath[md.FullName()] = true
+
+	defer func() {
+		if !wasOnPath {
+			delete(onPath, md.FullName())
+		}
+	}()
+
+	fields := md.Fields()
+	for i := range fields.Len() {
+		f := fields.Get(i)
+		if f.IsList() || f.IsMap() {
+			continue
+		}
+
+		path := behavior.JoinPath(prefix, string(f.Name()))
+
+		switch b := u.policy.serverManaged(f); b { //nolint:exhaustive // serverManaged returns only these or UNSPECIFIED.
+		case annotations.FieldBehavior_OUTPUT_ONLY:
+			continue
+		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
+			switch {
+			case !u.verify:
+				u.fail(behavior.ProtectedViolation(path, b, false))
+			case !behavior.SameValue(r, c, f):
+				u.fail(behavior.ProtectedViolation(path, b, true))
+			}
+
+			continue
+		}
+
+		if f.Message() == nil || maskpath.IsDynamicMessage(f.Message()) {
+			continue
+		}
+
+		rc, cc := behavior.Child(r, f), behavior.Child(c, f)
+
+		switch {
+		case u.verify && rc == nil && cc == nil:
+		case !u.verify && onPath[f.Message().FullName()]:
+		default:
+			u.compareProtected(f.Message(), rc, cc, path, onPath, depth+1)
+		}
 	}
 }
 
@@ -368,8 +457,13 @@ func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pair
 				u.required(elemPath)(behavior.RequiredViolations(mm.Get(k).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
 			}
 		case fd.Message() != nil:
-			u.required(path)(behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, updateRequiredSkip, elementRequiredSkip,
-				requiredMaxDepth, nil))
+			skip := updateRequiredSkip
+			if u.isAtomic(fd.Message()) {
+				skip = elementRequiredSkip // an atomic value is written as sent, IMMUTABLE fields included
+			}
+
+			u.required(path)(behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, skip, elementRequiredSkip,
+				requiredMaxDepth, nil, u.isAtomic))
 		}
 	}
 }
@@ -423,6 +517,8 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		}
 
 		if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
+			u.checkAtomicProtected(fd, pairs)
+
 			if !u.emitLeaf(path) {
 				return nil
 			}
@@ -598,7 +694,7 @@ func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair
 	// walk descends into it: its value, however deep, is compared by expand
 	// below, never checked for REQUIRED fields it does not write.
 	v, exceeded := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, requiredMaxDepth,
-		u.notWritten)
+		u.notWritten, u.isAtomic)
 	if exceeded {
 		u.required("")(nil, true)
 		return nil

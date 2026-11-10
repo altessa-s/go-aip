@@ -101,7 +101,10 @@ func RequiredViolations(
 // every repeated and map field below, which are new values checked as on
 // create (and everything below them). skipTop, when set, names fields of m
 // itself that are neither checked nor descended, whatever their behaviors: the
-// top-level fields an update's policy leaves to their stored value.
+// top-level fields an update's policy leaves to their stored value. atomic,
+// when set, names the message types written whole, below which elementSkip
+// governs too: an atomic value cannot keep a stored IMMUTABLE field, so its
+// fields are checked as written.
 func ReplacedRequiredViolations(
 	m protoreflect.Message,
 	prefix string,
@@ -109,8 +112,9 @@ func ReplacedRequiredViolations(
 	skip, elementSkip []annotations.FieldBehavior,
 	maxDepth int,
 	skipTop func(protoreflect.FieldDescriptor) bool,
+	atomic func(protoreflect.MessageDescriptor) bool,
 ) ([]Violation, bool) {
-	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip, prefix: prefix, skipTop: skipTop}
+	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip, prefix: prefix, skipTop: skipTop, atomic: atomic}
 	w.walk(m, 0, skip)
 
 	return w.violations, w.exceeded
@@ -154,6 +158,9 @@ type requiredWalk struct {
 	segs   []string
 	// skipTop, when set, names fields of the root message the walk skips.
 	skipTop func(protoreflect.FieldDescriptor) bool
+	// atomic, when set, names the message types below which elementSkip
+	// replaces the skip.
+	atomic func(protoreflect.MessageDescriptor) bool
 }
 
 // pathOf returns the path of the segment seg of the message the walk visits.
@@ -248,6 +255,10 @@ func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDesc
 			}
 		}
 	case fd.Message() != nil:
+		if w.atomic != nil && w.elementSkip != nil && w.atomic(fd.Message()) {
+			skip = w.elementSkip // an atomic value is written as sent
+		}
+
 		visit(m.Get(fd).Message(), skip, name)
 	}
 }

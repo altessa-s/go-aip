@@ -291,6 +291,13 @@ Share the same policy options across `ApplyMask`, `Apply`, `ValidateStrict`, `Fr
 `WithAtomicMessage(nil)` disables atomic boundaries. `WithResolver` accepts a `fieldbehavior.Resolver` for planning and nested update traversal; nil
 uses the `google.api.field_behavior` annotations. Predicates and resolvers shared between goroutines must support concurrent calls.
 
+A singular message of an atomic type named whole (`owner`, or reached through `*` or a replaced parent) is copied whole by the merge, so it cannot
+keep a stored `IMMUTABLE` or `IDENTIFIER` field below the atomic boundary as an expanded message does. Every such field reached through its singular
+messages (`OUTPUT_ONLY` ones excepted, and collections, whose elements are new values) must equal the stored one, absence included: a change is
+refused, and without `WithCurrent` the replacement is refused, since it cannot keep values it does not know. Its `REQUIRED` fields are checked as
+written, `IMMUTABLE` ones included. A keyed element of an atomic type named whole (`delegates.k`) is a new value, as any element named whole: the
+merge replaces the stored entry with the request's, and its `IMMUTABLE` values are not compared.
+
 ## Errors
 
 | Error                                                                                                      | Returned by                                                                | Meaning                                                                                                |
