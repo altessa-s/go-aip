@@ -551,7 +551,11 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		}
 
 		if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
-			u.checkAtomicProtected(fd, pairs)
+			// A comparison-only expansion writes nothing: an atomic value
+			// is compared only when the request supplies it.
+			if reqHas, _ := pairsHold(pairs, fd); !u.validationOnly || reqHas {
+				u.checkAtomicProtected(fd, pairs)
+			}
 
 			if !u.emitLeaf(path) {
 				return nil
