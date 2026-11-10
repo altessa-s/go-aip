@@ -346,6 +346,11 @@ raises `WithMaxPaths` (on `NewSpec` for `Plan` and `Patch`). The expansion itsel
 `WithMaxPaths` or `WithMaxPathDepth`, and after visiting `WithMaxPaths` × `WithMaxPathDepth` messages, so a schema that branches at every level cannot
 make a small request expand exponentially before the effective mask is checked.
 
+The REQUIRED fields of a value an update writes whole (`*`, a message named whole, a replaced collection's elements) are checked down to
+`fieldbehavior.DefaultMaxDepth` (32) nested messages, the depth `fieldbehavior.ValidateRequired` checks on create. A value nesting deeper is refused
+with `fieldbehavior.ErrMaxDepthExceeded` (from `Spec.Plan`, a field error on the bare mask field), never checked in part; the walk builds a field path
+only for a violation, so its cost is linear in the depth.
+
 A path another path covers is checked once per distinct path, against the subtree it addresses: a mask repeating it up to the path limit costs one
 check, and comparing an `IMMUTABLE` or `IDENTIFIER` value copies the compared field only.
 

@@ -33,6 +33,12 @@ var (
 	elementRequiredSkip = []annotations.FieldBehavior{annotations.FieldBehavior_OUTPUT_ONLY, annotations.FieldBehavior_IDENTIFIER}
 )
 
+// requiredMaxDepth bounds the REQUIRED walks of an update over the values it
+// writes, as [fieldbehavior.WithMaxDepth] bounds them on create: a value
+// nesting more messages is refused ([updateCheck.required]), never checked
+// only in part.
+const requiredMaxDepth = fieldbehavior.DefaultMaxDepth
+
 // msgPair is a request message and its stored counterpart at the same path.
 // Either is nil when absent: the request does not hold the message, the
 // stored resource does not, or no stored resource was supplied. path is the
@@ -158,6 +164,24 @@ func (u *updateCheck) behaviorOf(fd protoreflect.FieldDescriptor, topLevel bool)
 	}
 
 	return u.policy.serverManaged(fd), false
+}
+
+// required returns the recorder of a REQUIRED walk of the value at path:
+// it records the violations, or, when the walk exceeded
+// [requiredMaxDepth], refuses the request with
+// [fieldbehavior.ErrMaxDepthExceeded], since the REQUIRED fields below were
+// not checked.
+func (u *updateCheck) required(path string) func(v []FieldViolation, exceeded bool) {
+	return func(v []FieldViolation, exceeded bool) {
+		if exceeded {
+			u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", path, requiredMaxDepth,
+				fieldbehavior.ErrMaxDepthExceeded))
+
+			return
+		}
+
+		u.violations = append(u.violations, v...)
+	}
 }
 
 // fail records a violation.
@@ -326,8 +350,8 @@ func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pair
 
 			list := p.req.Get(fd).List()
 			for i := range list.Len() {
-				v, _ := behavior.RequiredViolations(list.Get(i).Message(), behavior.JoinPath(path, strconv.Itoa(i)), resolve, elementRequiredSkip, math.MaxInt)
-				u.violations = append(u.violations, v...)
+				elemPath := behavior.JoinPath(path, strconv.Itoa(i))
+				u.required(elemPath)(behavior.RequiredViolations(list.Get(i).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
 			}
 		case fd.IsMap():
 			if fd.MapValue().Kind() != protoreflect.MessageKind {
@@ -336,13 +360,12 @@ func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pair
 
 			mm := p.req.Get(fd).Map()
 			for _, k := range behavior.SortedMapKeys(mm) {
-				v, _ := behavior.RequiredViolations(mm.Get(k).Message(), behavior.JoinPath(path, behavior.QuoteSegment(k.String())), resolve,
-					elementRequiredSkip, math.MaxInt)
-				u.violations = append(u.violations, v...)
+				elemPath := behavior.JoinPath(path, behavior.QuoteSegment(k.String()))
+				u.required(elemPath)(behavior.RequiredViolations(mm.Get(k).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
 			}
 		case fd.Message() != nil:
-			u.violations = append(u.violations,
-				behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, updateRequiredSkip, elementRequiredSkip, math.MaxInt)...)
+			u.required(path)(behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, updateRequiredSkip, elementRequiredSkip,
+				requiredMaxDepth))
 		}
 	}
 }
@@ -506,7 +529,12 @@ func (u *updateCheck) checkSetProtected(fd protoreflect.FieldDescriptor, pairs [
 // unset one keeps its stored value and a set one is compared, so its REQUIRED
 // fields, and those below it, are not checked.
 func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair) fieldmask.FieldMask {
-	v := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, math.MaxInt)
+	v, exceeded := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, requiredMaxDepth)
+	if exceeded {
+		u.required("")(nil, true)
+		return nil
+	}
+
 	for _, violation := range v {
 		if parts := maskpath.Split(violation.Path); len(parts) > 0 && u.notWritten(md.Fields().ByName(protoreflect.Name(parts[0]))) {
 			continue
@@ -705,8 +733,7 @@ func (u *updateCheck) maskRefusal(work fieldmask.FieldMask, md protoreflect.Mess
 func (u *updateCheck) checkWholeElements(fd protoreflect.FieldDescriptor, key string, nested fieldmask.FieldMask, pairs []msgPair) {
 	for _, p := range elementPairs(fd, key, nested, pairs) {
 		if p.req != nil {
-			v, _ := behavior.RequiredViolations(p.req, p.path, u.policy.behaviors, elementRequiredSkip, math.MaxInt)
-			u.violations = append(u.violations, v...)
+			u.required(p.path)(behavior.RequiredViolations(p.req, p.path, u.policy.behaviors, elementRequiredSkip, requiredMaxDepth))
 		}
 	}
 }

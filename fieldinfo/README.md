@@ -39,7 +39,8 @@ are skipped without walking their values (cached per descriptor, bounded to 1024
 persisting it so stored values compare as text. On error the message is untouched.
 
 `Checker` is the compiled configuration behind the package-level functions: build one with `NewChecker(opts...)` and reuse it; it is immutable and
-safe for concurrent use. `Checker.CheckField` and `Checker.HasFormats` let another walker (fieldbehavior's) check formats in its own pass.
+safe for concurrent use. `Checker.CheckField`, `Checker.HasFieldFormat` and `Checker.HasFormats` let another walker (fieldbehavior's) check formats
+in its own pass, building a field's path only when the field carries a format.
 
 ### Custom formats (email)
 
@@ -103,19 +104,19 @@ before it is parsed. Work is linear in the populated size of the message.
 
 ## API
 
-| Symbol                                                         | Purpose                                                                                               |
-|----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| `Format`, `Unspecified`, `UUID4`, `IPv4`, `IPv6`, `IPv4OrIPv6` | The `google.api.FieldInfo.Format` enum and its values                                                 |
-| `Known(f)`                                                     | Whether this release validates format `f`                                                             |
-| `Info`, `Lookup(fd)`, `FormatOf(fd)`                           | The decoded annotation of a field (`Format`, `ReferencedTypes`); the format alone                     |
-| `ValidateValue`, `NormalizeValue`, `Equal`                     | One value: validate, normalize, compare by normalized form                                            |
-| `Validate`, `Normalize`                                        | A whole message, with the package-level checker built from the options                                |
-| `Checker`, `NewChecker`                                        | The compiled configuration: `Validate`, `Normalize`, and `CheckField`/`HasFormats` for another walker |
-| `Registry`, `CustomFormat`                                     | Caller-named custom formats (`Register`) assigned to fields by full name (`Assign`)                   |
-| `Violation`, `ViolationError`, `ValueError`                    | A reported value (`Path`, `Format`, `Reason`); the errors of the message and value functions          |
-| `ReasonUUID4`, `ReasonIPv4`, `ReasonIPv6`, `ReasonIPv4OrIPv6`  | The reason of each AIP-202 format violation                                                           |
-| `ErrInvalidValue`                                              | Matched by every `*ViolationError` and `*ValueError`                                                  |
-| `Option`                                                       | `WithMaxDepth`, `WithJSONNames`, `WithRegistry`                                                       |
+| Symbol                                                         | Purpose                                                                                                                |
+|----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `Format`, `Unspecified`, `UUID4`, `IPv4`, `IPv6`, `IPv4OrIPv6` | The `google.api.FieldInfo.Format` enum and its values                                                                  |
+| `Known(f)`                                                     | Whether this release validates format `f`                                                                              |
+| `Info`, `Lookup(fd)`, `FormatOf(fd)`                           | The decoded annotation of a field (`Format`, `ReferencedTypes`); the format alone                                      |
+| `ValidateValue`, `NormalizeValue`, `Equal`                     | One value: validate, normalize, compare by normalized form                                                             |
+| `Validate`, `Normalize`                                        | A whole message, with the package-level checker built from the options                                                 |
+| `Checker`, `NewChecker`                                        | The compiled configuration: `Validate`, `Normalize`, and `CheckField`/`HasFieldFormat`/`HasFormats` for another walker |
+| `Registry`, `CustomFormat`                                     | Caller-named custom formats (`Register`) assigned to fields by full name (`Assign`)                                    |
+| `Violation`, `ViolationError`, `ValueError`                    | A reported value (`Path`, `Format`, `Reason`); the errors of the message and value functions                           |
+| `ReasonUUID4`, `ReasonIPv4`, `ReasonIPv6`, `ReasonIPv4OrIPv6`  | The reason of each AIP-202 format violation                                                                            |
+| `ErrInvalidValue`                                              | Matched by every `*ViolationError` and `*ValueError`                                                                   |
+| `Option`                                                       | `WithMaxDepth`, `WithJSONNames`, `WithRegistry`                                                                        |
 
 ## AIP-202 conformance
 

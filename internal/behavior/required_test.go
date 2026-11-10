@@ -157,10 +157,10 @@ func TestCheckedRequiredViolations(t *testing.T) {
 
 	var visited []string
 
-	check := func(_ protoreflect.Message, fd protoreflect.FieldDescriptor, path string) []behavior.Violation {
-		visited = append(visited, path)
+	check := func(_ protoreflect.Message, fd protoreflect.FieldDescriptor, path func() string) []behavior.Violation {
+		visited = append(visited, path())
 		if fd.Name() == "display_name" {
-			return []behavior.Violation{{Path: path, Reason: "checked"}}
+			return []behavior.Violation{{Path: path(), Reason: "checked"}}
 		}
 
 		return nil
@@ -202,10 +202,11 @@ func TestReplacedRequiredViolations(t *testing.T) {
 		Delegates: map[string]*testpb.Owner{"k": {Email: "d"}},
 	}
 
-	got := behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, elementSkip, 8)
+	got, exceeded := behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, elementSkip, 8)
+	require.False(t, exceeded)
 	assert.Equal(t, []string{"members.0.org", "delegates.k.org"}, violationPathsOf(got), "owner.org keeps its stored value")
 
-	got = behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, nil, 8)
+	got, _ = behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, nil, 8)
 	assert.Empty(t, got, "a nil element skip keeps the skip")
 }
 

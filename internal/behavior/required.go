@@ -81,7 +81,10 @@ func IsEmpty(m protoreflect.Message, fd protoreflect.FieldDescriptor) bool {
 // deterministic.
 //
 // The walk follows the populated value, so recursive schemas terminate. It
-// stops descending below maxDepth nested messages and then reports exceeded.
+// stops at the first message nested deeper than maxDepth and then reports
+// exceeded: the caller must refuse the value, since the REQUIRED fields
+// below were not checked. A path is built only for a violation (and for a
+// field check that asks for it), so the walk is linear in the depth of m.
 func RequiredViolations(
 	m protoreflect.Message,
 	prefix string,
@@ -103,17 +106,18 @@ func ReplacedRequiredViolations(
 	resolve Resolve,
 	skip, elementSkip []annotations.FieldBehavior,
 	maxDepth int,
-) []Violation {
-	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip}
-	w.walk(m, prefix, 0, skip)
+) ([]Violation, bool) {
+	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip, prefix: prefix}
+	w.walk(m, 0, skip)
 
-	return w.violations
+	return w.violations, w.exceeded
 }
 
-// FieldCheck returns the violations of the populated field fd of m, whose
-// path is path, beyond REQUIRED: fieldbehavior checks the AIP-202 format of a
-// value with it in the same walk.
-type FieldCheck func(m protoreflect.Message, fd protoreflect.FieldDescriptor, path string) []Violation
+// FieldCheck returns the violations of the populated field fd of m beyond
+// REQUIRED: fieldbehavior checks the AIP-202 format of a value with it in the
+// same walk. path builds the path of fd; call it only to report a violation,
+// as building it costs the depth of fd.
+type FieldCheck func(m protoreflect.Message, fd protoreflect.FieldDescriptor, path func() string) []Violation
 
 // CheckedRequiredViolations is [RequiredViolations] that also calls check,
 // when non-nil, for every populated field it visits (every field not skipped
@@ -126,8 +130,8 @@ func CheckedRequiredViolations(
 	maxDepth int,
 	check FieldCheck,
 ) ([]Violation, bool) {
-	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, check: check}
-	w.walk(m, prefix, 0, skip)
+	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, check: check, prefix: prefix}
+	w.walk(m, 0, skip)
 
 	return w.violations, w.exceeded
 }
@@ -141,10 +145,24 @@ type requiredWalk struct {
 	check       FieldCheck
 	violations  []Violation
 	exceeded    bool
+	// prefix and segs locate the message the walk visits: the path is built
+	// from them only when it is needed.
+	prefix string
+	segs   []string
 }
 
-func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int, skip []annotations.FieldBehavior) {
-	if m == nil || !m.IsValid() {
+// pathOf returns the path of the segment seg of the message the walk visits.
+func (w *requiredWalk) pathOf(seg string) string {
+	path := w.prefix
+	for _, s := range w.segs {
+		path = JoinPath(path, s)
+	}
+
+	return JoinPath(path, seg)
+}
+
+func (w *requiredWalk) walk(m protoreflect.Message, depth int, skip []annotations.FieldBehavior) {
+	if w.exceeded || m == nil || !m.IsValid() {
 		return
 	}
 
@@ -156,7 +174,7 @@ func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int, sk
 	fields := m.Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		path := JoinPath(prefix, string(fd.Name()))
+		name := string(fd.Name())
 
 		behaviors := w.resolve(fd)
 		if slices.ContainsFunc(behaviors, func(b annotations.FieldBehavior) bool { return slices.Contains(skip, b) }) {
@@ -164,7 +182,7 @@ func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int, sk
 		}
 
 		if slices.Contains(behaviors, annotations.FieldBehavior_REQUIRED) && RequiredUnmet(m, fd) {
-			w.violations = append(w.violations, Violation{Path: path, Behavior: annotations.FieldBehavior_REQUIRED, Reason: ReasonRequired})
+			w.violations = append(w.violations, Violation{Path: w.pathOf(name), Behavior: annotations.FieldBehavior_REQUIRED, Reason: ReasonRequired})
 			continue
 		}
 
@@ -173,18 +191,28 @@ func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int, sk
 		}
 
 		if w.check != nil {
-			w.violations = append(w.violations, w.check(m, fd, path)...)
+			w.violations = append(w.violations, w.check(m, fd, func() string { return w.pathOf(name) })...)
 		}
 
-		w.descend(m, fd, path, depth, skip)
+		w.descend(m, fd, name, depth, skip)
+
+		if w.exceeded {
+			return
+		}
 	}
 }
 
-// descend walks the populated messages held by field fd of m.
-func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDescriptor, path string, depth int, skip []annotations.FieldBehavior) {
+// descend walks the populated messages held by field fd of m, named name.
+func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDescriptor, name string, depth int, skip []annotations.FieldBehavior) {
 	elementSkip := skip
 	if w.elementSkip != nil {
 		elementSkip = w.elementSkip
+	}
+
+	visit := func(msg protoreflect.Message, skip []annotations.FieldBehavior, segs ...string) {
+		w.segs = append(w.segs, segs...)
+		w.walk(msg, depth+1, skip)
+		w.segs = w.segs[:len(w.segs)-len(segs)]
 	}
 
 	switch {
@@ -195,7 +223,9 @@ func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDesc
 
 		list := m.Get(fd).List()
 		for i := range list.Len() {
-			w.walk(list.Get(i).Message(), JoinPath(path, strconv.Itoa(i)), depth+1, elementSkip)
+			if visit(list.Get(i).Message(), elementSkip, name, strconv.Itoa(i)); w.exceeded {
+				return
+			}
 		}
 	case fd.IsMap():
 		if fd.MapValue().Kind() != protoreflect.MessageKind {
@@ -204,10 +234,12 @@ func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDesc
 
 		mm := m.Get(fd).Map()
 		for _, k := range SortedMapKeys(mm) {
-			w.walk(mm.Get(k).Message(), JoinPath(path, QuoteSegment(k.String())), depth+1, elementSkip)
+			if visit(mm.Get(k).Message(), elementSkip, name, QuoteSegment(k.String())); w.exceeded {
+				return
+			}
 		}
 	case fd.Message() != nil:
-		w.walk(m.Get(fd).Message(), path, depth+1, skip)
+		visit(m.Get(fd).Message(), skip, name)
 	}
 }
 

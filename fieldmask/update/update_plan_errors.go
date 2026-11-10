@@ -34,11 +34,13 @@ func planViolationError(v FieldViolation, explicit []maskPath) error {
 // planRefusalError is the field error of err, a refusal of the mask itself
 // ([updateCheck.maskRefusal]), located at the explicit mask path that covers
 // its path: a *fieldmask.ValidationError classified by its Cause, or
-// [fieldmask.ErrInvalidPath] without one.
+// [fieldmask.ErrInvalidPath] without one. Any other refusal (a request value
+// nesting more messages than the REQUIRED walk checks) is located on the
+// bare mask field and classified by err itself.
 func planRefusalError(err error, explicit []maskPath) error {
 	ve, ok := errors.AsType[*fieldmask.ValidationError](err)
 	if !ok {
-		return err
+		return indexedFieldError(err, -1, "", "", err.Error())
 	}
 
 	cause := ve.Cause

@@ -134,7 +134,9 @@ doubled, matching fieldmask paths.
 
 BehaviorViolationError unwraps to ErrBehaviorViolation and maps to INVALID_ARGUMENT. Inspect Violations for paths, annotations and reasons;
 diagnostic text is not a classification API. ErrCurrentMismatch reports a `WithCurrent` message of another type; ErrMaxDepthExceeded a walk deeper
-than `WithMaxDepth`.
+than `WithMaxDepth`. The limit fails closed: `ValidateRequired` refuses a payload nesting more messages than `WithMaxDepth` (DefaultMaxDepth, 32) with
+ErrMaxDepthExceeded rather than checking it in part, and builds a field path only for a violation, so its cost is linear in the depth. The update
+package refuses the values an update writes whole with the same sentinel past DefaultMaxDepth.
 
 `ResolverFunc` adapts a function to `Resolver`. The same resolver instance can be supplied to `fieldbehavior.WithResolver` and
 `update.WithResolver`. Implementations shared across requests must support concurrent calls.

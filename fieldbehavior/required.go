@@ -56,8 +56,12 @@ func ValidateRequired(msg proto.Message, opts ...Option) error {
 
 	var check behavior.FieldCheck
 	if formats := o.formats(); formats != nil {
-		check = func(m protoreflect.Message, fd protoreflect.FieldDescriptor, path string) []BehaviorViolation {
-			return appendFormatViolations(nil, formats.CheckField(m, fd, path))
+		check = func(m protoreflect.Message, fd protoreflect.FieldDescriptor, path func() string) []BehaviorViolation {
+			if !formats.HasFieldFormat(fd) {
+				return nil // no path built for a field without a format
+			}
+
+			return appendFormatViolations(nil, formats.CheckField(m, fd, path()))
 		}
 	}
 

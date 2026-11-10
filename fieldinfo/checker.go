@@ -129,6 +129,14 @@ func (c *Checker) CheckField(m protoreflect.Message, fd protoreflect.FieldDescri
 	return c.appendFieldViolations(nil, m, fd, path)
 }
 
+// HasFieldFormat reports whether fd is a string field (singular, repeated
+// or a map value) carrying a format this checker validates, the fields
+// [Checker.CheckField] checks. A caller's walk can ask it before building the
+// path of fd.
+func (c *Checker) HasFieldFormat(fd protoreflect.FieldDescriptor) bool {
+	return c.hasFormat(fd)
+}
+
 // HasFormats reports whether any string field reachable from md through
 // message fields carries a format this checker validates. A walk skips the
 // message types for which it is false. The answer is cached per descriptor
