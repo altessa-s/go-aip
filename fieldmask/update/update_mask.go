@@ -727,10 +727,8 @@ func hasProtectedDescendants(md protoreflect.MessageDescriptor, visited map[prot
 
 		// An atomic value holding a protected field is compared, not
 		// expanded: the message holding it is expanded to reach it.
-		if isAtomicValue(fd, policy) {
-			if path, _ := atomicProtectedPath(fd.Message(), map[protoreflect.FullName]bool{}, policy); path != "" {
-				return true
-			}
+		if isProtectedAtomic(fd, policy) {
+			return true
 		}
 	}
 
@@ -744,6 +742,27 @@ func isAtomicValue(fd protoreflect.FieldDescriptor, policy *options) bool {
 	md := fd.Message()
 
 	return !fd.IsList() && !fd.IsMap() && md != nil && policy.atomicMessage != nil && policy.atomicMessage(md) && !maskpath.IsDynamicMessage(md)
+}
+
+// isProtectedAtomic reports whether fd holds a protected leaf: a singular
+// value of an atomic type that holds a field a whole replacement must keep
+// ([atomicProtectedPath]). Such a value is one protected leaf everywhere — it
+// is compared whole, guards its oneof, keeps its parent expanded and is named
+// on its own in an implied mask.
+func isProtectedAtomic(fd protoreflect.FieldDescriptor, policy *options) bool {
+	return isAtomicValue(fd, policy) && isProtectedAtomicType(fd.Message(), policy)
+}
+
+// isProtectedAtomicType reports whether md is an atomic type holding a field a
+// whole replacement of it must keep ([atomicProtectedPath]).
+func isProtectedAtomicType(md protoreflect.MessageDescriptor, policy *options) bool {
+	if md == nil || policy.atomicMessage == nil || !policy.atomicMessage(md) || maskpath.IsDynamicMessage(md) {
+		return false
+	}
+
+	path, _ := atomicProtectedPath(md, map[protoreflect.FullName]bool{}, policy)
+
+	return path != ""
 }
 
 // atomicProtectedPath returns the path below a value of md, written whole,

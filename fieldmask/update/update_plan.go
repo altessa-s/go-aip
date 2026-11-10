@@ -462,8 +462,14 @@ func holdsImmutable(md protoreflect.MessageDescriptor, visited map[protoreflect.
 			return true
 		}
 
-		if sub := maskpath.ValueMessage(fd); sub != nil && (policy.atomicMessage == nil || !policy.atomicMessage(sub)) && !visited[sub.FullName()] &&
-			holdsImmutable(sub, visited, policy) {
+		sub := maskpath.ValueMessage(fd)
+
+		switch {
+		case sub == nil:
+		case isProtectedAtomicType(sub, policy):
+			return true // a protected leaf
+		case policy.atomicMessage != nil && policy.atomicMessage(sub):
+		case !visited[sub.FullName()] && holdsImmutable(sub, visited, policy):
 			return true
 		}
 	}

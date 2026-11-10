@@ -393,9 +393,14 @@ func (g oneofGuard) guarded(fd protoreflect.FieldDescriptor, topLevel bool) bool
 		return true
 	}
 
-	if md := maskpath.ValueMessage(fd); md != nil && (policy.atomicMessage == nil || !policy.atomicMessage(md)) &&
-		holdsImmutable(md, map[protoreflect.FullName]bool{}, policy) {
-		return true
+	if md := maskpath.ValueMessage(fd); md != nil {
+		switch {
+		case isProtectedAtomicType(md, policy):
+			return true // a protected leaf: switching away from it clears it whole
+		case policy.atomicMessage != nil && policy.atomicMessage(md):
+		case holdsImmutable(md, map[protoreflect.FullName]bool{}, policy):
+			return true
+		}
 	}
 
 	return topLevel && g.topGuarded != nil && g.topGuarded(fd)
