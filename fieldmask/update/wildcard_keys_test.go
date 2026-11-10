@@ -223,15 +223,17 @@ func TestWildcardBesideNoOpKeyBelowList(t *testing.T) {
 	require.Equal(t, 0, mp.Index)
 	require.Contains(t, mp.Error(), "cannot be kept out of the wildcard")
 
-	// The "*" addresses no request entry: dropping it is exact, whatever the
-	// element count — no elements at all, or elements whose maps hold only
-	// the named key.
-	for _, req := range []string{``, `inners { m { key: "k" value { a: "x" } } } inners { m { key: "k" value { a: "x" } } }`} {
-		stored := `inners { m { key: "k" value { a: "x" } } } inners { m { key: "k" value { a: "x" } } }`
-		got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, parse(req), update.WithCurrent(parse(stored)))
-		require.NoError(t, err, "%q", req)
-		require.Equal(t, []string{}, got.ToPaths())
-	}
+	// The "*" addresses no request entry: dropping it is exact when the
+	// elements' maps hold only the named key.
+	stored := `inners { m { key: "k" value { a: "x" } } } inners { m { key: "k" value { a: "x" } } }`
+	got, err = update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, parse(stored), update.WithCurrent(parse(stored)))
+	require.NoError(t, err)
+	require.Equal(t, []string{}, got.ToPaths())
+
+	// With no request elements at all, the merge updates every stored element
+	// from nothing and would clear the IMMUTABLE k.a in each: refused.
+	_, err = update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, parse(``), update.WithCurrent(parse(stored)))
+	require.ErrorIs(t, err, update.ErrBehaviorViolation)
 }
 
 // TestWildcardExclusionsIgnoreKeyOrder pins that the entries a "*" sub-path

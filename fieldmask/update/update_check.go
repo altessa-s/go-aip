@@ -668,7 +668,9 @@ func (u *updateCheck) checkWholeElements(fd protoreflect.FieldDescriptor, key st
 // same index; for a map with "*" every entry whose key no other sub-mask
 // names, and for any other key its entry, paired with the stored entry of the
 // same key. A map key the request does not hold still addresses the stored
-// entry, with no request element.
+// entry, with no request element, and a request without the list addresses
+// every stored element, with none: the merge clears the fields the sub-path
+// names in each.
 func elementPairs(fd protoreflect.FieldDescriptor, key string, nested fieldmask.FieldMask, pairs []msgPair) []msgPair {
 	var out []msgPair
 
@@ -676,13 +678,21 @@ func elementPairs(fd protoreflect.FieldDescriptor, key string, nested fieldmask.
 		path := behavior.JoinPath(p.path, string(fd.Name()))
 
 		if fd.IsList() {
-			if p.req == nil || !p.req.Has(fd) {
-				continue
-			}
-
 			var stored protoreflect.List
 			if p.cur != nil && p.cur.Has(fd) {
 				stored = p.cur.Get(fd).List()
+			}
+
+			if p.req == nil || !p.req.Has(fd) {
+				// An empty request list updates every stored element in place
+				// from nothing (MergePaths allows an empty source): the
+				// fields the sub-path names are cleared in each of them, so
+				// each is checked with no request element.
+				for i := range listLen(stored) {
+					out = append(out, msgPair{cur: stored.Get(i).Message(), path: behavior.JoinPath(path, strconv.Itoa(i))})
+				}
+
+				continue
 			}
 
 			list := p.req.Get(fd).List()
