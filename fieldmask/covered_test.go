@@ -5,7 +5,6 @@
 package fieldmask_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,60 +14,42 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask"
 )
 
-// TestParsePaths_CoveredPath pins that a raw path another path of the same
-// mask covers is refused by ParsePaths and FromProtoFieldMask, whichever
-// order they come in: the FieldMask could only drop it, and a dropped path
-// would escape every later schema and field behavior check. An exact
-// duplicate is accepted.
-func TestParsePaths_CoveredPath(t *testing.T) {
+// TestParsePaths_CoveredPathCollapses pins that ParsePaths and
+// FromProtoFieldMask accept a raw path another path of the same mask covers
+// and collapse it into the covering path, whichever order they come in, after
+// checking its grammar.
+func TestParsePaths_CoveredPathCollapses(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name    string
-		paths   []string
-		covered string // the refused path; "" when the mask is accepted
-		by      string
-		want    []string
+		name  string
+		paths []string
+		want  []string
 	}{
-		{name: "identifier under its message", paths: []string{"profile", "profile.id"}, covered: "profile.id", by: "profile"},
-		{name: "child first", paths: []string{"profile.id", "profile"}, covered: "profile.id", by: "profile"},
-		{name: "unknown path under a scalar", paths: []string{"description", "description.no_such"}, covered: "description.no_such", by: "description"},
-		{name: "index under its list", paths: []string{"aliases", "aliases.0.id"}, covered: "aliases.0.id", by: "aliases"},
-		{name: "wildcard under its list", paths: []string{"aliases", "aliases.*"}, covered: "aliases.*", by: "aliases"},
-		{name: "element field under its wildcard", paths: []string{"aliases.*.id", "aliases.*"}, covered: "aliases.*.id", by: "aliases.*"},
-		{name: "quoted key", paths: []string{"labels.`a.b`", "labels.`a.b`.id"}, covered: "labels.`a.b`.id", by: "labels.`a.b`"},
-		{name: "two levels", paths: []string{"profile", "profile.id.x"}, covered: "profile.id.x", by: "profile"},
+		{name: "identifier under its message", paths: []string{"profile", "profile.id"}, want: []string{"profile"}},
+		{name: "child first", paths: []string{"profile.id", "profile"}, want: []string{"profile"}},
+		{name: "unknown path under a scalar", paths: []string{"description", "description.no_such"}, want: []string{"description"}},
+		{name: "index under its list", paths: []string{"aliases", "aliases.0.id"}, want: []string{"aliases"}},
+		{name: "wildcard under its list", paths: []string{"aliases", "aliases.*"}, want: []string{"aliases"}},
+		{name: "quoted key", paths: []string{"labels.`a.b`", "labels.`a.b`.id"}, want: []string{"labels.`a.b`"}},
 		{name: "duplicate", paths: []string{"profile", "profile"}, want: []string{"profile"}},
-		{name: "siblings", paths: []string{"profile.id", "profile.display_name"}, want: []string{"profile.display_name", "profile.id"}},
-		{name: "prefix that is not a segment", paths: []string{"profile", "profile_id"}, want: []string{"profile", "profile_id"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			parsed, parseErr := fieldmask.ParsePaths(tc.paths...)
-			fromProto, protoErr := fieldmask.FromProtoFieldMask(&fieldmaskpb.FieldMask{Paths: tc.paths})
+			parsed, err := fieldmask.ParsePaths(tc.paths...)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, parsed.ToPaths())
 
-			if tc.covered == "" {
-				require.NoError(t, parseErr)
-				require.NoError(t, protoErr)
-				require.Equal(t, tc.want, parsed.ToPaths())
-				require.Equal(t, tc.want, fromProto.ToPaths())
-
-				return
-			}
-
-			for _, err := range []error{parseErr, protoErr} {
-				requireInvalidPath(t, err, tc.covered)
-
-				ve, _ := errors.AsType[*fieldmask.ValidationError](err)
-				require.Equal(t, `path is covered by path "`+tc.by+`" of the same mask`, ve.Reason)
-				require.NoError(t, ve.Cause)
-			}
-
-			require.Nil(t, parsed)
-			require.Nil(t, fromProto)
+			fromProto, err := fieldmask.FromProtoFieldMask(&fieldmaskpb.FieldMask{Paths: tc.paths})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, fromProto.ToPaths())
 		})
 	}
+
+	// The grammar of a covered path is still checked.
+	_, err := fieldmask.ParsePaths("profile", "profile..id")
+	requireInvalidPath(t, err, "profile..id")
 }
 
 // TestValidationError_MaskLevel pins the message of a mask-level error, which

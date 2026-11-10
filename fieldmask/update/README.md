@@ -77,8 +77,9 @@ to write back to the request (`effective.ToProtoFieldMask()`). It is the entry p
 | `ValidateStrict`     | Checking a mask without touching the resource                                                                                              |
 | `Spec.Plan`, `Patch` | A read-modify-write of the stored resource: `Plan.Paths` for `MergePaths`, write-only secrets, AIP-193 errors on `updateMask.paths[i]`     |
 
-`fieldmask.FromProtoFieldMask` then `Apply` sees a `FieldMask`, a set of paths none of which covers another, so `FromProtoFieldMask` must refuse a raw
-path another one covers (`profile.id` with `profile`); `ApplyMask` reads the raw paths and checks each one, a covered path included, as if sent alone.
+`fieldmask.FromProtoFieldMask` then `Apply` sees a `FieldMask`, a set of paths none of which covers another: `FromProtoFieldMask` collapses a raw path
+another one covers (`profile.id` with `profile`) into the covering path, so `Apply` checks only the latter. `ApplyMask` reads the raw paths and checks
+each one, a covered path included, as if sent alone.
 
 The presence of the mask decides the mode (AIP-134): nil is the implied mask of `FromSetFields`, applied and returned; a mask with no paths is a no-op
 returning a non-nil empty mask, or the implied mask with `WithEmptyMaskImplied(true)`; a mask that names paths is never implied, even when every path
@@ -126,8 +127,8 @@ req.UpdateMask = effective.ToProtoFieldMask()
 
 An index into a repeated field is rejected in every mode. Every path is checked on its own before the mask collapses: `Spec.Plan` checks a raw path
 another one covers (`profile.id` with `profile`) as if sent alone, and `Apply` and `ValidateStrict` do so for a path of their `FieldMask` that another
-one covers once both are resolved (`backupOwner` with `backup_owner.org`). `fieldmask.ParsePaths` and `fieldmask.FromProtoFieldMask` refuse a raw
-path another one covers, which a `FieldMask` cannot hold.
+one covers once both are resolved (`backupOwner` with `backup_owner.org`). `fieldmask.ParsePaths` and `fieldmask.FromProtoFieldMask` collapse a raw
+path another one covers before `Apply` sees it; the covering path still enforces the rules over its subtree.
 
 ```go
 // Surface bad paths without breaking callers while a fix rolls out.

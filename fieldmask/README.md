@@ -55,18 +55,18 @@ backticks). `ToPaths`, `FromMessage`, `FromSetFields` and every violation path q
 
 ## Constructors
 
-| Function             | Description                                                                                                              |
-|----------------------|--------------------------------------------------------------------------------------------------------------------------|
-| `ParsePaths`         | Create a mask from client paths, checking each by the grammar first (`*ValidationError` for a malformed or covered path) |
-| `FromProtoFieldMask` | Create a mask from a `fieldmaskpb.FieldMask`, checking its paths as `ParsePaths` does; nil stays nil (omitted)           |
-| `FromPaths`          | Create a mask from trusted paths written in code; a malformed path is kept verbatim and every schema check rejects it    |
-| `FromMessage`        | Create a mask covering every field in the message schema (no list indexes)                                               |
-| `FromSetFields`      | Create a mask covering only the populated fields of a message; options shape the result                                  |
+| Function             | Description                                                                                                           |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `ParsePaths`         | Create a mask from client paths, checking each by the grammar first (`*ValidationError` for a malformed path)         |
+| `FromProtoFieldMask` | Create a mask from a `fieldmaskpb.FieldMask`, checking its paths as `ParsePaths` does; nil stays nil (omitted)        |
+| `FromPaths`          | Create a mask from trusted paths written in code; a malformed path is kept verbatim and every schema check rejects it |
+| `FromMessage`        | Create a mask covering every field in the message schema (no list indexes)                                            |
+| `FromSetFields`      | Create a mask covering only the populated fields of a message; options shape the result                               |
 
-A `FieldMask` is a set of paths none of which covers another: `FromPaths("profile", "profile.id")` holds `profile` alone. A path the set would drop
-could never reach a schema or field behavior check, so `ParsePaths` and `FromProtoFieldMask` refuse a raw path another path of the same mask covers
-(`profile.id` with `profile`, `aliases.*` with `aliases`) as a `*ValidationError` naming the covered path; an exact duplicate is accepted. The update
-entry points that read the raw paths, `update.ApplyMask`, `update.Spec.Plan` and `update.Patch`, accept such a mask and check every path on its own.
+A `FieldMask` is a set of paths none of which covers another: `FromPaths`, `ParsePaths` and `FromProtoFieldMask` collapse a path another path of the
+same mask covers (`profile.id` with `profile`, `aliases.*` with `aliases`) into the covering path, after checking its grammar. A redundant read mask
+selects the same fields either way, but the collapsed path reaches no schema or field behavior check. To check every raw path of an update mask on its
+own, apply the raw mask with `update.ApplyMask` or plan it with `update.Spec.Plan` (or `update.Patch`).
 
 ## Operations
 

@@ -160,3 +160,61 @@ func TestCoveredPath_ErrorMessages(t *testing.T) {
 	require.Equal(t, "field behavior violation: a: r; r", (&update.BehaviorError{Violations: []FieldViolation{{Path: "a", Reason: "r"}, {Reason: "r"}}}).Error())
 	require.Equal(t, "invalid update_mask: r", (&update.StrictError{Violations: []FieldViolation{{Reason: "r"}}}).Error())
 }
+
+// TestApply_CollapsedParentEnforcesSubtree pins that a mask FromProtoFieldMask
+// collapsed (["profile", "profile.id"] holds profile alone) stays safe under
+// Apply and ValidateStrict: the covering parent is replaced through its other
+// fields, so the IDENTIFIER keeps its stored value or the request's address,
+// a changed one is refused, an IMMUTABLE value set without the stored
+// resource is refused, and OUTPUT_ONLY values are cleared.
+func TestApply_CollapsedParentEnforcesSubtree(t *testing.T) {
+	t.Parallel()
+
+	collapsed := func(t *testing.T, paths ...string) fieldmask.FieldMask {
+		t.Helper()
+
+		mask, err := fieldmask.FromProtoFieldMask(&fieldmaskpb.FieldMask{Paths: paths})
+		require.NoError(t, err)
+
+		return mask
+	}
+
+	t.Run("identifier kept as the address", func(t *testing.T) {
+		t.Parallel()
+
+		msg := &pb.Resource{Profile: &pb.Profile{Id: "p", DisplayName: "n", UpdatedAt: "u"}}
+		mask := collapsed(t, "profile", "profile.id")
+		require.Equal(t, []string{"profile"}, mask.ToPaths())
+
+		require.NoError(t, update.Apply(mask, msg))
+		update.DropIdentifiers(mask, msg)
+		require.Equal(t, []string{"profile.display_name", "profile.secret"}, mask.ToPaths(), "no write-back path covers profile.id")
+		requireProtoEqual(t, &pb.Resource{Profile: &pb.Profile{Id: "p", DisplayName: "n"}}, msg)
+	})
+
+	t.Run("changed identifier refused", func(t *testing.T) {
+		t.Parallel()
+
+		msg := &pb.Resource{Profile: &pb.Profile{Id: "p", DisplayName: "n"}}
+		current := &pb.Resource{Profile: &pb.Profile{Id: "other"}}
+		want := []FieldViolation{{Path: "profile.id", Behavior: annotations.FieldBehavior_IDENTIFIER,
+			Reason: "identifier field cannot be changed from its stored value"}}
+
+		err := update.Apply(collapsed(t, "profile.id", "profile"), msg, update.WithCurrent(current))
+		require.Equal(t, want, behaviorViolations(t, err))
+
+		_, err = update.ValidateStrict(collapsed(t, "profile.id", "profile"), msg, update.WithCurrent(current))
+		se, ok := errors.AsType[*update.StrictError](err)
+		require.True(t, ok, "%v", err)
+		require.Equal(t, want, se.Violations)
+	})
+
+	t.Run("immutable without the stored resource refused", func(t *testing.T) {
+		t.Parallel()
+
+		msg := &pb.Account{BackupOwner: &pb.Owner{Email: "e", Org: "o"}}
+		err := update.Apply(collapsed(t, "backup_owner", "backup_owner.org"), msg)
+		require.Equal(t, []FieldViolation{{Path: "backup_owner.org", Behavior: annotations.FieldBehavior_IMMUTABLE,
+			Reason: "immutable field cannot be modified"}}, behaviorViolations(t, err))
+	})
+}

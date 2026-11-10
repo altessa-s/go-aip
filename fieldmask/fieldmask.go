@@ -5,7 +5,6 @@
 package fieldmask
 
 import (
-	"fmt"
 	"slices"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -26,10 +25,6 @@ const (
 	// minMapCapacity is the minimum [FieldMask] map capacity to reduce early
 	// rehashing.
 	minMapCapacity = 8
-
-	// reasonCoveredPath is the reason, formatted with the covering path, of
-	// a raw path another path of the same mask covers.
-	reasonCoveredPath = "path is covered by path %q of the same mask"
 )
 
 // FieldMask represents a hierarchical field mask as a nested map structure.
@@ -73,7 +68,7 @@ func (msk FieldMask) estimatePathCount() int {
 // vanishes, and every schema check ([FieldMask.Validate], [FieldMask.Filter],
 // [github.com/altessa-s/go-aip/fieldmask/update.Apply], ...) rejects it. Build
 // a mask from client input with [ParsePaths] or [FromProtoFieldMask], which
-// reject malformed and covered paths up front.
+// reject malformed paths up front.
 //
 // Example:
 //
@@ -105,12 +100,12 @@ func FromPaths(paths ...string) FieldMask {
 // unquoted segment is a *[ValidationError] naming the path as written. The
 // full-replacement path "*" combined with any other path, another "*"
 // included, is a *[ValidationError] that also matches [ErrWildcardNotAlone].
-// A path another path of the mask covers ("profile.id" with "profile",
-// "aliases.*" with "aliases") is a *[ValidationError] naming the covered
-// path: a FieldMask, a set of paths none of which covers another, could only
-// drop it, and a dropped path would escape every later schema and field
-// behavior check. An exact duplicate is accepted. To accept such a mask and
-// check every path as sent, apply the raw mask with
+// A FieldMask is a set of paths none of which covers another, so a path
+// another path of the mask covers ("profile.id" with "profile", "aliases.*"
+// with "aliases") collapses into the covering path, as a duplicate does: it
+// is checked by the grammar alone, and no later schema or field behavior
+// check sees it. A redundant read mask selects the same fields either way;
+// to check every raw path of an update mask on its own, apply it with
 // [github.com/altessa-s/go-aip/fieldmask/update.ApplyMask] or plan it with
 // [github.com/altessa-s/go-aip/fieldmask/update.Spec.Plan]. The schema is not
 // consulted; check the result with [FieldMask.Validate] or apply it with a
@@ -144,27 +139,7 @@ func parsePaths(paths []string, policy *options) (FieldMask, error) {
 		}
 	}
 
-	mask := FromPaths(paths...)
-	if err := checkCovered(mask, paths); err != nil {
-		return nil, err
-	}
-
-	return mask, nil
-}
-
-// checkCovered returns the *ValidationError of the first of paths that
-// another path of mask, built from paths, covers ("profile.id" under
-// "profile"): the mask no longer holds it, so no later check could see it.
-// An exact duplicate is not covered.
-func checkCovered(mask FieldMask, paths []string) error {
-	for _, p := range paths {
-		parts := maskpath.Split(p)
-		if n := maskwalk.CoveredAt(mask, parts); n > 0 {
-			return &ValidationError{Path: p, Reason: fmt.Sprintf(reasonCoveredPath, maskpath.Join(parts[:n]))}
-		}
-	}
-
-	return nil
+	return FromPaths(paths...), nil
 }
 
 // FromProtoFieldMask creates a FieldMask from a protobuf FieldMask, checking

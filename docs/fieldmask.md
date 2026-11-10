@@ -95,10 +95,9 @@ behavior.
 the effective mask to write back to the request. It runs the rules of `Apply` above, with three differences that make it the entry point for a raw
 client mask:
 
-* It reads the raw paths. `FromProtoFieldMask` must refuse a path another path of the mask covers, which a `FieldMask` cannot hold (see
-  [Path grammar](#path-grammar)); `ApplyMask` accepts such a mask and checks the covered path as if sent alone, so `["profile", "profile.id"]` is
-  refused without `WithCurrent` (an IDENTIFIER named) and `["description", "description.no_such"]` and `["aliases", "aliases.0.id"]` are refused as
-  invalid paths.
+* It reads the raw paths. `FromProtoFieldMask` collapses a path another path of the mask covers into the covering one, which a `FieldMask` must
+  (see [Path grammar](#path-grammar)); `ApplyMask` checks the covered path as if sent alone, so `["profile", "profile.id"]` is refused without
+  `WithCurrent` (an IDENTIFIER named) and `["description", "description.no_such"]` and `["aliases", "aliases.0.id"]` are refused as invalid paths.
 * It checks before it touches the resource, in this order: the limits on the raw paths, duplicates included, in every mode; the grammar of each raw
   path (`""`, malformed paths, `*` with any other path, a second `*` included), then its schema and field behaviors on its own. Under
   `WithPathValidation`, `PathValidationEnforce` refuses, `PathValidationWarn` reports to `WithPathValidationReporter` and drops, and
@@ -185,13 +184,14 @@ Clients send paths with `ParsePaths` or `FromProtoFieldMask`, which reject malfo
 it. A `google.protobuf.Struct` is addressed by its keys as a `map<string, Value>`, and by default a path walks the dynamic JSON below by key and `*`;
 `WithStrictDynamicPaths(true)` keeps to AIP-161, where an entry's value, a `Value` and a `ListValue` are selected whole only.
 
-A `FieldMask` is a set of paths none of which covers another, so a path below another path of the same mask (`profile.id` with `profile`) would
-collapse into it and escape every later check: `["description", "description.no_such"]`, `["aliases", "aliases.0.id"]` or `["profile",
-"profile.id"]` (naming an IDENTIFIER) would pass as `description`, `aliases` or `profile`. Every raw path is therefore checked on its own before the
-mask collapses:
+A `FieldMask` is a set of paths none of which covers another, so a path below another path of the same mask (`profile.id` with `profile`)
+collapses into it: `["description", "description.no_such"]`, `["aliases", "aliases.0.id"]` or `["profile", "profile.id"]` become `description`,
+`aliases` or `profile`. The update entry points check every raw path on its own before the mask collapses:
 
-* `ParsePaths` and `FromProtoFieldMask`, which know no schema, refuse a covered raw path as a `*ValidationError` naming it (`path is covered by
-  path "profile" of the same mask`); an exact duplicate is accepted. `FromPaths` trusts its paths and still collapses them.
+* `ParsePaths` and `FromProtoFieldMask`, which know no schema, check the grammar of every raw path and collapse a covered one, as `FromPaths` does;
+  a redundant read mask selects the same fields either way. The collapsed path reaches no schema or field behavior check, so an update caller
+  that wants every raw path checked passes the raw mask to `ApplyMask` or `Spec.Plan`. `Apply` on such a mask still enforces the covering path
+  over its whole subtree: `profile` replaced keeps the stored IDENTIFIER and IMMUTABLE values and refuses changed ones.
 * `Spec.Plan` and `Patch.Run` resolve every raw path and check its field behaviors on its own, a covered path as if sent alone, and plan the
   collapsed mask: `["profile", "profile.id"]` without `WithCurrent` is refused on `updateMask.paths[1]`.
 * `Apply` and `ValidateStrict` resolve every path of their `FieldMask` on its own and check a path that another one covers once both are
