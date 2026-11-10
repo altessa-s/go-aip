@@ -126,7 +126,8 @@ req.UpdateMask = effective.ToProtoFieldMask()
 ## Path validation in Apply
 
 `ApplyMask` and `Apply` reject a path the grammar or the schema rejects before any mutation, so a typo cannot clear a sibling subtree.
-`WithPathValidation` opts out (`ApplyMask` drops such a path from the mask it returns, `Apply` keeps it as written, matching no field):
+`WithPathValidation` opts out; such a path matches no field and both leave it out of the mask they return, so it neither covers another path nor
+names a map key a `*` beside it would then skip:
 
 | Mode                     | Behavior                                                                                                                    |
 |--------------------------|-----------------------------------------------------------------------------------------------------------------------------|

@@ -80,7 +80,8 @@ func (e *BehaviorError) Error() string {
 //     spells it by its declared name. With [WithPathValidation] set to
 //     [PathValidationEnforce], a path absent from the schema is rejected
 //     (fail-fast); [PathValidationWarn] reports it and continues, and the
-//     path then matches no field. Indexed list paths ("aliases.0.id",
+//     path then matches no field: it is left out of the cleaned mask, so it
+//     covers no other path and names no map key. Indexed list paths ("aliases.0.id",
 //     "list_data.0") and, with [WithStrictDynamicPaths] in the update policy,
 //     paths below a google.protobuf.Struct key or into a Value or ListValue
 //     ("attrs.color.hue") are always rejected. Every path is checked on its
@@ -288,12 +289,6 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 
 	resolved := make([][]string, 0, len(paths))
 
-	// asWritten are the paths the schema rejects that o lets through: they
-	// match no field, so they take no part in the coverage of the others (a
-	// "*" the schema rejects, "owner.*" on a singular message, must not
-	// remove "owner.email").
-	var asWritten [][]string
-
 	for _, path := range paths {
 		name, rejected := maskpath.ResolvePath(md, path, policy.strictDynamicPaths)
 		if rejected != nil {
@@ -321,7 +316,11 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 		}
 
 		if rejected != nil {
-			asWritten = append(asWritten, maskpath.Split(name))
+			// A path the schema rejects that o lets through matches no field:
+			// it is left out of the mask, so it neither covers another path
+			// ("owner.*" on a singular message beside "owner.email") nor
+			// names a map key the checks, the filter and a later merge would
+			// keep out of a "*" ("delegates.k.typo" beside "delegates.*").
 			continue
 		}
 
@@ -329,9 +328,6 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 	}
 
 	work, covered = coverPaths(resolved)
-	for _, parts := range asWritten {
-		maskwalk.Insert(work, parts)
-	}
 
 	for _, m := range slices.Concat([]fieldmask.FieldMask{work}, covered) {
 		if err := policy.checkAtomicMask(m, md, ""); err != nil {
