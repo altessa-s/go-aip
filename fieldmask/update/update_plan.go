@@ -240,6 +240,10 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 		u.checkCovering(tree, covered, s.desc, root)
 	}
 
+	if err := u.maskRefusal(tree, s.desc); err != nil {
+		return Plan{}, nil, planRefusalError(err, explicit)
+	}
+
 	if len(u.violations) > 0 {
 		return Plan{}, nil, planViolationError(u.violations[0], explicit)
 	}

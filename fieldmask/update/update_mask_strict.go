@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
@@ -104,7 +105,7 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 		work := u.replaceAll(descriptor, root)
 		u.checkOneofSwitches(descriptor, root, work, nil)
 
-		return strictResult(work, u)
+		return strictResult(work, u, descriptor, policy.updateMaskFieldName)
 	}
 
 	work, covered, err := resolveUpdatePaths(msk.ToPaths(), descriptor, policy, &options{pathValidation: PathValidationEnforce})
@@ -115,11 +116,16 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 	u.checkCovering(work, covered, descriptor, root)
 	u.checkOneofSwitches(descriptor, root, work, covered)
 
-	return strictResult(work, u)
+	return strictResult(work, u, descriptor, policy.updateMaskFieldName)
 }
 
-// strictResult returns work, or the field behavior violations u recorded.
-func strictResult(work fieldmask.FieldMask, u *updateCheck) (fieldmask.FieldMask, error) {
+// strictResult returns work, or the refusal or field behavior violations u
+// recorded.
+func strictResult(work fieldmask.FieldMask, u *updateCheck, md protoreflect.MessageDescriptor, maskField string) (fieldmask.FieldMask, error) {
+	if err := u.maskRefusal(work, md); err != nil {
+		return nil, strictError(err, maskField)
+	}
+
 	if len(u.violations) != 0 {
 		return nil, &StrictError{Violations: u.violations}
 	}

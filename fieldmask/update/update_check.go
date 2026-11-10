@@ -5,6 +5,7 @@
 package update
 
 import (
+	"fmt"
 	"maps"
 	"math"
 	"slices"
@@ -65,6 +66,13 @@ type updateCheck struct {
 	// IDENTIFIER annotation.
 	addressOnly func(fd protoreflect.FieldDescriptor) bool
 	violations  []FieldViolation
+	// refusal is the first refusal of the mask itself (a path error, not a
+	// field behavior violation) the check made, nil otherwise.
+	refusal error
+	// pinned reports that a "*" was replaced by request keys
+	// ([updateCheck.pinWildcard]): the cleaned mask holds generated paths,
+	// whose limits [updateCheck.maskRefusal] checks.
+	pinned bool
 }
 
 // newUpdateCheck returns the check of an update of req whose stored value is
@@ -533,12 +541,73 @@ func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldm
 		return
 	}
 
+	var keys []string
+
 	mm := req.Get(fd).Map()
 	for _, k := range behavior.SortedMapKeys(mm) {
 		if key := k.String(); !slices.Contains(named, key) {
-			nested[key] = wildcard.Clone()
+			keys = append(keys, key)
 		}
 	}
+
+	if err := u.policy.checkPinLimits(path, keys, wildcard); err != nil {
+		u.refuse(err)
+		return
+	}
+
+	u.pinned = true
+
+	for _, key := range keys {
+		nested[key] = wildcard.Clone()
+	}
+}
+
+// checkPinLimits refuses replacing the "*" sub-mask wildcard of the map at
+// path by the keys before it is copied, when the generated paths would break
+// a limit of the policy: more paths than [WithMaxPaths] (keys times the
+// leaves of wildcard), a path longer than [WithMaxPathLength] or deeper than
+// [WithMaxPathDepth]. The generated mask could neither be written back nor
+// merged ([MergePaths] checks the same limits), so the mask is refused as a
+// *fieldmask.ValidationError on the "*" path, matching the limit sentinel.
+func (o *options) checkPinLimits(path string, keys []string, wildcard fieldmask.FieldMask) error {
+	star := elementPath(path, maskpath.Wildcard)
+	suffixes := wildcard.ToPaths()
+
+	if n := len(keys) * len(suffixes); o.maxPaths > 0 && n > o.maxPaths {
+		return &fieldmask.ValidationError{Path: star, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
+			"the \"*\" beside a key path that updates nothing expands to %d paths, more than the limit of %d; name the entries to update", n, o.maxPaths)}
+	}
+
+	for _, key := range keys {
+		prefix := elementPath(path, key)
+		for _, suffix := range suffixes {
+			if v := o.limits().CheckPath(prefix + maskpath.Separator + suffix); v != nil {
+				return &fieldmask.ValidationError{Path: star, Cause: v.Cause, Reason: "the \"*\" beside a key path that updates nothing expands to " + v.Reason}
+			}
+		}
+	}
+
+	return nil
+}
+
+// refuse records err, a refusal of the mask itself, unless one is recorded.
+func (u *updateCheck) refuse(err error) {
+	if u.refusal == nil {
+		u.refusal = err
+	}
+}
+
+// maskRefusal returns the refusal the check recorded, or, when a "*" was
+// pinned to request keys, the first limit the paths of work, the cleaned
+// mask of md, break as a *fieldmask.ValidationError; nil otherwise. The
+// generated paths are checked as a request mask is, so the cleaned mask can be
+// written back and merged.
+func (u *updateCheck) maskRefusal(work fieldmask.FieldMask, md protoreflect.MessageDescriptor) error {
+	if u.refusal != nil || !u.pinned {
+		return u.refusal
+	}
+
+	return u.policy.validateMaskLimits(declaredPaths(work, md))
 }
 
 // checkWholeElements records the REQUIRED fields left empty in the elements

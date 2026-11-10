@@ -11,6 +11,7 @@ import (
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 
+	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
 
@@ -28,6 +29,24 @@ func planViolationError(v FieldViolation, explicit []maskPath) error {
 	default:
 		return planPathError(ErrProtectedField, v.Path, explicit, fmt.Sprintf("path %q cannot be updated", v.Path))
 	}
+}
+
+// planRefusalError is the field error of err, a refusal of the mask itself
+// ([updateCheck.maskRefusal]), located at the explicit mask path that covers
+// its path: a *fieldmask.ValidationError classified by its Cause, or
+// [fieldmask.ErrInvalidPath] without one.
+func planRefusalError(err error, explicit []maskPath) error {
+	ve, ok := errors.AsType[*fieldmask.ValidationError](err)
+	if !ok {
+		return err
+	}
+
+	cause := ve.Cause
+	if cause == nil {
+		cause = fieldmask.ErrInvalidPath
+	}
+
+	return planPathError(cause, ve.Path, explicit, ve.Reason)
 }
 
 // changedError is the cause of a plan refusal for an IMMUTABLE or IDENTIFIER

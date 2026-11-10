@@ -162,6 +162,10 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 
 	u.checkOneofSwitches(md, root, work, covered)
 
+	if err := u.maskRefusal(work, md); err != nil {
+		return nil, err
+	}
+
 	if len(u.violations) > 0 {
 		return nil, &BehaviorError{Violations: u.violations}
 	}

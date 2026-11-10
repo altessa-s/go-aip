@@ -239,6 +239,10 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 
 	u.checkOneofSwitches(descriptor, root, work, covered)
 
+	if err := u.maskRefusal(work, descriptor); err != nil {
+		return err
+	}
+
 	if len(u.violations) > 0 {
 		return &BehaviorError{Violations: u.violations}
 	}
