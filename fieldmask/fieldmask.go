@@ -110,7 +110,8 @@ func FromPaths(paths ...string) FieldMask {
 // path: a FieldMask, a set of paths none of which covers another, could only
 // drop it, and a dropped path would escape every later schema and field
 // behavior check. An exact duplicate is accepted. To accept such a mask and
-// check every path as sent, plan the raw mask with
+// check every path as sent, apply the raw mask with
+// [github.com/altessa-s/go-aip/fieldmask/update.ApplyMask] or plan it with
 // [github.com/altessa-s/go-aip/fieldmask/update.Spec.Plan]. The schema is not
 // consulted; check the result with [FieldMask.Validate] or apply it with a
 // method that validates.

@@ -14,7 +14,16 @@
 // MergePaths copy the fields of update paths in a read-modify-write, and Patch runs the whole read-modify-write with an optional
 // AIP-154 etag precondition (Int64Precondition, TagPrecondition), allow_missing and AIP-163 validate_only.
 //
+// ApplyMask applies the raw update_mask of a request as the client sent it, checks every path on its own (a path another one covers
+// included, which a fieldmask.FieldMask cannot hold) and returns the effective mask to write back to the request.
+//
 // # Usage
+//
+//	effective, err := update.ApplyMask(req.GetUpdateMask(), req.GetUser(), update.WithCurrent(stored))
+//	if err != nil {
+//		return err
+//	}
+//	req.UpdateMask = effective.ToProtoFieldMask()
 //
 //	mask, err := fieldmask.FromProtoFieldMask(req.GetUpdateMask())
 //	if err != nil {

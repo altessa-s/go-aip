@@ -54,6 +54,14 @@ type options struct {
 
 	pathValidation PathValidationMode
 	pathReporter   func(*fieldmask.ValidationError) `opt:"PathValidationReporter"`
+
+	// WithEmptyMaskImplied makes [ApplyMask] apply the implied mask of the populated fields ([FromSetFields]) to an update_mask
+	// sent with no paths, as to an omitted one, instead of treating it as a no-op (AIP-134). It is decided on the mask as sent: a
+	// mask whose paths are all dropped is never implied. Only ApplyMask reads it.
+	emptyMaskImplied bool `optval:"param"`
+	// WithStrict makes [ApplyMask] check the mask as [ValidateStrict] does: every path is enforced whatever [WithPathValidation]
+	// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. Only ApplyMask reads it.
+	strict bool `optval:"param"`
 }
 
 // behaviors returns the annotations of fd. The default resolver's cached

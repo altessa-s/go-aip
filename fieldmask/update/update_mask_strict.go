@@ -5,7 +5,6 @@
 package update
 
 import (
-	"errors"
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
@@ -84,7 +83,7 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 
 	u, root, err := newApplyCheck(resource, o.current, policy)
 	if err != nil {
-		return nil, &StrictError{Cause: err, Violations: []FieldViolation{{Path: policy.updateMaskFieldName, Reason: err.Error()}}}
+		return nil, strictError(err, policy.updateMaskFieldName)
 	}
 
 	switch {
@@ -107,16 +106,7 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 
 	work, covered, err := resolveUpdatePaths(msk.ToPaths(), descriptor, policy, &options{pathValidation: PathValidationEnforce})
 	if err != nil {
-		if pathErr, ok := errors.AsType[*fieldmask.ValidationError](err); ok {
-			path := pathErr.Path
-			if path == "" { // a limit of the whole mask
-				path = policy.updateMaskFieldName
-			}
-
-			return nil, &StrictError{Cause: err, Violations: []FieldViolation{{Path: path, Reason: pathErr.Reason}}}
-		}
-
-		return nil, &StrictError{Cause: err, Violations: []FieldViolation{{Path: policy.updateMaskFieldName, Reason: err.Error()}}}
+		return nil, strictError(err, policy.updateMaskFieldName)
 	}
 
 	u.checkCovering(work, covered, descriptor, root)

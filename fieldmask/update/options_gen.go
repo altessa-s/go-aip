@@ -36,6 +36,15 @@ func WithCurrent(v proto.Message) Option {
 	}
 }
 
+// WithEmptyMaskImplied makes [ApplyMask] apply the implied mask of the populated fields ([FromSetFields]) to an update_mask
+// sent with no paths, as to an omitted one, instead of treating it as a no-op (AIP-134). It is decided on the mask as sent: a
+// mask whose paths are all dropped is never implied. Only ApplyMask reads it.
+func WithEmptyMaskImplied(v bool) Option {
+	return func(o *options) {
+		o.emptyMaskImplied = v
+	}
+}
+
 // WithIdentityFields sets the identityFields option.
 func WithIdentityFields(v ...string) Option {
 	return func(o *options) {
@@ -151,6 +160,14 @@ func WithPathValidationReporter(v func(*fieldmask.ValidationError)) Option {
 func WithResolver(v fieldbehavior.Resolver) Option {
 	return func(o *options) {
 		o.resolver = v
+	}
+}
+
+// WithStrict makes [ApplyMask] check the mask as [ValidateStrict] does: every path is enforced whatever [WithPathValidation]
+// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. Only ApplyMask reads it.
+func WithStrict(v bool) Option {
+	return func(o *options) {
+		o.strict = v
 	}
 }
 

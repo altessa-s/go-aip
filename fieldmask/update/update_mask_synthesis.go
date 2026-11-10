@@ -157,17 +157,7 @@ func DropIdentifiers(msk fieldmask.FieldMask, msg proto.Message, opts ...Option)
 		return
 	}
 
-	md := msg.ProtoReflect().Descriptor()
-	policy := newOptions(opts...)
-
-	fields := md.Fields()
-	for _, name := range policy.identityFields {
-		if fd := fields.ByName(protoreflect.Name(name)); fd != nil && isPolicyIdentity(fd, policy) {
-			delete(msk, name)
-		}
-	}
-
-	dropIdentifiers(msk, md, policy)
+	dropPolicyIdentifiers(msk, msg.ProtoReflect().Descriptor(), newOptions(opts...))
 }
 
 // dropIdentifiers is [DropIdentifiers] over a descriptor. Keys md

@@ -9,7 +9,7 @@ preconditions and AIP-163 validate_only. It owns the dependencies on [etag](../.
 the [path grammar](../README.md#path-grammar-aip-161) of `fieldmask`. The [guide](../../docs/fieldmask.md) maps every rule to the function that
 implements it.
 
-Pass the stored resource with `WithCurrent` to `Apply`, `ValidateStrict` and `Spec.Plan`:
+Pass the stored resource with `WithCurrent` to `ApplyMask`, `Apply`, `ValidateStrict` and `Spec.Plan`:
 
 * `OUTPUT_ONLY` paths are dropped from the mask at any depth, never an error, and their client values are cleared.
 * `IMMUTABLE` and `IDENTIFIER` paths are compared with the stored value: an unchanged value is ignored, a changed one is a violation
@@ -29,6 +29,7 @@ Pass the stored resource with `WithCurrent` to `Apply`, `ValidateStrict` and `Sp
 
 | Function               | Description                                                                                                                                   |
 |------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| `ApplyMask`            | Apply a raw `update_mask` as sent, checking every path on its own; return the effective mask to write back (see [ApplyMask](#applymask))      |
 | `Apply`                | Apply the AIP-203 rules, then clear fields outside the mask in place (mutates the mask)                                                       |
 | `ValidateStrict`       | Validate an update mask under the rules of `Apply` without mutating the resource; return the cleaned mask                                     |
 | `DropIdentifiers`      | Remove the `IDENTIFIER` entries `Apply` added, before handing the mask on (mutates)                                                           |
@@ -63,6 +64,55 @@ as the resource.
 The mask policy options govern the top-level fields of `Apply` and `ValidateStrict` as they govern `Spec.Plan`: a field named by `WithImmutableFields`
 is IMMUTABLE, and a field named by `WithIdentityFields` (`id` and `etag` by default) is IDENTIFIER when the mask names it. Unnamed, such an identity
 field addresses the resource and is kept, but not compared with the stored value: a stale etag is the service's concurrency check (AIP-154).
+
+## ApplyMask
+
+`ApplyMask(req.GetUpdateMask(), resource, update.WithCurrent(stored))` applies the mask exactly as the client sent it and returns the effective mask
+to write back to the request (`effective.ToProtoFieldMask()`). It is the entry point for a raw client mask:
+
+| Use                  | When                                                                                                                                       |
+|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `ApplyMask`          | A handler that receives the request resource and its raw `update_mask` and stores the filtered resource; the write-back mask comes with it |
+| `Apply`              | A `FieldMask` built or transformed in code; it returns the cleaned mask in place, IDENTIFIER entries included (`DropIdentifiers`)          |
+| `ValidateStrict`     | Checking a mask without touching the resource                                                                                              |
+| `Spec.Plan`, `Patch` | A read-modify-write of the stored resource: `Plan.Paths` for `MergePaths`, write-only secrets, AIP-193 errors on `updateMask.paths[i]`     |
+
+`fieldmask.FromProtoFieldMask` then `Apply` sees a `FieldMask`, a set of paths none of which covers another, so `FromProtoFieldMask` must refuse a raw
+path another one covers (`profile.id` with `profile`); `ApplyMask` reads the raw paths and checks each one, a covered path included, as if sent alone.
+
+The presence of the mask decides the mode (AIP-134): nil is the implied mask of `FromSetFields`, applied and returned; a mask with no paths is a no-op
+returning a non-nil empty mask, or the implied mask with `WithEmptyMaskImplied(true)`; a mask that names paths is never implied, even when every path
+is dropped (it is then a no-op too); `*` alone is a full replacement. The checks run before the resource is touched, in this order:
+
+1. The limits (`WithMaxPaths`, `WithMaxPathLength`, `WithMaxPathDepth`) on the raw paths, duplicates included, in every `PathValidationMode`.
+2. The grammar of each raw path: `""` and malformed paths, and `*` with any other path (a second `*` included, `fieldmask.ErrWildcardNotAlone`).
+   `PathValidationEnforce` refuses, `PathValidationWarn` reports to `WithPathValidationReporter` and drops, `PathValidationDisabled` drops.
+3. The schema and the field behaviors of each raw path on its own, before the mask collapses. An unknown path follows the mode of step 2; an index
+   into a repeated field, a sub-path into an atomic message and, with `WithStrictDynamicPaths`, a path below a `Struct` key are refused in every mode.
+
+The resource is then mutated exactly as `Apply` mutates it. The effective mask is spelled by declared names; `*` and every message named whole that
+holds an `OUTPUT_ONLY`, `IMMUTABLE` or `IDENTIFIER` field are expanded so that no path covers one; `OUTPUT_ONLY` paths, unchanged `IMMUTABLE` and
+`IDENTIFIER` paths and the `IDENTIFIER` entries `Apply` adds are left out; `INPUT_ONLY` fields stay. A collection or map entry named whole stays one
+path: its elements are new values whose `IMMUTABLE` and `IDENTIFIER` values are kept as sent.
+
+An omitted mask or `*` whose request sets an `IMMUTABLE` value is refused without `WithCurrent`, as with `Apply`: the stored value is unknown, so a
+change cannot be told from an unchanged value (AIP-203). Pass the stored resource, or name the paths to update.
+
+Errors are those of `Apply`: `*fieldmask.ValidationError` (`fieldmask.ErrInvalidPath`, a limit sentinel, `fieldmask.ErrWildcardNotAlone`),
+`*BehaviorError` (`ErrBehaviorViolation`) and `ErrMessageMismatch` for a nil resource or a stored one of another type. `WithStrict(true)` checks as
+`ValidateStrict` does: every path is enforced whatever `WithPathValidation` says, and every refusal is a `*StrictError` (`ErrInvalidUpdateMask`)
+naming the offending path, or the mask field of `WithUpdateMaskFieldName` for a mask-level one.
+
+```go
+effective, err := update.ApplyMask(req.GetUpdateMask(), req.GetWidget(), update.WithCurrent(stored))
+if err != nil {
+    return nil, err // *fieldmask.ValidationError, *BehaviorError or ErrMessageMismatch
+}
+if effective.IsEmpty() {
+    return toProto(stored), nil // the update changes nothing
+}
+req.UpdateMask = effective.ToProtoFieldMask()
+```
 
 ## Path validation in Apply
 
@@ -206,8 +256,9 @@ out, err := patch.Run(ctx, req.GetWidget(), req.GetWidget().GetEtag(), req.GetUp
 
 `NewSpec` captures descriptor-bound update policy. `Option` configures identity fields (`id` and `etag` by default), immutable and implied-skip
 fields, atomic messages, the error field name, and behavior resolution. `DefaultAtomicMessage` recognizes well-known atomic values. The per-request
-options (`WithCurrent`, `WithPathValidation`, `WithPathValidationReporter`) configure `Apply`, `ValidateStrict` (`WithCurrent`; path validation is
-always enforced) and `Spec.Plan` (`WithCurrent`; the policy is the spec's). Policy and per-request values share one `Option` type, so `Apply` takes
+options (`WithCurrent`, `WithPathValidation`, `WithPathValidationReporter`) configure `ApplyMask`, `Apply`, `ValidateStrict` (`WithCurrent`; path
+validation is always enforced) and `Spec.Plan` (`WithCurrent`; the policy is the spec's); `WithEmptyMaskImplied` and `WithStrict` configure
+`ApplyMask` only. Policy and per-request values share one `Option` type, so `Apply` takes
 the policy options directly.
 
 Share the same policy options across `Apply`, `ValidateStrict`, `FromSetFields`, `ExpandMessagePaths`, `DropIdentifiers`, `ImpliedPaths`,
@@ -217,19 +268,19 @@ uses the `google.api.field_behavior` annotations. Predicates and resolvers share
 
 ## Errors
 
-| Error                                                                                                      | Returned by                                                   | Meaning                                                                                                |
-|------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
-| `*fieldmask.ValidationError`                                                                               | `Apply`, `ValidateStrict` (as `Cause`), `Merge`, `MergePaths` | A path the grammar or the schema rejects; matches `fieldmask.ErrInvalidPath`                           |
-| `*BehaviorError`                                                                                           | `Apply`                                                       | One `FieldViolation` per AIP-203 violation; matches `ErrBehaviorViolation`                             |
-| `*StrictError`                                                                                             | `ValidateStrict`                                              | Matches `ErrInvalidUpdateMask` and, for behavior violations, `ErrBehaviorViolation`                    |
-| `coreerrs.FieldError`                                                                                      | `Spec.Plan`, `Patch.Run`                                      | Field `updateMask.paths[i]`; its chain holds a `*MaskPathError`                                        |
-| `ErrProtectedField`                                                                                        | `Spec.Plan`, `Patch.Run`                                      | A changed IMMUTABLE or IDENTIFIER value, an identity path, a oneof switch away from a protected member |
-| `fieldmask.ErrMaxPathsExceeded`, `fieldmask.ErrMaxPathDepthExceeded`, `fieldmask.ErrMaxPathLengthExceeded` | every entry point a mask enters                               | A mask over a limit (see [Limits](#limits))                                                            |
-| `ErrElementCountMismatch`                                                                                  | `Spec.Plan`, `Merge`, `MergePaths`                            | A `*` sub-path of a list whose source holds elements, but not as many as the destination               |
-| `ErrMessageMismatch`                                                                                       | `Merge`, `MergePaths`, `NewSpec`, `Spec.Plan`, `WithCurrent`  | Nil messages, or messages of different types                                                           |
-| `etag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                        | A present etag that does not name the stored version, or any etag for a missing resource               |
-| `coreerrs.FieldError` on the etag field                                                                    | `Int64Precondition.Parse`, `TagPrecondition.Parse`            | A malformed etag (`etag.ReasonInvalid`) or a missing required one (`etag.ReasonRequired`)              |
-| `ErrInvalidPatch`                                                                                          | `Patch.Run`                                                   | A missing dependency, or allow_missing without `Create`                                                |
+| Error                                                                                                      | Returned by                                                                | Meaning                                                                                                |
+|------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| `*fieldmask.ValidationError`                                                                               | `ApplyMask`, `Apply`, `ValidateStrict` (as `Cause`), `Merge`, `MergePaths` | A path the grammar or the schema rejects; matches `fieldmask.ErrInvalidPath`                           |
+| `*BehaviorError`                                                                                           | `ApplyMask`, `Apply`                                                       | One `FieldViolation` per AIP-203 violation; matches `ErrBehaviorViolation`                             |
+| `*StrictError`                                                                                             | `ValidateStrict`, `ApplyMask` with `WithStrict(true)`                      | Matches `ErrInvalidUpdateMask` and, for behavior violations, `ErrBehaviorViolation`                    |
+| `coreerrs.FieldError`                                                                                      | `Spec.Plan`, `Patch.Run`                                                   | Field `updateMask.paths[i]`; its chain holds a `*MaskPathError`                                        |
+| `ErrProtectedField`                                                                                        | `Spec.Plan`, `Patch.Run`                                                   | A changed IMMUTABLE or IDENTIFIER value, an identity path, a oneof switch away from a protected member |
+| `fieldmask.ErrMaxPathsExceeded`, `fieldmask.ErrMaxPathDepthExceeded`, `fieldmask.ErrMaxPathLengthExceeded` | every entry point a mask enters                                            | A mask over a limit (see [Limits](#limits))                                                            |
+| `ErrElementCountMismatch`                                                                                  | `Spec.Plan`, `Merge`, `MergePaths`                                         | A `*` sub-path of a list whose source holds elements, but not as many as the destination               |
+| `ErrMessageMismatch`                                                                                       | `ApplyMask`, `Merge`, `MergePaths`, `NewSpec`, `Spec.Plan`, `WithCurrent`  | Nil messages, or messages of different types                                                           |
+| `etag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                                     | A present etag that does not name the stored version, or any etag for a missing resource               |
+| `coreerrs.FieldError` on the etag field                                                                    | `Int64Precondition.Parse`, `TagPrecondition.Parse`                         | A malformed etag (`etag.ReasonInvalid`) or a missing required one (`etag.ReasonRequired`)              |
+| `ErrInvalidPatch`                                                                                          | `Patch.Run`                                                                | A missing dependency, or allow_missing without `Create`                                                |
 
 ## Options
 
@@ -248,6 +299,8 @@ uses the `google.api.field_behavior` annotations. Predicates and resolvers share
 | `WithCurrent`                | `Option`      | nil (unknown)                           | The stored resource IMMUTABLE and IDENTIFIER values are compared with (AIP-203).                                       |
 | `WithPathValidation`         | `Option`      | PathValidationEnforce                   | Select PathValidationEnforce, PathValidationWarn, or PathValidationDisabled for `Apply`.                               |
 | `WithPathValidationReporter` | `Option`      | nil / unset                             | Observe path validation failures in reporting mode.                                                                    |
+| `WithEmptyMaskImplied`       | `Option`      | false                                   | `ApplyMask` only: apply the implied mask to an `update_mask` sent with no paths, as to an omitted one.                 |
+| `WithStrict`                 | `Option`      | false                                   | `ApplyMask` only: check as `ValidateStrict` does (every path enforced, refusals as `*StrictError`).                    |
 | `WithAllowMissing`           | `PatchOption` | false                                   | AIP-134 allow_missing for one `Patch.Run`: create a missing resource with `Patch.Create`.                              |
 | `WithValidateOnly`           | `PatchOption` | false                                   | AIP-163 validate_only for one `Patch.Run`: run every check, skip `Save` and `Create`.                                  |
 
@@ -264,6 +317,7 @@ keeps the default) are options of `Apply` and `ValidateStrict` (in every `PathVa
 
 | Symbol                                                                                                                                  | Purpose                                                                                                                                                                |
 |-----------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ApplyMask`                                                                                                                             | Apply a raw update mask as sent, every path checked on its own, and return the effective mask to write back.                                                           |
 | `Apply`                                                                                                                                 | Apply an update mask to the request resource under the AIP-203 field behaviors.                                                                                        |
 | `ValidateStrict`                                                                                                                        | Validate an update mask under the rules of `Apply` without mutating the resource and return the cleaned mask.                                                          |
 | `FieldViolation`                                                                                                                        | One field-behavior violation of `Apply`: path, behavior and reason (`Format` is always empty here).                                                                    |

@@ -66,7 +66,7 @@ backticks). `ToPaths`, `FromMessage`, `FromSetFields` and every violation path q
 A `FieldMask` is a set of paths none of which covers another: `FromPaths("profile", "profile.id")` holds `profile` alone. A path the set would drop
 could never reach a schema or field behavior check, so `ParsePaths` and `FromProtoFieldMask` refuse a raw path another path of the same mask covers
 (`profile.id` with `profile`, `aliases.*` with `aliases`) as a `*ValidationError` naming the covered path; an exact duplicate is accepted. The update
-entry points that read the raw paths, `update.Spec.Plan` and `update.Patch`, accept such a mask and check every path on its own.
+entry points that read the raw paths, `update.ApplyMask`, `update.Spec.Plan` and `update.Patch`, accept such a mask and check every path on its own.
 
 ## Operations
 
