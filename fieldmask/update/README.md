@@ -33,6 +33,7 @@ Pass the stored resource with `WithCurrent` to `ApplyMask`, `Apply`, `ValidateSt
 | `Apply`                | Apply the AIP-203 rules, then clear fields outside the mask in place (mutates the mask)                                                       |
 | `ValidateStrict`       | Validate an update mask under the rules of `Apply` without mutating the resource; return the cleaned mask                                     |
 | `DropIdentifiers`      | Remove the `IDENTIFIER` entries `Apply` added, before handing the mask on (mutates)                                                           |
+| `KeepIdentity`         | Reduce a message to its `IDENTIFIER` and identity fields, what `Apply` keeps beside the masked fields (mutates)                               |
 | `ExpandMessagePaths`   | Expand message-typed leaves into their sub-fields for a full replacement update                                                               |
 | `FromSetFields`        | The update mask an omitted `update_mask` implies: `fieldmask.FromSetFields` minus identifiers and server-managed sub-fields                   |
 | `ImpliedPaths`         | The implied leaf paths of an omitted `update_mask`, skipping identity, secret, immutable and server-managed fields                            |
