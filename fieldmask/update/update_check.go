@@ -568,18 +568,24 @@ func (u *updateCheck) notWritten(fd protoreflect.FieldDescriptor) bool {
 // named in the mask as sent, whichever key a check empties and whatever its
 // spelling sorts before "*" ("", punctuation).
 func (u *updateCheck) checkElements(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, pairs []msgPair, path string) {
-	elem := wildcardElementDescriptor(fd, u.policy)
-	if elem == nil {
-		return
+	if maskpath.ValueMessage(fd) == nil {
+		return // scalar elements: nothing to check
 	}
 
 	// named is the selection as sent; nested is cleaned below.
 	named := maps.Clone(nested)
 
+	// An element named whole is a new value, checked as on create whatever
+	// its type: an atomic or dynamic one too, which no sub-path may enter.
 	for _, key := range slices.Sorted(maps.Keys(named)) {
 		if named[key] == nil && (fd.IsMap() || key == maskpath.Wildcard) {
 			u.checkWholeElements(fd, key, named, pairs)
 		}
+	}
+
+	elem := wildcardElementDescriptor(fd, u.policy)
+	if elem == nil {
+		return
 	}
 
 	var emptied []string
