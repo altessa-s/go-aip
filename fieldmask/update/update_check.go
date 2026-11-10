@@ -423,10 +423,7 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		}
 
 		if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
-			if u.expandLeaves++; !u.validationOnly && u.policy.maxPaths > 0 && u.expandLeaves > u.policy.maxPaths {
-				u.refuse(&fieldmask.ValidationError{Path: path, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
-					"the replacement expands to more than %d paths, the limit", u.policy.maxPaths)})
-
+			if !u.emitLeaf(path) {
 				return nil
 			}
 
@@ -465,16 +462,16 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 }
 
 // expandWithin counts a visit of [updateCheck.expand] to the message at
-// prefix and reports whether the expansion stays within the limits of the
-// policy, recording the refusal otherwise: the paths below prefix must not be
-// deeper than [WithMaxPathDepth], and the messages visited in the whole call
-// must not exceed the larger of [WithMaxPaths] and
-// [fieldmask.DefaultMaxPaths] times that depth: a budget for the validation
-// work, apart from the limits of the effective mask (its leaves are counted
-// per top-level expansion, and the mask is checked as a whole afterwards). An
-// acyclic schema that branches at every level would otherwise expand
-// exponentially before the effective mask could be checked; the expansion
-// stops at the first excess instead.
+// prefix and reports whether the traversal stays within its own bounds,
+// recording the refusal otherwise: the messages nested no deeper than the
+// REQUIRED walks check ([requiredMaxDepth], refused with
+// [fieldbehavior.ErrMaxDepthExceeded]) and the messages visited in the whole
+// call within the work budget ([updateCheck.withinVisits]). These bound the
+// traversal apart from the limits of the effective mask, which apply to the
+// leaves it emits ([updateCheck.emitLeaf]) and to the mask as a whole
+// afterwards. An acyclic schema that branches at every level would otherwise
+// expand exponentially before the effective mask could be checked; the
+// expansion stops at the first excess instead.
 func (u *updateCheck) expandWithin(prefix string) bool {
 	if u.refusal != nil {
 		return false
@@ -482,28 +479,46 @@ func (u *updateCheck) expandWithin(prefix string) bool {
 
 	u.expandVisits++
 
-	if u.validationOnly {
-		// A comparison emits no path, so the path depth limit does not apply;
-		// it follows the request, whose nesting the REQUIRED walks bound.
-		if u.expandNesting > requiredMaxDepth {
-			u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", prefix, requiredMaxDepth,
-				fieldbehavior.ErrMaxDepthExceeded))
-
-			return false
-		}
-
-		return u.withinVisits(prefix)
-	}
-
-	depth := u.policy.maxPathDepth
-	if prefix != "" && depth > 0 && maskpath.Depth(prefix) >= depth {
-		u.refuse(&fieldmask.ValidationError{Path: prefix, Cause: fieldmask.ErrMaxPathDepthExceeded, Reason: fmt.Sprintf(
-			"the replacement expands below %q, deeper than the limit of %d segments", prefix, depth)})
+	// The traversal is bounded on its own: a message nesting deeper than the
+	// REQUIRED walks check is refused, and so is work past the visit budget.
+	// The path depth limit applies to the paths emitted ([updateCheck.emitLeaf]),
+	// so a message at the limit whose fields are all protected expands to
+	// nothing, as it emits no path.
+	if u.expandNesting > requiredMaxDepth {
+		u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", prefix, requiredMaxDepth,
+			fieldbehavior.ErrMaxDepthExceeded))
 
 		return false
 	}
 
 	return u.withinVisits(prefix)
+}
+
+// emitLeaf counts the leaf at path [updateCheck.expand] emits and reports
+// whether it fits the limits of the effective mask, recording the refusal
+// otherwise: no deeper than [WithMaxPathDepth], and at most [WithMaxPaths]
+// leaves per top-level expansion. A validation-only expansion emits no path
+// and is held to neither.
+func (u *updateCheck) emitLeaf(path string) bool {
+	if u.validationOnly {
+		return true
+	}
+
+	if depth := u.policy.maxPathDepth; depth > 0 && maskpath.Depth(path) > depth {
+		u.refuse(&fieldmask.ValidationError{Path: path, Cause: fieldmask.ErrMaxPathDepthExceeded, Reason: fmt.Sprintf(
+			"the replacement writes %q, deeper than the limit of %d segments", path, depth)})
+
+		return false
+	}
+
+	if u.expandLeaves++; u.policy.maxPaths > 0 && u.expandLeaves > u.policy.maxPaths {
+		u.refuse(&fieldmask.ValidationError{Path: path, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
+			"the replacement expands to more than %d paths, the limit", u.policy.maxPaths)})
+
+		return false
+	}
+
+	return true
 }
 
 // withinVisits reports whether the messages [updateCheck.expand] visited in
