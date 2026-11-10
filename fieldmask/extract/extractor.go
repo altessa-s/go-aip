@@ -185,6 +185,9 @@ func ChainUpdate(fns ...UpdateFunc) UpdateFunc {
 // bottom-of-stack fallback when no per-method override or global default is
 // configured. opts are forwarded to both helpers, so [WithMaskField] /
 // [WithResourceField] continue to work via the default extractor.
+// Without [WithMaskField], both helpers select the declared name update_mask,
+// falling back to updateMask only when update_mask is not declared.
+// [WithMaskField] selects an exact declared name without fallback.
 func DefaultUpdate(opts ...Option) UpdateFunc {
 	return func(_ context.Context, req proto.Message) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
 		mask, resource, ok := UpdateMask(req, opts...)
@@ -205,6 +208,9 @@ func DefaultUpdate(opts ...Option) UpdateFunc {
 
 // DefaultRead wraps [ReadMask] in the [ReadFunc]
 // shape. Used by the gRPC interceptor as the bottom-of-stack fallback.
+// Without [WithMaskField], it selects the declared name read_mask, falling
+// back to readMask only when read_mask is not declared. [WithMaskField]
+// selects an exact declared name without fallback.
 func DefaultRead(opts ...Option) ReadFunc {
 	return func(_ context.Context, req proto.Message) (*fieldmaskpb.FieldMask, bool) {
 		return ReadMask(req, opts...)

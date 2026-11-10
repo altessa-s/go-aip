@@ -10,14 +10,20 @@ works on descriptors only and has no gRPC dependency; the helpers return `*field
 
 ## Request messages
 
-`IsCanonicalUpdateRequest` reports whether a request has one top-level `update_mask` and exactly one other singular message field, the AIP-134 shape
-the strict gRPC interceptor of go-atlas extracts automatically. Read the `update_mask` and the read mask off a request message; the helpers return
-`*fieldmaskpb.FieldMask`.
+Default lookup selects the singular `google.protobuf.FieldMask` field declared as `update_mask` or `read_mask`. Only when that declared name is
+absent does it try `updateMask` or `readMask`, respectively. If both names are declared, snake_case wins, even if that field is unset or has the
+wrong type. Lookup uses declared proto names, not JSON names. `WithMaskField(name)` selects an exact declared name without fallback, including
+when the override is `"update_mask"` or `"read_mask"`.
+
+This rule is shared by `UpdateMask`, `SetUpdateMask`, `DefaultUpdate`, `IsCanonicalUpdateRequest`, `ReadMask`, and `DefaultRead`.
+`IsCanonicalUpdateRequest` reports whether a request has the selected top-level mask field and exactly one other singular non-mask message field,
+the AIP-134 shape the strict gRPC interceptor of go-atlas extracts automatically. Neither field needs to be populated for this shape check.
+`UpdateMask` requires both the mask and resource to be populated; `ReadMask` requires a populated mask.
 
 | AIP                          | Transport                                                       | Helper                         |
 |------------------------------|-----------------------------------------------------------------|--------------------------------|
-| AIP-134                      | `update_mask` field on the request message                      | `UpdateMask` / `DefaultUpdate` |
-| AIP-157 via AIP-161 (legacy) | `read_mask` field on the request message, deprecated by AIP-161 | `ReadMask` / `DefaultRead`     |
+| AIP-134                      | `update_mask` or `updateMask` field on the request message      | `UpdateMask` / `DefaultUpdate` |
+| AIP-157 via AIP-161 (legacy) | `read_mask` or `readMask` field on the request message, deprecated by AIP-161 | `ReadMask` / `DefaultRead` |
 
 Reflection helpers stay gRPC-unaware (descriptors only) and work from non-gRPC callers too. Reading the modern AIP-157 `x-goog-fieldmask` metadata
 header is transport-specific, so go-atlas provides that extractor with its gRPC interceptor and chains it before `DefaultRead`.
@@ -25,11 +31,12 @@ header is transport-specific, so go-atlas provides that extractor with its gRPC 
 | Function                                 | Description                                                                                      |
 |------------------------------------------|--------------------------------------------------------------------------------------------------|
 | `UpdateMask(req, opts...)`               | Read the mask and unambiguous sibling resource.                                                  |
-| `ReadMask(req, opts...)`                 | Return the `read_mask` on a Get/List/Search request. Defaults to `"read_mask"`.                  |
-| `IsCanonicalUpdateRequest(req, opts...)` | Report the AIP-134 shape: one top-level mask field and exactly one other singular message field. |
+| `ReadMask(req, opts...)`                 | Read the mask on a Get/List/Search request using the selection rule above.                       |
+| `IsCanonicalUpdateRequest(req, opts...)` | Report the AIP-134 shape: a top-level mask field and exactly one other singular non-mask message field. |
 | `SetUpdateMask(req, mask, opts...)`      | Writeback helper used after `Apply` removes `OUTPUT_ONLY` entries. Pass `nil` to clear.          |
 
-`SetUpdateMask` returns `ErrFieldNotSettable` when the request does not expose an `update_mask` field of type `google.protobuf.FieldMask`.
+`SetUpdateMask` returns `ErrFieldNotSettable` when the selected field is absent or is not a singular `google.protobuf.FieldMask`.
+It can populate an unset field or clear it with `nil`, and writes to the same field selected by `UpdateMask`.
 
 ## Custom extractors
 
@@ -64,16 +71,16 @@ mask, ok := read(ctx, req) // the nested read_mask, or the top-level one
 
 | Option / constant            | Type / value    | Behavior                                                                                            |
 |------------------------------|-----------------|-----------------------------------------------------------------------------------------------------|
-| `WithMaskField`              | `Option`        | Select the request mask field for descriptor-based extraction.                                      |
+| `WithMaskField`              | `Option`        | Select an exact declared mask field name, with no camelCase or JSON-name fallback.                  |
 | `WithResourceField`          | `Option`        | Select the request resource field for descriptor-based extraction.                                  |
-| `DefaultUpdateMaskFieldName` | `"update_mask"` | The mask field of `UpdateMask`, `SetUpdateMask`, `IsCanonicalUpdateRequest` without `WithMaskField` |
-| `DefaultReadMaskFieldName`   | `"read_mask"`   | The mask field of `ReadMask` without `WithMaskField`                                                |
+| `DefaultUpdateMaskFieldName` | `"update_mask"` | Preferred declared update-mask name; default lookup tries `updateMask` only if it is absent.      |
+| `DefaultReadMaskFieldName`   | `"read_mask"`   | Preferred declared read-mask name; default lookup tries `readMask` only if it is absent.          |
 
 ## Errors
 
 | Error                 | Returned by     | Meaning                                                                                |
 |-----------------------|-----------------|----------------------------------------------------------------------------------------|
-| `ErrFieldNotSettable` | `SetUpdateMask` | The request does not expose an `update_mask` field of type `google.protobuf.FieldMask` |
+| `ErrFieldNotSettable` | `SetUpdateMask` | The selected mask field is absent or is not a singular `google.protobuf.FieldMask` |
 
 ## Related packages
 

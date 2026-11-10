@@ -14,11 +14,15 @@ import (
 
 const (
 	// DefaultUpdateMaskFieldName is the AIP-134 conventional name for the
-	// update mask field on an Update* request message.
+	// update mask field on an Update* request message. Default lookup tries
+	// the declared name "updateMask" only when "update_mask" is not declared.
+	// [WithMaskField] overrides this rule with an exact declared-name lookup.
 	DefaultUpdateMaskFieldName = "update_mask"
 
 	// DefaultReadMaskFieldName is the AIP-157 conventional name for the
-	// read mask field on a Get/List/Search request message.
+	// read mask field on a Get/List/Search request message. Default lookup tries
+	// the declared name "readMask" only when "read_mask" is not declared.
+	// [WithMaskField] overrides this rule with an exact declared-name lookup.
 	DefaultReadMaskFieldName = "read_mask"
 
 	// fieldMaskMessageFullName is the protobuf full name of the wire-level
@@ -27,7 +31,8 @@ const (
 )
 
 // ErrFieldNotSettable is returned by [SetUpdateMask] when the request message
-// does not expose a settable update_mask field of type google.protobuf.FieldMask.
+// does not expose a settable singular google.protobuf.FieldMask under the
+// selected declared name.
 var ErrFieldNotSettable = errors.New("fieldmask: update_mask field is not present or has a wrong type")
 
 // UpdateMask locates the AIP-134 update_mask field on req and the
@@ -37,8 +42,9 @@ var ErrFieldNotSettable = errors.New("fieldmask: update_mask field is not presen
 //
 // Selection rules:
 //
-//   - The mask field is the [fieldmaskpb.FieldMask] field named "update_mask"
-//     (or the override from [WithMaskField]).
+//   - The mask field is a singular [fieldmaskpb.FieldMask] declared as
+//     "update_mask", or "updateMask" only when "update_mask" is not declared.
+//     [WithMaskField] selects an exact declared name without fallback.
 //   - The resource is the field named via [WithResourceField], or, if no
 //     override is set, the only non-mask message field declared on req.
 //     Repeated and map message fields are skipped. Ambiguous requests do not
@@ -48,7 +54,7 @@ var ErrFieldNotSettable = errors.New("fieldmask: update_mask field is not presen
 func UpdateMask(req proto.Message, opts ...Option) (mask *fieldmaskpb.FieldMask, resource proto.Message, ok bool) {
 	o := newExtractOptions(opts...)
 
-	maskMsg, prf, maskFD, found := lookupFieldMask(req, o.maskFieldNameOr(DefaultUpdateMaskFieldName), true)
+	maskMsg, prf, maskFD, found := lookupFieldMask(req, DefaultUpdateMaskFieldName, o.maskField, true)
 	if !found || maskMsg == nil {
 		return nil, nil, false
 	}
@@ -62,9 +68,11 @@ func UpdateMask(req proto.Message, opts ...Option) (mask *fieldmaskpb.FieldMask,
 }
 
 // IsCanonicalUpdateRequest reports whether req has the canonical AIP-134
-// shape: one singular google.protobuf.FieldMask named update_mask and exactly
-// one other singular message field to carry the resource. The mask and
-// resource need not be populated.
+// shape: a singular google.protobuf.FieldMask declared as update_mask, or
+// updateMask only when update_mask is not declared, and exactly one other
+// singular non-mask message field to carry the resource. [WithMaskField]
+// selects an exact declared name without fallback. The mask and resource
+// need not be populated.
 func IsCanonicalUpdateRequest(req proto.Message, opts ...Option) bool {
 	if req == nil || !req.ProtoReflect().IsValid() {
 		return false
@@ -73,7 +81,7 @@ func IsCanonicalUpdateRequest(req proto.Message, opts ...Option) bool {
 	o := newExtractOptions(opts...)
 	fields := req.ProtoReflect().Descriptor().Fields()
 
-	maskFD := fields.ByName(protoreflect.Name(o.maskFieldNameOr(DefaultUpdateMaskFieldName)))
+	maskFD := resolveMaskField(fields, DefaultUpdateMaskFieldName, o.maskField)
 	if !isFieldMask(maskFD) {
 		return false
 	}
@@ -93,11 +101,14 @@ func IsCanonicalUpdateRequest(req proto.Message, opts ...Option) bool {
 }
 
 // ReadMask locates the AIP-157 read_mask field on req. Returns
-// (mask, true) when the field is present and populated.
+// (mask, true) when the field is a populated singular [fieldmaskpb.FieldMask].
+// It selects the declared name "read_mask", or "readMask" only when
+// "read_mask" is not declared. [WithMaskField] selects an exact declared
+// name without fallback.
 func ReadMask(req proto.Message, opts ...Option) (mask *fieldmaskpb.FieldMask, ok bool) {
 	o := newExtractOptions(opts...)
 
-	maskMsg, _, _, found := lookupFieldMask(req, o.maskFieldNameOr(DefaultReadMaskFieldName), true)
+	maskMsg, _, _, found := lookupFieldMask(req, DefaultReadMaskFieldName, o.maskField, true)
 	if !found || maskMsg == nil {
 		return nil, false
 	}
@@ -105,15 +116,19 @@ func ReadMask(req proto.Message, opts ...Option) (mask *fieldmaskpb.FieldMask, o
 	return maskMsg, true
 }
 
-// SetUpdateMask writes mask back onto req's update_mask field. Used by the
+// SetUpdateMask writes mask back onto req's selected update-mask field. Used by the
 // fieldmask gRPC interceptor after [github.com/altessa-s/go-aip/fieldmask/update.Apply] removes
 // OUTPUT_ONLY entries so the handler sees a coherent (mask, resource) pair.
-// Returns [ErrFieldNotSettable] when req does not expose an update_mask
-// field of type [fieldmaskpb.FieldMask].
+// Returns [ErrFieldNotSettable] when the selected field is absent or is not
+// a singular [fieldmaskpb.FieldMask].
+// The field must be singular and declared as "update_mask", or "updateMask"
+// only when "update_mask" is not declared. [WithMaskField] selects an exact
+// declared name without fallback. An unset mask field can be written;
+// passing nil clears the selected field.
 func SetUpdateMask(req proto.Message, mask *fieldmaskpb.FieldMask, opts ...Option) error {
 	o := newExtractOptions(opts...)
 
-	_, prf, fd, found := lookupFieldMask(req, o.maskFieldNameOr(DefaultUpdateMaskFieldName), false)
+	_, prf, fd, found := lookupFieldMask(req, DefaultUpdateMaskFieldName, o.maskField, false)
 	if !found {
 		return ErrFieldNotSettable
 	}
@@ -143,19 +158,17 @@ func SetUpdateMask(req proto.Message, mask *fieldmaskpb.FieldMask, opts ...Optio
 	return nil
 }
 
-// lookupFieldMask resolves the named [fieldmaskpb.FieldMask] field on req. It
-// is the single point of validation shared by [UpdateMask],
-// [ReadMask], and [SetUpdateMask] so the "find the well-known mask
-// field" boilerplate stays consistent across read, update, and writeback
-// paths.
+// lookupFieldMask resolves a [fieldmaskpb.FieldMask] field on req using
+// [resolveMaskField] for the default name or exact override. It validates
+// the request and mask value for [UpdateMask], [ReadMask], and [SetUpdateMask].
 //
 // Returns found=true only when req is non-nil, reflects to a valid message,
-// and exposes a singular google.protobuf.FieldMask field named name. When
-// mustBeSet is true the field must additionally be populated on req — used
+// and exposes a singular google.protobuf.FieldMask field under the selected
+// name. When mustBeSet is true the field must additionally be populated on req — used
 // by the extractor paths so an unset mask yields ok=false; SetUpdateMask
 // passes mustBeSet=false because it needs the descriptor even to clear the
 // field. The returned mask copies paths through reflection, including dynamic messages.
-func lookupFieldMask(req proto.Message, name string, mustBeSet bool) (
+func lookupFieldMask(req proto.Message, defaultName, override string, mustBeSet bool) (
 	mask *fieldmaskpb.FieldMask,
 	prf protoreflect.Message,
 	fd protoreflect.FieldDescriptor,
@@ -170,7 +183,7 @@ func lookupFieldMask(req proto.Message, name string, mustBeSet bool) (
 		return nil, nil, nil, false
 	}
 
-	fd = prf.Descriptor().Fields().ByName(protoreflect.Name(name))
+	fd = resolveMaskField(prf.Descriptor().Fields(), defaultName, override)
 	if !isFieldMask(fd) {
 		return nil, nil, nil, false
 	}
@@ -198,6 +211,29 @@ func lookupFieldMask(req proto.Message, name string, mustBeSet bool) (
 	}
 
 	return mask, prf, fd, true
+}
+
+// resolveMaskField selects an exact override, or the conventional declared
+// name followed by its lowerCamelCase spelling only if that name is absent.
+// Selection precedes type and presence checks, so a declared snake_case field
+// always wins even if it is unset or has the wrong type.
+func resolveMaskField(fields protoreflect.FieldDescriptors, defaultName, override string) protoreflect.FieldDescriptor {
+	if override != "" {
+		return fields.ByName(protoreflect.Name(override))
+	}
+
+	if fd := fields.ByName(protoreflect.Name(defaultName)); fd != nil {
+		return fd
+	}
+
+	switch defaultName {
+	case DefaultUpdateMaskFieldName:
+		return fields.ByName("updateMask")
+	case DefaultReadMaskFieldName:
+		return fields.ByName("readMask")
+	default:
+		return nil
+	}
 }
 
 // isFieldMask reports whether fd is a singular message field whose descriptor

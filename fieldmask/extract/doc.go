@@ -6,6 +6,11 @@
 // read_mask of AIP-157 (deprecated by AIP-161). It works on descriptors only and has no gRPC dependency; UpdateFunc and ReadFunc are
 // the transport-agnostic shapes a gRPC interceptor or any other caller composes with ChainUpdate and ChainRead.
 //
+// Default lookup selects a singular google.protobuf.FieldMask declared as update_mask or read_mask. Only when that declared
+// name is absent does it try updateMask or readMask, respectively. A snake_case declaration wins even if unset or of the wrong
+// type. [WithMaskField] selects an exact declared name without fallback; JSON names are not used for mask-field lookup.
+// This rule is shared by [UpdateMask], [SetUpdateMask], [DefaultUpdate], [IsCanonicalUpdateRequest], [ReadMask], and [DefaultRead].
+//
 // # Usage
 //
 //	mask, resource, ok := extract.UpdateMask(req)
