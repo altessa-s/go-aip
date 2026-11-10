@@ -16,7 +16,12 @@ type ValidationError struct {
 	Cause  error  // An optional more specific classification.
 }
 
-// Error returns the error message.
+// Error returns the error message. A mask-level error, such as the path
+// count limit, has no Path and names the mask instead.
 func (e *ValidationError) Error() string {
+	if e.Path == "" {
+		return "invalid field mask: " + e.Reason
+	}
+
 	return "invalid field mask path '" + e.Path + "': " + e.Reason
 }

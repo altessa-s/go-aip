@@ -94,3 +94,26 @@ func Insert[M ~map[string]M](mask M, parts []string) {
 
 	Insert(nested, parts[1:])
 }
+
+// CoveredAt returns the number of leading segments of parts that end at a
+// leaf of mask before parts itself ends: the path of parts was inserted but
+// a shorter path covers it, so mask no longer holds it. It returns 0 when no
+// proper prefix of parts is a leaf of mask.
+func CoveredAt[M ~map[string]M](mask M, parts []string) int {
+	level := mask
+
+	for i := range len(parts) - 1 {
+		nested, ok := level[parts[i]]
+		if !ok {
+			return 0
+		}
+
+		if nested == nil {
+			return i + 1
+		}
+
+		level = nested
+	}
+
+	return 0
+}

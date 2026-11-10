@@ -33,8 +33,12 @@ type Error struct {
 	Reason string
 }
 
-// Error returns the error message.
+// Error returns the error message; one without a Path names the mask.
 func (e *Error) Error() string {
+	if e.Path == "" {
+		return "invalid field mask: " + e.Reason
+	}
+
 	return "invalid field mask path '" + e.Path + "': " + e.Reason
 }
 
