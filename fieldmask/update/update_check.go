@@ -69,10 +69,6 @@ type updateCheck struct {
 	// refusal is the first refusal of the mask itself (a path error, not a
 	// field behavior violation) the check made, nil otherwise.
 	refusal error
-	// pinned reports that a "*" was replaced by request keys
-	// ([updateCheck.pinWildcard]): the cleaned mask holds generated paths,
-	// whose limits [updateCheck.maskRefusal] checks.
-	pinned bool
 }
 
 // newUpdateCheck returns the check of an update of req whose stored value is
@@ -595,8 +591,6 @@ func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldm
 		return
 	}
 
-	u.pinned = true
-
 	for _, key := range keys {
 		nested[key] = wildcard.Clone()
 	}
@@ -637,13 +631,15 @@ func (u *updateCheck) refuse(err error) {
 	}
 }
 
-// maskRefusal returns the refusal the check recorded, or, when a "*" was
-// pinned to request keys, the first limit the paths of work, the cleaned
-// mask of md, break as a *fieldmask.ValidationError; nil otherwise. The
-// generated paths are checked as a request mask is, so the cleaned mask can be
-// written back and merged.
+// maskRefusal returns the refusal the check recorded, or the first limit
+// the paths of work, the cleaned mask of md, break as a
+// *fieldmask.ValidationError; nil otherwise. The limits bound the effective
+// mask, not only the mask as sent: "*", a message named whole and a pinned
+// "*" expand to the paths the update writes, which are checked as a request
+// mask is, so the cleaned mask can be written back and merged
+// ([MergePaths] checks the same limits).
 func (u *updateCheck) maskRefusal(work fieldmask.FieldMask, md protoreflect.MessageDescriptor) error {
-	if u.refusal != nil || !u.pinned {
+	if u.refusal != nil {
 		return u.refusal
 	}
 

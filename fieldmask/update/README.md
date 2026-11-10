@@ -337,6 +337,12 @@ the default) are options of `ApplyMask`, `Apply` and `ValidateStrict` (in every 
 (the bare `updateMask` for the path count) wrapping a `*MaskPathError`. The implied masks of `Plan`, `ImpliedPaths` and `FromSetFields` stop at the
 policy's `WithMaxPathDepth`; the deepest path then stands for the subtree below it.
 
+The limits bound the effective mask, not only the mask as sent. `ApplyMask`, `Apply`, `ValidateStrict` and `Spec.Plan` check the paths the update writes
+— after `*`, a message named whole that holds a server-managed field, and a pinned `*` are expanded — before the request is touched, and refuse a mask
+whose expansion breaks a limit with the limit sentinel (from `Plan`, a field error located at the mask path that expands), since `MergePaths` would
+refuse those paths. The default of 1,000 paths covers the expansion of ordinary resources; a service whose `*` or whole messages expand to more leaves
+raises `WithMaxPaths` (on `NewSpec` for `Plan` and `Patch`).
+
 A path another path covers is checked once per distinct path, against the subtree it addresses: a mask repeating it up to the path limit costs one
 check, and comparing an `IMMUTABLE` or `IDENTIFIER` value copies the compared field only.
 

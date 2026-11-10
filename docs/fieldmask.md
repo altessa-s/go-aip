@@ -212,6 +212,10 @@ the usual structured error: a `*ValidationError`, or from `Plan` a field error o
 paths) wrapping a `*MaskPathError`. `FromMessage` and `FromSetFields` stop a recursive message at the default depth, the implied masks at the
 policy's depth.
 
+The limits bound the effective mask: the update entry points (`ApplyMask`, `Apply`, `ValidateStrict`, `Plan`) check the paths an update writes,
+after `*`, whole messages holding server-managed fields and pinned wildcards are expanded, and refuse an expansion over a limit before the request is
+touched, since `MergePaths` would refuse those paths. A resource whose expansion exceeds the default 1,000 paths needs a higher `WithMaxPaths`.
+
 ## Request extraction
 
 The [extract](../fieldmask/extract/) package reads two request-message shapes, with one return type (`*fieldmaskpb.FieldMask`):
