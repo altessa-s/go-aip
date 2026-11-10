@@ -341,7 +341,9 @@ The limits bound the effective mask, not only the mask as sent. `ApplyMask`, `Ap
 — after `*`, a message named whole that holds a server-managed field, and a pinned `*` are expanded — before the request is touched, and refuse a mask
 whose expansion breaks a limit with the limit sentinel (from `Plan`, a field error located at the mask path that expands), since `MergePaths` would
 refuse those paths. The default of 1,000 paths covers the expansion of ordinary resources; a service whose `*` or whole messages expand to more leaves
-raises `WithMaxPaths` (on `NewSpec` for `Plan` and `Patch`).
+raises `WithMaxPaths` (on `NewSpec` for `Plan` and `Patch`). The expansion itself is bounded as it is built: it stops at the first path over
+`WithMaxPaths` or `WithMaxPathDepth`, and after visiting `WithMaxPaths` × `WithMaxPathDepth` messages, so a schema that branches at every level cannot
+make a small request expand exponentially before the effective mask is checked.
 
 A path another path covers is checked once per distinct path, against the subtree it addresses: a mask repeating it up to the path limit costs one
 check, and comparing an `IMMUTABLE` or `IDENTIFIER` value copies the compared field only.

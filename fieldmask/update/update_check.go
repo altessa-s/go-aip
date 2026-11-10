@@ -69,6 +69,10 @@ type updateCheck struct {
 	// refusal is the first refusal of the mask itself (a path error, not a
 	// field behavior violation) the check made, nil otherwise.
 	refusal error
+	// expandVisits and expandLeaves count the messages [updateCheck.expand]
+	// visited and the leaves it emitted, for its budget
+	// ([updateCheck.expandWithin]).
+	expandVisits, expandLeaves int
 }
 
 // newUpdateCheck returns the check of an update of req whose stored value is
@@ -361,6 +365,10 @@ func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pair
 // already on the path (onPath), which has no finite expansion and is left as
 // stored.
 func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair, prefix string, onPath map[protoreflect.FullName]bool) fieldmask.FieldMask {
+	if !u.expandWithin(prefix) {
+		return nil
+	}
+
 	out := fieldmask.FieldMask{}
 
 	fields := md.Fields()
@@ -381,7 +389,15 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		}
 
 		if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
+			if u.expandLeaves++; u.policy.maxPaths > 0 && u.expandLeaves > u.policy.maxPaths {
+				u.refuse(&fieldmask.ValidationError{Path: path, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
+					"the replacement expands to more than %d paths, the limit", u.policy.maxPaths)})
+
+				return nil
+			}
+
 			out[name] = nil
+
 			continue
 		}
 
@@ -402,6 +418,43 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 	}
 
 	return out
+}
+
+// expandWithin counts a visit of [updateCheck.expand] to the message at
+// prefix and reports whether the expansion stays within the limits of the
+// policy, recording the refusal otherwise: the paths below prefix must not be
+// deeper than [WithMaxPathDepth], and the messages visited must not exceed
+// [WithMaxPaths] times that depth, the most a mask within the limits needs.
+// An acyclic schema that branches at every level would otherwise expand
+// exponentially before the effective mask could be checked; the expansion
+// stops at the first excess instead.
+func (u *updateCheck) expandWithin(prefix string) bool {
+	if u.refusal != nil {
+		return false
+	}
+
+	u.expandVisits++
+
+	depth := u.policy.maxPathDepth
+	if prefix != "" && depth > 0 && maskpath.Depth(prefix) >= depth {
+		u.refuse(&fieldmask.ValidationError{Path: prefix, Cause: fieldmask.ErrMaxPathDepthExceeded, Reason: fmt.Sprintf(
+			"the replacement expands below %q, deeper than the limit of %d segments", prefix, depth)})
+
+		return false
+	}
+
+	if depth <= 0 {
+		depth = fieldmask.DefaultMaxPathDepth
+	}
+
+	if paths := u.policy.maxPaths; paths > 0 && u.expandVisits > paths*depth {
+		u.refuse(&fieldmask.ValidationError{Path: prefix, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
+			"the replacement visits more than %d messages, more than %d paths of at most %d segments need", paths*depth, paths, depth)})
+
+		return false
+	}
+
+	return true
 }
 
 // writesOneofMember reports whether a replacement writes fd: any field but a
