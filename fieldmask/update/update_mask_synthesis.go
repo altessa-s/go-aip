@@ -164,6 +164,15 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 		}
 
 		switch {
+		case prefix != "" && isProtectedAtomic(fd, policy):
+			// A protected leaf, as a set IMMUTABLE value: named on its own and
+			// compared whole when set, its parent masked by its other set
+			// fields; when unset, it must not let its parent be named whole.
+			if msg.Has(fd) {
+				*descend = append(*descend, path)
+			} else {
+				*paths = append(*paths, path)
+			}
 		case !policy.expandable(fd):
 		case msg.Has(fd):
 			collectSkipFields(msg.Get(fd).Message(), path, room-1, paths, descend, policy)
