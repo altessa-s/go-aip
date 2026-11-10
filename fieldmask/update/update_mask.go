@@ -143,7 +143,13 @@ func (e *BehaviorError) Error() string {
 // the rules above apply per element: a list element is compared with the
 // stored element of the same index, a map entry with the stored entry of the
 // same key. Each element such a sub-path addresses keeps its set IDENTIFIER
-// fields, as a singular sub-message does.
+// fields, as a singular sub-message does. A "*" naming the elements whole
+// ("delegates.*") covers every key path beside it ("delegates.k.org"),
+// which is checked as if sent alone, as [Spec.Plan] reads it. A "*" sub-path
+// of a map ("delegates.*.email") addresses the entries no key path names;
+// when the check drops such a key path (an unchanged IMMUTABLE value, say),
+// the "*" is replaced by the keys of the entries it addresses, so the cleaned
+// mask never selects the entry that was left out.
 //
 // msk keeps the presence of the update_mask (AIP-134), as
 // [fieldmask.FromProtoFieldMask] builds it:
@@ -300,20 +306,27 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 	return work, covered, nil
 }
 
-// coverPaths returns the mask of the split paths and, for every path a
-// shorter one covers in that mask, the mask of that path alone: the mask
-// holds the covering path only, so the covered one must be checked on its
-// own. An exact duplicate is not covered.
+// coverPaths returns the mask of the split paths and, for every path another
+// one covers in that mask, the mask of that path alone: the mask holds the
+// covering path only, so the covered one must be checked on its own. A path
+// is covered by a shorter path ("profile.id" by "profile") and, in a
+// collection whose elements "*" names whole ("delegates.*"), by that "*": a
+// key path beside it ("delegates.k.org") is removed from the mask, so the
+// elements "*" replaces are exactly those it was checked for, as
+// [Spec.Plan] and [MergePaths] read "delegates.*". An exact duplicate is not
+// covered.
 func coverPaths(paths [][]string) (fieldmask.FieldMask, []fieldmask.FieldMask) {
 	work := fieldmask.FieldMask{}
 	for _, parts := range paths {
 		maskwalk.Insert(work, parts)
 	}
 
+	pruneWildcardSiblings(work)
+
 	var covered []fieldmask.FieldMask
 
 	for _, parts := range paths {
-		if maskwalk.CoveredAt(work, parts) > 0 {
+		if isCovered(work, parts) {
 			single := fieldmask.FieldMask{}
 			maskwalk.Insert(single, parts)
 			covered = append(covered, single)
@@ -321,6 +334,49 @@ func coverPaths(paths [][]string) (fieldmask.FieldMask, []fieldmask.FieldMask) {
 	}
 
 	return work, covered
+}
+
+// pruneWildcardSiblings removes, at every level of msk, the keys beside a
+// "*" that names every element whole: that "*" already replaces them.
+func pruneWildcardSiblings(msk fieldmask.FieldMask) {
+	if sub, ok := msk[maskpath.Wildcard]; ok && sub == nil {
+		for key := range msk {
+			if key != maskpath.Wildcard {
+				delete(msk, key)
+			}
+		}
+
+		return
+	}
+
+	for _, nested := range msk {
+		if nested != nil {
+			pruneWildcardSiblings(nested)
+		}
+	}
+}
+
+// isCovered reports whether the path of parts, inserted into msk, is no
+// longer held by it as written: a shorter path or a whole-element "*" beside
+// it ([pruneWildcardSiblings]) covers it.
+func isCovered(msk fieldmask.FieldMask, parts []string) bool {
+	level := msk
+
+	for i, seg := range parts {
+		nested, ok := level[seg]
+		switch {
+		case !ok:
+			return true // removed beside a whole-element "*"
+		case i == len(parts)-1:
+			return false
+		case nested == nil:
+			return true // under a shorter path
+		}
+
+		level = nested
+	}
+
+	return false
 }
 
 // checkCovering applies the update rules to work, the mask of an update's

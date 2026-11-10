@@ -476,11 +476,57 @@ func (u *updateCheck) checkElements(fd protoreflect.FieldDescriptor, nested fiel
 		}
 	}
 
+	named := slices.Collect(maps.Keys(nested))
+
 	for key, sub := range elementMasks(fd, nested) {
 		u.checkMask(sub, elem, elementPairs(fd, key, nested, pairs), elementPath(path, key))
 
 		if len(sub) == 0 {
 			delete(nested, key)
+		}
+	}
+
+	if fd.IsMap() {
+		u.pinWildcard(fd, nested, named, pairs, path)
+	}
+}
+
+// pinWildcard keeps the "*" sub-mask of nested, the sub-mask of the map
+// field fd, off the entries other keys named (named, the keys before the
+// check) when the check emptied the sub-mask of such a key: that entry was
+// excluded from the "*" when it was checked, and without its key the "*"
+// would select it on write. The "*" is then replaced by the keys of the
+// entries it addresses, the request entries no other key names, each with a
+// copy of its sub-mask, as [MergePaths] and the filter read it. The pairs
+// share one mask, so a map below several elements cannot be pinned this
+// way: such a mask is refused.
+func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, named []string, pairs []msgPair, path string) {
+	wildcard := nested[maskpath.Wildcard]
+	if wildcard == nil || !slices.ContainsFunc(named, func(key string) bool {
+		_, kept := nested[key]
+		return key != maskpath.Wildcard && !kept
+	}) {
+		return
+	}
+
+	if len(pairs) != 1 {
+		u.fail(FieldViolation{Path: elementPath(path, maskpath.Wildcard),
+			Reason: "a key path beside \"*\" that updates nothing cannot be kept out of the wildcard here; name the entries to update"})
+
+		return
+	}
+
+	delete(nested, maskpath.Wildcard)
+
+	req := pairs[0].req
+	if req == nil || !req.Has(fd) {
+		return
+	}
+
+	mm := req.Get(fd).Map()
+	for _, k := range behavior.SortedMapKeys(mm) {
+		if key := k.String(); !slices.Contains(named, key) {
+			nested[key] = wildcard.Clone()
 		}
 	}
 }
