@@ -15,7 +15,8 @@ import (
 // policy: its set IDENTIFIER fields that are not also OUTPUT_ONLY and the
 // top-level identity fields of the policy ([WithIdentityFields]; id and etag
 // by default) — the fields [Apply] keeps whatever the mask selects. Every
-// other top-level field is cleared, OUTPUT_ONLY values included.
+// other top-level field is cleared, and so is every OUTPUT_ONLY value left
+// below a kept field (a message-valued identity field), as Apply clears them.
 //
 // [Apply] and [ApplyMask] leave the message untouched when the mask ends up
 // empty (an empty update_mask, a mask whose every path is dropped): the
@@ -25,14 +26,15 @@ import (
 // use are neither validated nor seen downstream.
 //
 // Mutates msg. Pass the same policy used by Apply. A nil msg is left alone.
-func KeepIdentity(msg proto.Message, opts ...Option) {
+// The error is the one of the OUTPUT_ONLY walk ([fieldbehavior.Strip]).
+func KeepIdentity(msg proto.Message, opts ...Option) error {
 	if msg == nil {
-		return
+		return nil
 	}
 
 	prf := msg.ProtoReflect()
 	if !prf.IsValid() {
-		return
+		return nil
 	}
 
 	policy := newOptions(opts...)
@@ -52,4 +54,6 @@ func KeepIdentity(msg proto.Message, opts ...Option) {
 
 		return true
 	})
+
+	return clearOutputOnly(msg, policy)
 }

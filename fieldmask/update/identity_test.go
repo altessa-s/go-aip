@@ -29,7 +29,8 @@ func TestKeepIdentity(t *testing.T) {
 	md := planDescriptor(t)
 	sent := map[string]string{
 		"id": "r-1", "etag": "e", "name": "n", "code": "c", "secret": "s", "create_time": "client",
-		"filters.keywords": "k", "status.note": "note", "channel": "ch",
+		"filters.keywords": "k", "status.note": "note", "status.checked": "client", "status.inner.x": "x",
+		"status.inner.server": "client", "channel": "ch",
 	}
 	resolve := func(name string, behaviors ...annotations.FieldBehavior) update.Option {
 		return update.WithResolver(fieldbehavior.ResolverFunc(func(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
@@ -59,6 +60,16 @@ func TestKeepIdentity(t *testing.T) {
 			want: map[string]string{"id": "r-1", "etag": "e"},
 		},
 		{
+			name: "message identity field",
+			opts: []update.Option{update.WithIdentityFields("status")},
+			want: map[string]string{"status.note": "note", "status.inner.x": "x"},
+		},
+		{
+			name: "message resolver identifier",
+			opts: []update.Option{resolve("status", annotations.FieldBehavior_IDENTIFIER)},
+			want: map[string]string{"id": "r-1", "etag": "e", "status.note": "note", "status.inner.x": "x"},
+		},
+		{
 			name: "output-only identity field",
 			opts: []update.Option{resolve("etag", annotations.FieldBehavior_OUTPUT_ONLY)},
 			want: map[string]string{"id": "r-1"},
@@ -69,7 +80,7 @@ func TestKeepIdentity(t *testing.T) {
 			t.Parallel()
 
 			m := planResource(md, sent)
-			update.KeepIdentity(m, tc.opts...)
+			require.NoError(t, update.KeepIdentity(m, tc.opts...))
 			require.True(t, proto.Equal(planResource(md, tc.want), m), "%v", m)
 
 			// Apply keeps the same fields beside the one a mask selects.
@@ -80,9 +91,9 @@ func TestKeepIdentity(t *testing.T) {
 		})
 	}
 
-	require.NotPanics(t, func() { update.KeepIdentity(nil) })
+	require.NoError(t, update.KeepIdentity(nil))
 
 	empty := planResource(md, nil)
-	update.KeepIdentity(empty)
+	require.NoError(t, update.KeepIdentity(empty))
 	require.True(t, proto.Equal(planResource(md, nil), empty))
 }
