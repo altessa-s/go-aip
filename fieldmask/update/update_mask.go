@@ -101,6 +101,14 @@ func (e *BehaviorError) Error() string {
 //     - The populated IDENTIFIER fields the mask does not name address the
 //     resource; with [WithCurrent] one that differs from the stored value is
 //     a violation.
+//     - A path setting a member of a real oneof whose other member is, or
+//     holds, an IMMUTABLE or IDENTIFIER field (or is a top-level field of
+//     [WithIdentityFields] or [WithImmutableFields]) is a violation when the
+//     stored resource holds that member, or, without [WithCurrent], whatever
+//     it holds: setting one member clears the others ([Spec.Plan] refuses it
+//     the same way). This holds for every mask, implied and "*" included, and
+//     for element sub-paths ("items.k.free"); a collection replaced whole
+//     holds new elements and is not checked.
 //  4. On any violation msk and msg are left untouched and
 //     *BehaviorError is returned. When no path is left the update
 //     is a no-op (see below). Otherwise the set IDENTIFIER
@@ -213,11 +221,11 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 
 	var work fieldmask.FieldMask
 
+	var covered []fieldmask.FieldMask
+
 	if all {
 		work = u.replaceAll(descriptor, root)
 	} else {
-		var covered []fieldmask.FieldMask
-
 		work, covered, err = resolveUpdatePaths(msk.ToPaths(), descriptor, policy, o)
 		if err != nil {
 			return err
@@ -225,6 +233,8 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 
 		u.checkCovering(work, covered, descriptor, root)
 	}
+
+	u.checkOneofSwitches(descriptor, root, work, covered)
 
 	if len(u.violations) > 0 {
 		return &BehaviorError{Violations: u.violations}
@@ -377,6 +387,23 @@ func isCovered(msk fieldmask.FieldMask, parts []string) bool {
 	}
 
 	return false
+}
+
+// checkOneofSwitches records a violation for every path of work and of
+// covered, update masks of message type md, that would switch a oneof away
+// from a member the update must not clear ([policyOneofGuard]): setting one
+// member clears the others, so writing the mask would delete such a stored
+// value without naming it (see [Spec.Plan]).
+func (u *updateCheck) checkOneofSwitches(md protoreflect.MessageDescriptor, root msgPair, work fieldmask.FieldMask, covered []fieldmask.FieldMask) {
+	g := policyOneofGuard(u.policy)
+
+	for _, m := range append([]fieldmask.FieldMask{work}, covered...) {
+		for _, path := range declaredPaths(m, md) {
+			if sw := g.check(path, md, root.cur); sw != nil {
+				u.fail(sw.violation(u.policy))
+			}
+		}
+	}
 }
 
 // checkCovering applies the update rules to work, the mask of an update's

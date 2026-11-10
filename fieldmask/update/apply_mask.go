@@ -64,7 +64,8 @@ import (
 // through its other fields, a collection or map entry named whole is replaced
 // by new values (their IMMUTABLE and IDENTIFIER values kept as sent, their
 // OUTPUT_ONLY ones cleared) and every OUTPUT_ONLY value left is cleared. The
-// field behaviors, the mask policy of the options and the treatment of a
+// field behaviors, the mask policy of the options, the refusal of a path
+// that switches a oneof away from a protected member and the treatment of a
 // collection are those of Apply.
 //
 // As with Apply, an omitted mask or "*" whose request sets an IMMUTABLE value
@@ -140,7 +141,10 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 
 	md := msg.ProtoReflect().Descriptor()
 
-	var work fieldmask.FieldMask
+	var (
+		work    fieldmask.FieldMask
+		covered []fieldmask.FieldMask
+	)
 
 	switch {
 	case len(paths) == 0:
@@ -148,8 +152,6 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 	case len(paths) == 1 && paths[0] == maskpath.Wildcard:
 		work = u.replaceAll(md, root)
 	default:
-		var covered []fieldmask.FieldMask
-
 		work, covered, err = o.resolveRawPaths(paths, md)
 		if err != nil {
 			return nil, err
@@ -157,6 +159,8 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 
 		u.checkCovering(work, covered, md, root)
 	}
+
+	u.checkOneofSwitches(md, root, work, covered)
 
 	if len(u.violations) > 0 {
 		return nil, &BehaviorError{Violations: u.violations}

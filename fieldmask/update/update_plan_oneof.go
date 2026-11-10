@@ -6,7 +6,9 @@ package update
 
 import (
 	"fmt"
+	"slices"
 
+	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
@@ -27,27 +29,98 @@ import (
 // member holding only OUTPUT_ONLY fields is not guarded: the server owns
 // those values, and clearing them with the switch is not a client write.
 func (s *Spec) checkOneofSwitches(paths []string, cur protoreflect.Message, explicit []maskPath) error {
+	g := s.oneofGuard()
 	for _, path := range paths {
-		segs, reason := resolveUpdateSegments(s.desc, path, s.opts)
-		if reason != "" {
-			continue
-		}
-
-		if err := s.checkOneofPath(path, s.desc, segs, cur, cur != nil, true); err != nil {
-			return locate(err, path, explicit)
+		if sw := g.check(path, s.desc, cur); sw != nil {
+			return locate(sw.maskPathError(), path, explicit)
 		}
 	}
 
 	return nil
 }
 
-// checkOneofPath runs [Spec.checkOneofSwitch] on every field of the
+// oneofGuard returns the guard of the spec's classes: a top-level identity,
+// immutable or secret field is guarded besides the annotated ones.
+func (s *Spec) oneofGuard() oneofGuard {
+	return oneofGuard{policy: s.opts, topGuarded: func(fd protoreflect.FieldDescriptor) bool {
+		switch s.class(string(fd.Name())) {
+		case classIdentity, classImmutable, classSecret:
+			return true
+		default:
+			return false
+		}
+	}}
+}
+
+// policyOneofGuard returns the guard of the mask policy of [Apply],
+// [ValidateStrict] and [ApplyMask]: a top-level field the policy names an
+// identity ([WithIdentityFields]) or immutable ([WithImmutableFields]) field
+// is guarded besides the annotated ones.
+func policyOneofGuard(policy *options) oneofGuard {
+	return oneofGuard{policy: policy, topGuarded: func(fd protoreflect.FieldDescriptor) bool {
+		name := string(fd.Name())
+		return slices.Contains(policy.identityFields, name) || slices.Contains(policy.immutableFields, name)
+	}}
+}
+
+// oneofGuard refuses an update path that switches a oneof away from a member
+// an update must not clear (see [Spec.checkOneofSwitches]).
+type oneofGuard struct {
+	policy *options
+	// topGuarded reports whether a top-level field is guarded beyond its
+	// field behaviors.
+	topGuarded func(fd protoreflect.FieldDescriptor) bool
+}
+
+// oneofSwitch is an update path that would clear the guarded member other
+// of its oneof.
+type oneofSwitch struct {
+	path  string
+	other protoreflect.FieldDescriptor
+}
+
+func (sw *oneofSwitch) reason() string {
+	return fmt.Sprintf("path %q would clear %q of its oneof, which an update must not change", sw.path, sw.other.Name())
+}
+
+// maskPathError is the refusal of sw by [Spec.Plan], located later.
+func (sw *oneofSwitch) maskPathError() error {
+	return &MaskPathError{Index: -1, Field: sw.path, Err: ErrProtectedField, reason: sw.reason()}
+}
+
+// violation is the refusal of sw by [Apply], [ValidateStrict] and
+// [ApplyMask]: on the path, under the behavior of the guarded member
+// (IMMUTABLE for a message holding a protected field).
+func (sw *oneofSwitch) violation(policy *options) FieldViolation {
+	b := policy.serverManaged(sw.other)
+	if !isImmutableBehavior(b) {
+		b = annotations.FieldBehavior_IMMUTABLE
+	}
+
+	return FieldViolation{Path: sw.path, Behavior: b, Reason: sw.reason()}
+}
+
+// check runs the guard on the update path path of md, spelled by declared
+// names, against the stored resource cur (nil when unknown); a path that is
+// not an update path is left to the other checks.
+func (g oneofGuard) check(path string, md protoreflect.MessageDescriptor, cur protoreflect.Message) *oneofSwitch {
+	segs, reason := resolveUpdateSegments(md, path, g.policy)
+	if reason != "" {
+		return nil
+	}
+
+	return g.checkPath(path, md, segs, cur, cur != nil, true)
+}
+
+// checkOneofPath runs [oneofGuard.checkSwitch] on every field of the
 // update path segs of md (path in full) whose stored message is stored;
 // known reports that the stored resource is known and topLevel that md is
 // the resource. Below a map key the stored entry of that key is checked,
 // below "*" every stored element or entry; without the stored resource the
 // check is by schema.
-func (s *Spec) checkOneofPath(path string, md protoreflect.MessageDescriptor, segs []string, stored protoreflect.Message, known, topLevel bool) error {
+func (g oneofGuard) checkPath(
+	path string, md protoreflect.MessageDescriptor, segs []string, stored protoreflect.Message, known, topLevel bool,
+) *oneofSwitch {
 	if maskpath.IsDynamicMessage(md) {
 		return nil // dynamic JSON: keys, not fields
 	}
@@ -58,8 +131,8 @@ func (s *Spec) checkOneofPath(path string, md protoreflect.MessageDescriptor, se
 	}
 
 	if od := fd.ContainingOneof(); od != nil && !od.IsSynthetic() {
-		if err := s.checkOneofSwitch(path, fd, od, topLevel, stored, known); err != nil {
-			return err
+		if sw := g.checkSwitch(path, fd, od, topLevel, stored, known); sw != nil {
+			return sw
 		}
 	}
 
@@ -74,18 +147,18 @@ func (s *Spec) checkOneofPath(path string, md protoreflect.MessageDescriptor, se
 
 		elem := maskpath.ValueMessage(fd)
 		if !known {
-			return s.checkOneofPath(path, elem, rest, nil, false, false)
+			return g.checkPath(path, elem, rest, nil, false, false)
 		}
 
 		for _, e := range storedElements(fd, key, stored) {
-			if err := s.checkOneofPath(path, elem, rest, e, true, false); err != nil {
-				return err
+			if sw := g.checkPath(path, elem, rest, e, true, false); sw != nil {
+				return sw
 			}
 		}
 
 		return nil
 	default:
-		return s.checkOneofPath(path, fd.Message(), segs[1:], behavior.Child(stored, fd), known, false)
+		return g.checkPath(path, fd.Message(), segs[1:], behavior.Child(stored, fd), known, false)
 	}
 }
 
@@ -126,22 +199,22 @@ func storedElements(fd protoreflect.FieldDescriptor, key string, stored protoref
 	return out
 }
 
-// checkOneofSwitch refuses setting fd, a member of od at the chain depth
+// checkSwitch refuses setting fd, a member of od at the chain depth
 // whose stored message is stored, when another member is guarded (see
 // [Spec.checkOneofSwitches]); known reports that the stored resource is
 // known, so stored (nil when absent) tells which member it holds.
-func (s *Spec) checkOneofSwitch(
+func (g oneofGuard) checkSwitch(
 	path string,
 	fd protoreflect.FieldDescriptor,
 	od protoreflect.OneofDescriptor,
 	topLevel bool,
 	stored protoreflect.Message,
 	known bool,
-) error {
+) *oneofSwitch {
 	members := od.Fields()
 	for i := range members.Len() {
 		other := members.Get(i)
-		if other.Number() == fd.Number() || !s.guarded(other, topLevel) {
+		if other.Number() == fd.Number() || !g.guarded(other, topLevel) {
 			continue
 		}
 
@@ -149,8 +222,7 @@ func (s *Spec) checkOneofSwitch(
 			continue
 		}
 
-		return &MaskPathError{Index: -1, Field: path, Err: ErrProtectedField, reason: fmt.Sprintf(
-			"path %q would clear %q of its oneof, which an update must not change", path, other.Name())}
+		return &oneofSwitch{path: path, other: other}
 	}
 
 	return nil
@@ -158,10 +230,9 @@ func (s *Spec) checkOneofSwitch(
 
 // guarded reports whether an update must not clear fd as a side effect: an
 // IMMUTABLE or IDENTIFIER field or a message holding one at any depth, and,
-// for a top-level field, one the spec classifies as identity, immutable or
-// secret.
-func (s *Spec) guarded(fd protoreflect.FieldDescriptor, topLevel bool) bool {
-	policy := s.opts
+// for a top-level field, one topGuarded reports.
+func (g oneofGuard) guarded(fd protoreflect.FieldDescriptor, topLevel bool) bool {
+	policy := g.policy
 	if isImmutableBehavior(policy.serverManaged(fd)) {
 		return true
 	}
@@ -171,14 +242,5 @@ func (s *Spec) guarded(fd protoreflect.FieldDescriptor, topLevel bool) bool {
 		return true
 	}
 
-	if !topLevel {
-		return false
-	}
-
-	switch s.class(string(fd.Name())) {
-	case classIdentity, classImmutable, classSecret:
-		return true
-	default:
-		return false
-	}
+	return topLevel && g.topGuarded != nil && g.topGuarded(fd)
 }

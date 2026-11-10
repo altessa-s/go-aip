@@ -101,7 +101,10 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 	}
 
 	if all {
-		return strictResult(u.replaceAll(descriptor, root), u)
+		work := u.replaceAll(descriptor, root)
+		u.checkOneofSwitches(descriptor, root, work, nil)
+
+		return strictResult(work, u)
 	}
 
 	work, covered, err := resolveUpdatePaths(msk.ToPaths(), descriptor, policy, &options{pathValidation: PathValidationEnforce})
@@ -110,6 +113,7 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 	}
 
 	u.checkCovering(work, covered, descriptor, root)
+	u.checkOneofSwitches(descriptor, root, work, covered)
 
 	return strictResult(work, u)
 }
