@@ -73,7 +73,8 @@ func (p Plan) Secret(name string, value *string) *string {
 //     message that holds a server-managed field is expanded as "*" expands
 //     one. Every path is resolved and checked on its own before the mask
 //     collapses: a path another path covers ("profile.id" with "profile") is
-//     checked as if sent alone and refused on its own index.
+//     checked as if sent alone — field behaviors, element counts and oneof
+//     switches — and refused on its own index.
 //
 // An update path walks singular messages, map keys and the "*" wildcard of
 // a repeated or map field (AIP-161), the grammar [Apply]
@@ -209,6 +210,7 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 	var (
 		tree     fieldmask.FieldMask
 		explicit []maskPath
+		covered  []fieldmask.FieldMask // the explicit paths tree covers, each alone
 	)
 
 	switch all, err := selectsAll(paths); {
@@ -234,7 +236,8 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 			explicit = append(explicit, mp)
 		}
 
-		u.checkCovering(tree, coveredExplicit(tree, explicit), s.desc, root)
+		covered = coveredExplicit(tree, explicit)
+		u.checkCovering(tree, covered, s.desc, root)
 	}
 
 	if len(u.violations) > 0 {
@@ -242,14 +245,23 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 	}
 
 	if root.cur != nil {
-		if err := checkElementCounts(root.cur, root.req, tree, s.desc, ""); err != nil {
-			return Plan{}, nil, planPathError(ErrElementCountMismatch, err.Path, explicit, err.Reason)
+		for _, m := range append([]fieldmask.FieldMask{tree}, covered...) {
+			if err := checkElementCounts(root.cur, root.req, m, s.desc, ""); err != nil {
+				return Plan{}, nil, planPathError(ErrElementCountMismatch, err.Path, explicit, err.Reason)
+			}
 		}
 	}
 
 	p.Paths = declaredPaths(tree, s.desc)
 
-	return p, explicit, s.checkOneofSwitches(p.Paths, root.cur, explicit)
+	// A covered path is checked as if sent alone: the oneof switches it
+	// would make are refused too, though only the covering path is planned.
+	checked := p.Paths
+	for _, m := range covered {
+		checked = append(slices.Clip(checked), declaredPaths(m, s.desc)...)
+	}
+
+	return p, explicit, s.checkOneofSwitches(checked, root.cur, explicit)
 }
 
 // coveredExplicit returns the single-path masks of the explicit paths that

@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -216,5 +217,61 @@ func TestApply_CollapsedParentEnforcesSubtree(t *testing.T) {
 		err := update.Apply(collapsed(t, "backup_owner", "backup_owner.org"), msg)
 		require.Equal(t, []FieldViolation{{Path: "backup_owner.org", Behavior: annotations.FieldBehavior_IMMUTABLE,
 			Reason: "immutable field cannot be modified"}}, behaviorViolations(t, err))
+	})
+}
+
+// TestPlan_CoveredPathCountsAndOneofs pins that Spec.Plan runs the element
+// count and oneof checks on a covered path as if sent alone: with two stored
+// aliases and one in the request, ["aliases", "aliases.*.display_name"] is
+// refused as ["aliases.*.display_name"] is; with a stored IMMUTABLE pinned,
+// ["items.k", "items.k.free"] is refused as ["items.k.free"] is. ApplyMask
+// refuses the second the same way.
+func TestPlan_CoveredPathCountsAndOneofs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("element count", func(t *testing.T) {
+		t.Parallel()
+
+		spec, err := update.NewSpec(&pb.Resource{})
+		require.NoError(t, err)
+
+		req := &pb.Resource{Aliases: []*pb.Profile{{DisplayName: "a"}}}
+		current := update.WithCurrent(&pb.Resource{Aliases: []*pb.Profile{{DisplayName: "x"}, {DisplayName: "y"}}})
+
+		for _, paths := range [][]string{{"aliases.*.display_name"}, {"aliases", "aliases.*.display_name"}, {"aliases.*.display_name", "aliases"}} {
+			_, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: paths}, current)
+			require.ErrorIs(t, err, update.ErrElementCountMismatch, "%v", paths)
+		}
+
+		plan, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"aliases"}}, current)
+		require.NoError(t, err)
+		require.Equal(t, []string{"aliases"}, plan.Paths)
+	})
+
+	t.Run("oneof", func(t *testing.T) {
+		t.Parallel()
+
+		md := collectionDescriptor(t)
+		stored := collectionRoot(md, map[string]map[string]string{"k": {"pinned": "old"}}, nil, nil)
+		req := collectionRoot(md, map[string]map[string]string{"k": {"free": "new"}}, nil, nil)
+
+		spec, err := update.NewSpec(dynamicpb.NewMessage(md))
+		require.NoError(t, err)
+
+		for _, paths := range [][]string{{"items.k.free"}, {"items.k", "items.k.free"}} {
+			_, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: paths}, update.WithCurrent(stored))
+			require.ErrorIs(t, err, update.ErrProtectedField, "%v", paths)
+
+			mp, ok := errors.AsType[*update.MaskPathError](err)
+			require.True(t, ok)
+			require.Equal(t, len(paths)-1, mp.Index)
+
+			_, err = update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, proto.Clone(req), update.WithCurrent(stored))
+			require.ErrorIs(t, err, update.ErrBehaviorViolation, "%v", paths)
+		}
+
+		plan, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"items.k"}}, update.WithCurrent(stored))
+		require.NoError(t, err)
+		require.Equal(t, []string{"items.k"}, plan.Paths)
 	})
 }
