@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
 )
 
@@ -65,6 +66,21 @@ func applyToMessageList[M ~map[string]M](fd protoreflect.FieldDescriptor, lst pr
 		apply(nested, m.Interface())
 		return nil
 	})
+}
+
+// KeyMask returns the sub-mask nested, the sub-mask of a map field, names
+// the map entry key with, and whether it names it by key. The mask key "*"
+// is the wildcard, never a literal key (AIP-161 cannot address a literal "*"
+// key), so an entry whose key is "*" is never named: only the wildcard
+// reaches it.
+func KeyMask[M ~map[string]M](nested M, key string) (M, bool) {
+	if key == maskpath.Wildcard {
+		return nil, false
+	}
+
+	sub, ok := nested[key]
+
+	return sub, ok
 }
 
 // Insert inserts the pre-split segments parts into mask, a leaf dominating

@@ -165,6 +165,9 @@ unless the `*` addresses no request entry and is simply dropped. The keys genera
 refused with a `*fieldmask.ValidationError` matching the limit sentinel (from `Spec.Plan`, a field error on the mask path of the `*`), so the cleaned
 mask and `Plan.Paths` can always be written back and merged.
 
+A map entry whose literal key is `*` is an ordinary entry. A mask path cannot name it (AIP-161), so only the wildcard reaches it: `delegates.*` and
+`delegates.*.email` check, compare and merge it like any other entry, and a `*` that would have to be pinned to name it is refused as a path error.
+
 ## Read-modify-write updates
 
 For a handler that applies an update mask itself, typically a read-modify-write of a stored resource:

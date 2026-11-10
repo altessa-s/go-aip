@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
 )
 
@@ -246,7 +247,7 @@ func (g oneofGuard) checkMap(
 	}
 
 	for _, k := range behavior.SortedMapKeys(reqMap) {
-		if _, named := nested[k.String()]; named {
+		if _, named := maskwalk.KeyMask(nested, k.String()); named {
 			continue
 		}
 

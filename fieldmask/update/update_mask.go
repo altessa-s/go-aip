@@ -629,7 +629,7 @@ func preserveElementIdentifiers(fd protoreflect.FieldDescriptor, v protoreflect.
 	}
 
 	mm.Range(func(k protoreflect.MapKey, val protoreflect.Value) bool {
-		sub, ok := nested[k.String()]
+		sub, ok := maskwalk.KeyMask(nested, k.String())
 		if !ok {
 			sub = wildcard
 		}

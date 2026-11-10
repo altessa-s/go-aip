@@ -542,7 +542,16 @@ func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldm
 		var pk []string
 
 		for _, k := range behavior.SortedMapKeys(p.req.Get(fd).Map()) {
-			if key := k.String(); !slices.Contains(named, key) {
+			key := k.String()
+			if key == maskpath.Wildcard { // a literal "*" key, which no key path can name
+				u.refuse(&fieldmask.ValidationError{Path: elementPath(path, maskpath.Wildcard), Reason: "a key path beside \"*\" that " +
+					"updates nothing cannot be kept out of the wildcard when the request holds an entry with the literal key \"*\", which no " +
+					"path can name; name the entries to update"})
+
+				return
+			}
+
+			if !slices.Contains(named, key) {
 				pk = append(pk, key)
 			}
 		}
@@ -724,7 +733,7 @@ func mapElementPairs(fd protoreflect.FieldDescriptor, key string, nested fieldma
 	var out []msgPair
 
 	for _, k := range behavior.SortedMapKeys(reqMap) {
-		if _, named := nested[k.String()]; !named {
+		if _, named := maskwalk.KeyMask(nested, k.String()); !named {
 			out = append(out, entry(k))
 		}
 	}

@@ -146,7 +146,7 @@ func walkMap[M ~map[string]M](prf protoreflect.Message, fd protoreflect.FieldDes
 	}
 
 	mm.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
-		specificMask, hasSpecific := nested[k.String()]
+		specificMask, hasSpecific := KeyMask(nested, k.String())
 
 		var finalMask M
 

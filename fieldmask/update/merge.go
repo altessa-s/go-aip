@@ -282,7 +282,7 @@ func mergeMap(d, s protoreflect.Message, fd protoreflect.FieldDescriptor, nested
 	}
 
 	for _, k := range behavior.SortedMapKeys(src) {
-		if _, named := nested[k.String()]; !named {
+		if _, named := maskwalk.KeyMask(nested, k.String()); !named {
 			mergeEntry(d, src, fd, k, wildcard)
 		}
 	}
@@ -438,14 +438,14 @@ func checkMapCounts(d, s protoreflect.Message, fd protoreflect.FieldDescriptor, 
 
 	if nested[maskpath.Wildcard] != nil && sm != nil {
 		for _, k := range behavior.SortedMapKeys(sm) {
-			if _, named := nested[k.String()]; !named {
+			if _, named := maskwalk.KeyMask(nested, k.String()); !named {
 				keys = append(keys, k)
 			}
 		}
 	}
 
 	for _, k := range keys {
-		sub, ok := nested[k.String()]
+		sub, ok := maskwalk.KeyMask(nested, k.String())
 		if !ok {
 			sub = nested[maskpath.Wildcard]
 		}
