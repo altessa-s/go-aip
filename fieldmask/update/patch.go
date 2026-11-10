@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
 	"github.com/altessa-s/go-aip/etag"
+	"github.com/altessa-s/go-aip/fieldmask"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -138,7 +139,7 @@ func (p Patch[E, P, V]) Run(ctx context.Context, in P, tag string, mask *fieldma
 	}
 
 	src := proto.Clone(in)
-	if err = clearOutputOnly(src, p.Spec.opts); err != nil {
+	if err = clearOutputOnlyKeeping(src, fieldmask.FromPaths(plan.Paths...), p.Spec.opts); err != nil {
 		return zero, err
 	}
 

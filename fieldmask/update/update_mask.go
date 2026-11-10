@@ -257,7 +257,7 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 	preserveIdentifierFields(msk, msg, policy)
 	maskwalk.Filter(msk, msg, false)
 
-	return clearOutputOnly(msg, policy)
+	return clearOutputOnlyKeeping(msg, msk, policy)
 }
 
 // impliedUpdateMask returns the implied mask of an omitted update_mask,

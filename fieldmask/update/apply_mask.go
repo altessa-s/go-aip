@@ -180,7 +180,7 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 	preserveIdentifierFields(work, msg, o)
 	maskwalk.Filter(work, msg, false)
 
-	if err := clearOutputOnly(msg, o); err != nil {
+	if err := clearOutputOnlyKeeping(msg, work, o); err != nil {
 		return nil, err
 	}
 

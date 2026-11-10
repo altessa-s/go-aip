@@ -1118,6 +1118,129 @@ func clearOutputOnly(msg proto.Message, policy *options) error {
 		fieldbehavior.WithMaxDepth(math.MaxInt))
 }
 
+// clearOutputOnlyKeeping is [clearOutputOnly] of msg, the request the mask
+// msk writes, that leaves the compared protected values bit-exact: an atomic
+// value written whole is copied whole by the merge, and its IMMUTABLE and
+// IDENTIFIER fields were compared equal to the stored ones, OUTPUT_ONLY
+// descendants included ([updateCheck.checkAtomicProtected]), so they are kept
+// as compared — server-managed values in them come from the stored value
+// they equal — instead of being stripped into a different value. The
+// elements of a collection written whole are new values and stay stripped.
+func clearOutputOnlyKeeping(msg proto.Message, msk fieldmask.FieldMask, policy *options) error {
+	var kept []keptValue
+
+	collectKept(msk, msg.ProtoReflect(), policy, &kept)
+
+	if err := clearOutputOnly(msg, policy); err != nil {
+		return err
+	}
+
+	for _, k := range kept {
+		k.parent.Set(k.fd, k.value)
+	}
+
+	return nil
+}
+
+// keptValue is a protected field value of an atomic value written whole, to
+// restore after the OUTPUT_ONLY values are cleared.
+type keptValue struct {
+	parent protoreflect.Message
+	fd     protoreflect.FieldDescriptor
+	value  protoreflect.Value
+}
+
+// collectKept snapshots, in m under the mask msk, the protected fields of
+// every atomic value msk names whole ([atomicProtectedPath]): through
+// singular messages, the elements a "*" or key sub-path updates in place, and
+// map entries, as the merge reaches them.
+func collectKept(msk fieldmask.FieldMask, m protoreflect.Message, policy *options, kept *[]keptValue) {
+	if m == nil || !m.IsValid() || maskpath.IsDynamicMessage(m.Descriptor()) {
+		return
+	}
+
+	fields := m.Descriptor().Fields()
+
+	for name, nested := range msk {
+		fd := fields.ByName(protoreflect.Name(name))
+		if fd == nil || !m.Has(fd) {
+			continue
+		}
+
+		switch {
+		case nested == nil:
+			if isAtomicValue(fd, policy) {
+				if path, _ := atomicProtectedPath(fd.Message(), map[protoreflect.FullName]bool{}, policy); path != "" {
+					snapshotProtected(m.Get(fd).Message(), policy, kept)
+				}
+			}
+		case fd.IsList():
+			if sub := nested[maskpath.Wildcard]; sub != nil && fd.Message() != nil {
+				list := m.Get(fd).List()
+				for i := range list.Len() {
+					collectKept(sub, list.Get(i).Message(), policy, kept)
+				}
+			}
+		case fd.IsMap():
+			collectKeptEntries(fd, m.Get(fd).Map(), nested, policy, kept)
+		case fd.Message() != nil:
+			collectKept(nested, m.Get(fd).Message(), policy, kept)
+		}
+	}
+}
+
+// collectKeptEntries is [collectKept] for the entries of mm, the map field fd
+// whose sub-mask is nested: an entry is reached through its key, else "*".
+func collectKeptEntries(fd protoreflect.FieldDescriptor, mm protoreflect.Map, nested fieldmask.FieldMask, policy *options, kept *[]keptValue) {
+	if fd.MapValue().Message() == nil {
+		return
+	}
+
+	mm.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
+		sub, named := maskwalk.KeyMask(nested, k.String())
+		if !named {
+			sub = nested[maskpath.Wildcard]
+		}
+
+		if sub != nil {
+			collectKept(sub, v.Message(), policy, kept)
+		}
+
+		return true
+	})
+}
+
+// snapshotProtected records a deep copy of every protected field of m, an
+// atomic value, reached through singular messages that hold one.
+func snapshotProtected(m protoreflect.Message, policy *options, kept *[]keptValue) {
+	fields := m.Descriptor().Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if !m.Has(fd) {
+			continue
+		}
+
+		switch serverManagedBehavior(fd, policy) { //nolint:exhaustive // serverManagedBehavior returns only these or UNSPECIFIED.
+		case annotations.FieldBehavior_OUTPUT_ONLY:
+			continue
+		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
+			holder := m.Type().New()
+			holder.Set(fd, m.Get(fd))
+			*kept = append(*kept, keptValue{parent: m, fd: fd, value: proto.Clone(holder.Interface()).ProtoReflect().Get(fd)})
+
+			continue
+		}
+
+		if fd.IsList() || fd.IsMap() || fd.Message() == nil || maskpath.IsDynamicMessage(fd.Message()) {
+			continue
+		}
+
+		if path, _ := atomicProtectedPath(fd.Message(), map[protoreflect.FullName]bool{}, policy); path != "" {
+			snapshotProtected(m.Get(fd).Message(), policy, kept)
+		}
+	}
+}
+
 // replaceMask makes msk hold exactly the entries of src.
 func replaceMask(msk, src fieldmask.FieldMask) {
 	clear(msk)
