@@ -110,21 +110,35 @@ func (o *options) checkAtomicMask(msk fieldmask.FieldMask, md protoreflect.Messa
 		}
 
 		path := behavior.JoinPath(prefix, name)
-		if o.atomicMessage != nil && o.atomicMessage(child) {
-			return &fieldmask.ValidationError{Path: path, Reason: reasonAtomicWhole}
+		atomic := o.atomicMessage != nil && o.atomicMessage(child)
+
+		if fd.IsList() || fd.IsMap() {
+			// The sub-mask of a collection is keyed by element: a key or "*"
+			// naming an element whole replaces it, an atomic value included;
+			// only a path into an element descends into its message.
+			for key, sub := range elementMasks(fd, nested) {
+				switch {
+				case atomic:
+					return &fieldmask.ValidationError{Path: elementPath(path, key), Reason: reasonAtomicWhole}
+				case maskpath.IsDynamicMessage(child):
+				default:
+					if err := o.checkAtomicMask(sub, child, elementPath(path, key)); err != nil {
+						return err
+					}
+				}
+			}
+
+			continue
 		}
 
-		if maskpath.IsDynamicMessage(child) {
+		switch {
+		case atomic:
+			return &fieldmask.ValidationError{Path: path, Reason: reasonAtomicWhole}
+		case maskpath.IsDynamicMessage(child):
 			continue // dynamic JSON: keys, not fields
 		}
 
-		if fd.IsList() || fd.IsMap() {
-			for key, sub := range elementMasks(fd, nested) {
-				if err := o.checkAtomicMask(sub, child, elementPath(path, key)); err != nil {
-					return err
-				}
-			}
-		} else if err := o.checkAtomicMask(nested, child, path); err != nil {
+		if err := o.checkAtomicMask(nested, child, path); err != nil {
 			return err
 		}
 	}
