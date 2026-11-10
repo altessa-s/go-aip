@@ -288,20 +288,26 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 
 	resolved := make([][]string, 0, len(paths))
 
+	// asWritten are the paths the schema rejects that o lets through: they
+	// match no field, so they take no part in the coverage of the others (a
+	// "*" the schema rejects, "owner.*" on a singular message, must not
+	// remove "owner.email").
+	var asWritten [][]string
+
 	for _, path := range paths {
-		name, err := maskpath.ResolvePath(md, path, policy.strictDynamicPaths)
-		if err != nil {
-			err = validationError(err)
+		name, rejected := maskpath.ResolvePath(md, path, policy.strictDynamicPaths)
+		if rejected != nil {
+			rejected = validationError(rejected)
 			name = path // kept as written: it matches no field
 		}
 
-		if err != nil && o.shouldValidatePaths() {
+		if rejected != nil && o.shouldValidatePaths() {
 			if o.pathValidation == PathValidationEnforce {
-				return nil, nil, err // fail-fast on the first schema-invalid path.
+				return nil, nil, rejected // fail-fast on the first schema-invalid path.
 			}
 			// PathValidationWarn: report every bad path but still apply the
 			// mask. shouldValidatePaths guarantees a non-nil reporter here.
-			if validationErr, ok := errors.AsType[*fieldmask.ValidationError](err); ok {
+			if validationErr, ok := errors.AsType[*fieldmask.ValidationError](rejected); ok {
 				o.pathReporter(validationErr)
 			}
 		}
@@ -314,10 +320,19 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 			return nil, nil, err // a path into an atomic value is refused in every mode
 		}
 
+		if rejected != nil {
+			asWritten = append(asWritten, maskpath.Split(name))
+			continue
+		}
+
 		resolved = append(resolved, maskpath.Split(name))
 	}
 
 	work, covered = coverPaths(resolved)
+	for _, parts := range asWritten {
+		maskwalk.Insert(work, parts)
+	}
+
 	for _, m := range slices.Concat([]fieldmask.FieldMask{work}, covered) {
 		if err := policy.checkAtomicMask(m, md, ""); err != nil {
 			return nil, nil, err
