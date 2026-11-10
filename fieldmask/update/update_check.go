@@ -515,9 +515,11 @@ func (u *updateCheck) checkElements(fd protoreflect.FieldDescriptor, nested fiel
 // excluded from the "*" when it was checked, and without its key the "*"
 // would select it on write. The "*" is then replaced by the keys of the
 // entries it addresses, the request entries no other key names, each with a
-// copy of its sub-mask, as [MergePaths] and the filter read it. The pairs
-// share one mask, so a map below several elements cannot be pinned this
-// way: such a mask is refused.
+// copy of its sub-mask, as [MergePaths] and the filter read it. A "*" that
+// addresses no request entry is dropped. The pairs share one mask, so a map
+// below several elements whose requests hold such entries cannot be pinned
+// this way: the mask is refused as a *fieldmask.ValidationError (matching
+// [fieldmask.ErrInvalidPath]), a path error, not a field behavior one.
 func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, named []string, pairs []msgPair, path string) {
 	wildcard := nested[maskpath.Wildcard]
 	if wildcard == nil || !slices.ContainsFunc(named, func(key string) bool {
@@ -527,28 +529,42 @@ func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldm
 		return
 	}
 
-	if len(pairs) != 1 {
-		u.fail(FieldViolation{Path: elementPath(path, maskpath.Wildcard),
-			Reason: "a key path beside \"*\" that updates nothing cannot be kept out of the wildcard here; name the entries to update"})
+	// The "*" addresses the request entries no key names, in each pair.
+	var keys []string
+
+	holders := 0
+
+	for _, p := range pairs {
+		if p.req == nil || !p.req.Has(fd) {
+			continue
+		}
+
+		var pk []string
+
+		for _, k := range behavior.SortedMapKeys(p.req.Get(fd).Map()) {
+			if key := k.String(); !slices.Contains(named, key) {
+				pk = append(pk, key)
+			}
+		}
+
+		if len(pk) > 0 {
+			holders++
+			keys = pk
+		}
+	}
+
+	switch {
+	case holders == 0:
+		delete(nested, maskpath.Wildcard) // it addresses nothing: dropping it is exact
+		return
+	case len(pairs) > 1:
+		u.refuse(&fieldmask.ValidationError{Path: elementPath(path, maskpath.Wildcard), Reason: "a key path beside \"*\" that updates " +
+			"nothing cannot be kept out of the wildcard below the elements of another collection; name the entries to update"})
 
 		return
 	}
 
 	delete(nested, maskpath.Wildcard)
-
-	req := pairs[0].req
-	if req == nil || !req.Has(fd) {
-		return
-	}
-
-	var keys []string
-
-	mm := req.Get(fd).Map()
-	for _, k := range behavior.SortedMapKeys(mm) {
-		if key := k.String(); !slices.Contains(named, key) {
-			keys = append(keys, key)
-		}
-	}
 
 	if err := u.policy.checkPinLimits(path, keys, wildcard); err != nil {
 		u.refuse(err)

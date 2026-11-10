@@ -159,7 +159,8 @@ A `*` naming every element whole (`delegates.*`) covers a key path beside it (`d
 is replaced, `k` included, and the key path is checked as if sent alone. A `*` sub-path of a map (`delegates.*.email`) addresses the entries no key path
 names; when the check drops such a key path (an unchanged `IMMUTABLE` value), the `*` is replaced by the keys of the request entries it addresses
 (`delegates.j.email`), so the cleaned mask and a later `MergePaths` never touch the entry the `*` was checked without. Below the elements of another
-collection the entries cannot be named per element, and such a mask is refused. The keys generated this way are held to the mask limits (`WithMaxPaths`,
+collection the entries cannot be named per element: such a mask is refused as a path error (`*fieldmask.ValidationError`, `fieldmask.ErrInvalidPath`),
+unless the `*` addresses no request entry and is simply dropped. The keys generated this way are held to the mask limits (`WithMaxPaths`,
 `WithMaxPathLength`, `WithMaxPathDepth`) before anything is copied, and the cleaned mask as a whole after: a mask whose pinned `*` would break one is
 refused with a `*fieldmask.ValidationError` matching the limit sentinel (from `Spec.Plan`, a field error on the mask path of the `*`), so the cleaned
 mask and `Plan.Paths` can always be written back and merged.

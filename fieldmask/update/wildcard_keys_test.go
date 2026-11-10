@@ -198,12 +198,40 @@ func TestWildcardBesideNoOpKeyBelowList(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"inners.*.m.j.b"}, got.ToPaths())
 
-	two := one + ` inners { m { key: "k" value { a: "x" } } }`
+	// Several elements share the mask: refused as a path error, classified
+	// as one by every entry point.
+	two := one + ` inners { m { key: "k" value { a: "x" } } m { key: "z" value { b: "new" } } }`
 	_, err = update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, parse(two), update.WithCurrent(parse(two)))
+	requireValidationPath(t, err, "inners.*.m.*")
 
-	be, ok := errors.AsType[*update.BehaviorError](err)
+	_, err = update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, parse(two), update.WithCurrent(parse(two)), update.WithStrict(true))
+	require.ErrorIs(t, err, update.ErrInvalidUpdateMask)
+	require.ErrorIs(t, err, fieldmask.ErrInvalidPath)
+
+	_, err = update.ValidateStrict(fieldmask.FromPaths(paths...), parse(two), update.WithCurrent(parse(two)))
+	require.ErrorIs(t, err, fieldmask.ErrInvalidPath)
+
+	spec, err := update.NewSpec(dynamicpb.NewMessage(md))
+	require.NoError(t, err)
+
+	_, err = spec.Plan(parse(two), &fieldmaskpb.FieldMask{Paths: paths}, update.WithCurrent(parse(two)))
+	require.ErrorIs(t, err, fieldmask.ErrInvalidPath)
+	require.NotErrorIs(t, err, update.ErrProtectedField)
+
+	mp, ok := errors.AsType[*update.MaskPathError](err)
 	require.True(t, ok, "%v", err)
-	require.Equal(t, "inners.*.m.*", be.Violations[0].Path)
+	require.Equal(t, 0, mp.Index)
+	require.Contains(t, mp.Error(), "cannot be kept out of the wildcard")
+
+	// The "*" addresses no request entry: dropping it is exact, whatever the
+	// element count — no elements at all, or elements whose maps hold only
+	// the named key.
+	for _, req := range []string{``, `inners { m { key: "k" value { a: "x" } } } inners { m { key: "k" value { a: "x" } } }`} {
+		stored := `inners { m { key: "k" value { a: "x" } } } inners { m { key: "k" value { a: "x" } } }`
+		got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, parse(req), update.WithCurrent(parse(stored)))
+		require.NoError(t, err, "%q", req)
+		require.Equal(t, []string{}, got.ToPaths())
+	}
 }
 
 // TestWildcardExclusionsIgnoreKeyOrder pins that the entries a "*" sub-path
