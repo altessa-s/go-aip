@@ -442,9 +442,16 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 			continue
 		}
 
+		// child may already be on the path (an ancestor of the same type the
+		// request or the stored resource holds): only an entry added here is
+		// removed, so the ancestor stays guarded for the siblings that follow.
+		wasOnPath := onPath[child]
 		onPath[child] = true
 		sub := u.expand(fd.Message(), childPairs(pairs, fd), path, onPath)
-		delete(onPath, child)
+
+		if !wasOnPath {
+			delete(onPath, child)
+		}
 
 		if len(sub) > 0 {
 			out[name] = sub
