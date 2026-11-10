@@ -450,21 +450,36 @@ func (u *updateCheck) checkSetProtected(fd protoreflect.FieldDescriptor, pairs [
 
 // replaceAll returns the mask of a full replacement ("*") of the root pair's
 // message type md: [updateCheck.expand] of the root, after the REQUIRED
-// fields of the request are checked as a replacement writes them (a
-// top-level field the update skips excepted).
+// fields of the request are checked as a replacement writes them. The
+// replacement does not write a top-level field the update skips or governs
+// as OUTPUT_ONLY, IDENTIFIER or IMMUTABLE — by annotation or by the policy
+// ([WithImmutableFields], [WithIdentityFields]) — nor anything below it: an
+// unset one keeps its stored value and a set one is compared, so its REQUIRED
+// fields, and those below it, are not checked.
 func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair) fieldmask.FieldMask {
 	v := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, math.MaxInt)
 	for _, violation := range v {
-		if fd := md.Fields().ByName(protoreflect.Name(violation.Path)); fd != nil && u.top != nil {
-			if _, skip := u.top(fd); skip {
-				continue
-			}
+		if parts := maskpath.Split(violation.Path); len(parts) > 0 && u.notWritten(md.Fields().ByName(protoreflect.Name(parts[0]))) {
+			continue
 		}
 
 		u.fail(violation)
 	}
 
 	return u.expand(md, []msgPair{root}, "", map[protoreflect.FullName]bool{md.FullName(): true})
+}
+
+// notWritten reports whether a replacement leaves the top-level field fd to
+// its stored value: one the update skips, or one it governs as OUTPUT_ONLY,
+// IDENTIFIER or IMMUTABLE (see [updateCheck.expand]).
+func (u *updateCheck) notWritten(fd protoreflect.FieldDescriptor) bool {
+	if fd == nil {
+		return false
+	}
+
+	b, skip := u.behaviorOf(fd, true)
+
+	return skip || b == annotations.FieldBehavior_OUTPUT_ONLY || isImmutableBehavior(b) || u.isAddressOnly(fd, true)
 }
 
 // checkElements applies the rules to nested, the sub-mask of the repeated or
