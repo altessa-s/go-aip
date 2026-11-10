@@ -125,9 +125,14 @@ func (p Plan) Secret(name string, value *string) *string {
 // direct [MergePaths] caller clears them first, with [fieldbehavior.Strip]
 // for OUTPUT_ONLY, say).
 //
-// In every mode a path setting a oneof member whose sibling is or holds a
-// server-managed field is refused (setting it would clear that sibling); in
-// the elements a "*" sub-path addresses, every stored element is checked.
+// In every mode a path setting a oneof member whose sibling is, or holds, an
+// IMMUTABLE or IDENTIFIER field (or a top-level identity, immutable or secret
+// field of the spec) is refused when the stored resource holds that sibling,
+// or without [WithCurrent] whatever it holds: setting it would clear the
+// sibling. An OUTPUT_ONLY sibling is never guarded. Only a switch the merge
+// makes is refused: a member the request leaves unset is cleared, which
+// switches nothing, and a "*" sub-path of a map reaches the request entries
+// no key names, each checked against the stored entry of the same key.
 //
 // A secret changes only when the request sets it (whatever the non-empty
 // mask, "*" included) or the mask names it; "*" never clears a secret the
