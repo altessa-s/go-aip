@@ -303,6 +303,10 @@ func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, polic
 			return nil, nil, validationError(err)
 		}
 
+		if err := policy.rejectAtomicDescent(md, name); err != nil {
+			return nil, nil, err // a path into an atomic value is refused in every mode
+		}
+
 		resolved = append(resolved, maskpath.Split(name))
 	}
 

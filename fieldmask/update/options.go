@@ -111,7 +111,7 @@ func (o *options) checkAtomicMask(msk fieldmask.FieldMask, md protoreflect.Messa
 
 		path := behavior.JoinPath(prefix, name)
 		if o.atomicMessage != nil && o.atomicMessage(child) {
-			return &fieldmask.ValidationError{Path: path, Reason: "atomic message must be selected as a whole"}
+			return &fieldmask.ValidationError{Path: path, Reason: reasonAtomicWhole}
 		}
 
 		if maskpath.IsDynamicMessage(child) {
@@ -127,6 +127,60 @@ func (o *options) checkAtomicMask(msk fieldmask.FieldMask, md protoreflect.Messa
 		} else if err := o.checkAtomicMask(nested, child, path); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// reasonAtomicWhole is the reason of a path into an atomic message.
+const reasonAtomicWhole = "atomic message must be selected as a whole"
+
+// rejectAtomicDescent returns the *fieldmask.ValidationError of raw, a path
+// the schema rejects, when its fields walk into a message the atomic policy
+// keeps whole ([WithAtomicMessage]) and more segments follow, whatever they
+// are ("delete_time.typo", "deleteTime.*"): such a path is refused in every
+// [PathValidationMode], as [options.checkAtomicMask] refuses a valid one,
+// rather than dropped. It returns nil for any other path.
+func (o *options) rejectAtomicDescent(md protoreflect.MessageDescriptor, raw string) error {
+	segs, err := maskpath.Parse(raw)
+	if err != nil || o.atomicMessage == nil {
+		return nil
+	}
+
+	lookup := maskpath.Check{Aliases: true}
+	out := make([]string, 0, len(segs))
+
+	for i := 0; i < len(segs)-1; i++ {
+		if maskpath.IsDynamicMessage(md) || maskpath.IsWildcard(segs[i]) {
+			return nil
+		}
+
+		fd := lookup.Lookup(md, segs[i].Text)
+		if fd == nil {
+			return nil
+		}
+
+		out = append(out, string(fd.Name()))
+		child := fd.Message()
+
+		if fd.IsList() || fd.IsMap() {
+			i++ // the element key or "*"
+			if i == len(segs)-1 {
+				return nil
+			}
+
+			out = append(out, segs[i].Text)
+			child = maskpath.ValueMessage(fd)
+		}
+
+		switch {
+		case child == nil:
+			return nil
+		case o.atomicMessage(child):
+			return &fieldmask.ValidationError{Path: maskpath.Join(out), Reason: reasonAtomicWhole}
+		}
+
+		md = child
 	}
 
 	return nil

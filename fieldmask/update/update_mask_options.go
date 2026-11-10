@@ -26,8 +26,10 @@ const (
 	// PathValidationDisabled is an explicit opt-out that ignores invalid paths: such
 	// a path simply matches no field and is skipped, so a mistyped path clears the
 	// field it was meant to keep. An index into a repeated field or a ListValue,
-	// and with WithStrictDynamicPaths a path below a google.protobuf.Struct key or
-	// into a Value or ListValue, are still rejected.
+	// a path into a message kept whole by [WithAtomicMessage] (whatever follows
+	// it, "delete_time.typo" included), and with WithStrictDynamicPaths a path
+	// below a google.protobuf.Struct key or into a Value or ListValue, are still
+	// rejected.
 	PathValidationDisabled
 )
 

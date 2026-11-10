@@ -237,6 +237,10 @@ func (o *options) resolveRawPaths(paths []string, md protoreflect.MessageDescrip
 			return nil, nil, validationError(err)
 		}
 
+		if err := o.rejectAtomicDescent(md, p); err != nil {
+			return nil, nil, err
+		}
+
 		if err := o.pathFailure(failure); err != nil {
 			return nil, nil, err
 		}

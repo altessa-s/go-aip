@@ -130,7 +130,8 @@ req.UpdateMask = effective.ToProtoFieldMask()
 | `PathValidationWarn`     | Report every invalid path to `WithPathValidationReporter` and apply the mask; such a path matches no field                  |
 | `PathValidationDisabled` | Ignore invalid paths: they match no field, so a mistyped path clears the field it was meant to keep                         |
 
-An index into a repeated field is rejected in every mode. Every path is checked on its own before the mask collapses: `Spec.Plan` checks a raw path
+An index into a repeated field and a path into an atomic message (`delete_time.seconds`, and `delete_time.typo`, whose tail is no field) are rejected
+in every mode. Every path is checked on its own before the mask collapses: `Spec.Plan` checks a raw path
 another one covers (`profile.id` with `profile`) as if sent alone, and `Apply` and `ValidateStrict` do so for a path of their `FieldMask` that another
 one covers once both are resolved (`backupOwner` with `backup_owner.org`). `fieldmask.ParsePaths` and `fieldmask.FromProtoFieldMask` collapse a raw
 path another one covers before `Apply` sees it; the covering path still enforces the rules over its subtree.
