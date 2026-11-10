@@ -326,6 +326,9 @@ keeps the default) are options of `Apply` and `ValidateStrict` (in every `PathVa
 `updateMask.paths[i]` (the bare `updateMask` for the path count) wrapping a `*MaskPathError`. The implied masks of `Plan`, `ImpliedPaths` and
 `FromSetFields` stop at the policy's `WithMaxPathDepth`; the deepest path then stands for the subtree below it.
 
+A path another path covers is checked once per distinct path, against the subtree it addresses: a mask repeating it up to the path limit costs one
+check, and comparing an `IMMUTABLE` or `IDENTIFIER` value copies the compared field only.
+
 ## API
 
 | Symbol                                                                                                                                  | Purpose                                                                                                                                                                |

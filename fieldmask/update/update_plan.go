@@ -256,17 +256,12 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 // a shorter explicit path covers in tree ("profile.id" under "profile"), for
 // [updateCheck.checkCovering].
 func coveredExplicit(tree fieldmask.FieldMask, explicit []maskPath) []fieldmask.FieldMask {
-	var covered []fieldmask.FieldMask
-
-	for _, mp := range explicit {
-		if maskwalk.CoveredAt(tree, mp.segs) > 0 {
-			single := fieldmask.FieldMask{}
-			maskwalk.Insert(single, mp.segs)
-			covered = append(covered, single)
-		}
+	paths := make([][]string, len(explicit))
+	for i, mp := range explicit {
+		paths[i] = mp.segs
 	}
 
-	return covered
+	return coveredMasks(tree, paths)
 }
 
 // topBehavior is the [topBehavior] of the spec's classes: a secret and an

@@ -681,14 +681,15 @@ func sameSelection(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, 
 }
 
 // selectField returns a new message of tmpl's type holding a copy of field fd
-// of m (nothing when m is nil), filtered by selection.
+// of m (nothing when m is nil), filtered by selection. Only the field is
+// copied, never the rest of m.
 func selectField(tmpl protoreflect.Message, fd protoreflect.FieldDescriptor, m protoreflect.Message, selection fieldmask.FieldMask) proto.Message {
-	out := tmpl.Type().New()
+	holder := tmpl.Type().New()
 	if m != nil && m.Has(fd) {
-		out.Set(fd, proto.Clone(m.Interface()).ProtoReflect().Get(fd))
+		holder.Set(fd, m.Get(fd)) // shared until the clone below
 	}
 
-	msg := out.Interface()
+	msg := proto.Clone(holder.Interface())
 	maskwalk.Filter(selection, msg, false)
 
 	return msg

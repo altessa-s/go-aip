@@ -5,8 +5,10 @@
 package update_test
 
 import (
+	"slices"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/altessa-s/go-aip/fieldmask/update"
@@ -27,5 +29,21 @@ func BenchmarkApplyMask(b *testing.B) {
 			Description: "d",
 			Profile:     &pb.Profile{DisplayName: "p"},
 		})
+	}
+}
+
+// BenchmarkApplyMask_CoveredDuplicates measures a mask repeating a covered
+// path up to the path limit under an IMMUTABLE parent with the stored
+// resource: the covered checks must stay one per distinct path.
+func BenchmarkApplyMask_CoveredDuplicates(b *testing.B) {
+	paths := append([]string{"owner"}, slices.Repeat([]string{"owner.note"}, 999)...)
+	raw := &fieldmaskpb.FieldMask{Paths: paths}
+	req := &pb.Account{Key: make([]byte, 64<<10), Owner: &pb.Owner{Email: "e", Note: "n"}}
+	opts := []update.Option{update.WithImmutableFields("owner"), update.WithCurrent(proto.Clone(req))}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_, _ = update.ApplyMask(raw, proto.Clone(req), opts...)
 	}
 }

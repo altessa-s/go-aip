@@ -337,17 +337,40 @@ func coverPaths(paths [][]string) (fieldmask.FieldMask, []fieldmask.FieldMask) {
 
 	pruneWildcardSiblings(work)
 
-	var covered []fieldmask.FieldMask
+	return work, coveredMasks(work, paths)
+}
+
+// coveredMasks returns the masks of the paths that work, the mask built from
+// them, covers ([isCovered]), one per distinct path, in one pass: a path
+// repeated in the mask is checked once, so the covered checks cost at most
+// one check per distinct path, each bounded by the subtree it addresses.
+func coveredMasks(work fieldmask.FieldMask, paths [][]string) []fieldmask.FieldMask {
+	var (
+		covered []fieldmask.FieldMask
+		seen    map[string]bool
+	)
 
 	for _, parts := range paths {
-		if isCovered(work, parts) {
-			single := fieldmask.FieldMask{}
-			maskwalk.Insert(single, parts)
-			covered = append(covered, single)
+		if !isCovered(work, parts) {
+			continue
 		}
+
+		key := maskpath.Join(parts)
+		if seen[key] {
+			continue
+		}
+
+		if seen == nil {
+			seen = map[string]bool{}
+		}
+
+		seen[key] = true
+		single := fieldmask.FieldMask{}
+		maskwalk.Insert(single, parts)
+		covered = append(covered, single)
 	}
 
-	return work, covered
+	return covered
 }
 
 // pruneWildcardSiblings removes, at every level of msk, the keys beside a
@@ -380,7 +403,8 @@ func isCovered(msk fieldmask.FieldMask, parts []string) bool {
 		nested, ok := level[seg]
 		switch {
 		case !ok:
-			return true // removed beside a whole-element "*"
+			wildcard, whole := level[maskpath.Wildcard]
+			return whole && wildcard == nil // removed beside a whole-element "*"
 		case i == len(parts)-1:
 			return false
 		case nested == nil:
