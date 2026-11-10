@@ -26,6 +26,10 @@ type SetFields struct {
 	// Skip drops the named fields (paths of declared field names) and
 	// everything below them, and the parents that would cover a nested one.
 	Skip []string
+	// Descend drops the singular message parents that would cover the named
+	// nested fields, keeping the fields themselves: the mask names them, and
+	// their set siblings, on their own instead of the parent whole.
+	Descend []string
 }
 
 // Collect returns the paths of every field of msg or, with onlySet, of its
@@ -50,13 +54,21 @@ func Collect(msg protoreflect.Message, onlySet bool, o SetFields, maxDepth int) 
 // topLevelOnly, the skipped fields with everything below them, and the
 // parents that would cover a nested skipped field (see fieldmask.FromSetFields).
 func (o SetFields) keep(md protoreflect.MessageDescriptor, paths []string) []string {
-	if !o.TopLevelOnly && len(o.Skip) == 0 {
+	if !o.TopLevelOnly && len(o.Skip) == 0 && len(o.Descend) == 0 {
 		return paths
 	}
 
 	subtrees := slices.Clone(o.Skip) // dropped with everything below them
 
 	var parents []string // dropped as exact paths only
+
+	for _, descend := range o.Descend {
+		if parts := strings.Split(descend, Separator); len(parts) > 1 && !o.TopLevelOnly && nestedSkip(md, parts) == skipExpandable {
+			for i := 1; i < len(parts); i++ {
+				parents = append(parents, strings.Join(parts[:i], Separator))
+			}
+		}
+	}
 
 	for _, skip := range o.Skip {
 		if !strings.Contains(skip, Separator) {

@@ -29,7 +29,10 @@ import (
 //   - every path of [WithImpliedSkipFields], top-level or nested;
 //   - every OUTPUT_ONLY field of a populated sub-message: never written by
 //     an update (a top-level one is dropped by Apply);
-//   - the unset IMMUTABLE fields of a populated sub-message;
+//   - the unset IMMUTABLE fields of a populated sub-message (a set one is
+//     kept, to be compared, but never lets its parent be named whole: the
+//     mask names the sub-message's set fields instead, so echoing an
+//     unchanged IMMUTABLE value does not replace the whole sub-message);
 //   - the absent singular sub-messages of a populated one whose schema holds
 //     a server-managed field (OUTPUT_ONLY, IDENTIFIER or IMMUTABLE) at any
 //     depth.
@@ -62,8 +65,9 @@ func fromSetFields(msg proto.Message, policy *options) fieldmask.FieldMask {
 	}
 
 	m := msg.ProtoReflect()
+	skip, descend := synthesisFields(m, policy)
 
-	return fieldmask.FromPaths(maskpath.Collect(m, true, maskpath.SetFields{Skip: synthesisSkipFields(m, policy)}, policy.maxPathDepth)...)
+	return fieldmask.FromPaths(maskpath.Collect(m, true, maskpath.SetFields{Skip: skip, Descend: descend}, policy.maxPathDepth)...)
 }
 
 // policySkipFields returns the skip paths the policy adds for a message of
@@ -88,15 +92,25 @@ func policySkipFields(md protoreflect.MessageDescriptor, policy *options) []stri
 // recursive message type terminates at its last populated level and every
 // identifier on the chain is found.
 func synthesisSkipFields(msg protoreflect.Message, policy *options) []string {
-	paths := policySkipFields(msg.Descriptor(), policy)
-	collectSkipFields(msg, "", &paths, policy)
-
-	return paths
+	skip, _ := synthesisFields(msg, policy)
+	return skip
 }
 
-// collectSkipFields appends the skip paths of msg under prefix (see
-// [synthesisSkipFields]).
-func collectSkipFields(msg protoreflect.Message, prefix string, paths *[]string, policy *options) {
+// synthesisFields returns the skip paths of [FromSetFields] for msg
+// ([synthesisSkipFields]) and the set nested IMMUTABLE fields, which are
+// kept to be compared but must not let their parent be named whole: echoing
+// an unchanged IMMUTABLE value would otherwise widen the implied mask to the
+// whole sub-message, clearing its unset siblings.
+func synthesisFields(msg protoreflect.Message, policy *options) (skip, descend []string) {
+	skip = policySkipFields(msg.Descriptor(), policy)
+	collectSkipFields(msg, "", &skip, &descend, policy)
+
+	return skip, descend
+}
+
+// collectSkipFields appends the skip paths of msg under prefix to paths and
+// its set nested IMMUTABLE fields to descend (see [synthesisFields]).
+func collectSkipFields(msg protoreflect.Message, prefix string, paths, descend *[]string, policy *options) {
 	fields := msg.Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
@@ -116,9 +130,13 @@ func collectSkipFields(msg protoreflect.Message, prefix string, paths *[]string,
 			*paths = append(*paths, path)
 			continue
 		case annotations.FieldBehavior_IMMUTABLE:
-			if prefix != "" && !msg.Has(fd) {
+			switch {
+			case prefix == "":
+			case !msg.Has(fd):
 				*paths = append(*paths, path)
 				continue
+			default:
+				*descend = append(*descend, path)
 			}
 		default:
 		}
@@ -126,7 +144,7 @@ func collectSkipFields(msg protoreflect.Message, prefix string, paths *[]string,
 		switch {
 		case !policy.expandable(fd):
 		case msg.Has(fd):
-			collectSkipFields(msg.Get(fd).Message(), path, paths, policy)
+			collectSkipFields(msg.Get(fd).Message(), path, paths, descend, policy)
 		case prefix != "" && hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, policy):
 			// Do not select an absent protected subtree as a whole.
 			*paths = append(*paths, path)
