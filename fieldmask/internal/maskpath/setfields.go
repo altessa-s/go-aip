@@ -60,13 +60,24 @@ func (o SetFields) keep(md protoreflect.MessageDescriptor, paths []string) []str
 
 	subtrees := slices.Clone(o.Skip) // dropped with everything below them
 
-	var parents []string // dropped as exact paths only
+	parents := map[string]bool{} // dropped as exact paths only
+
+	// addParents adds the proper prefixes of a nested path, each once: the
+	// deeper ones are added only while new, so the skips of one subtree share
+	// their ancestors instead of building them again.
+	addParents := func(path string) {
+		for i := strings.LastIndex(path, Separator); i > 0; i = strings.LastIndex(path[:i], Separator) {
+			if parents[path[:i]] {
+				return
+			}
+
+			parents[path[:i]] = true
+		}
+	}
 
 	for _, descend := range o.Descend {
 		if parts := strings.Split(descend, Separator); len(parts) > 1 && !o.TopLevelOnly && nestedSkip(md, parts) == skipExpandable {
-			for i := 1; i < len(parts); i++ {
-				parents = append(parents, strings.Join(parts[:i], Separator))
-			}
+			addParents(descend)
 		}
 	}
 
@@ -83,9 +94,7 @@ func (o SetFields) keep(md protoreflect.MessageDescriptor, paths []string) []str
 				continue
 			}
 
-			for i := 1; i < len(parts); i++ {
-				parents = append(parents, strings.Join(parts[:i], Separator))
-			}
+			addParents(skip)
 		case skipInexpressible:
 			subtrees = append(subtrees, parts[0])
 		case skipUnknown:
@@ -97,7 +106,7 @@ func (o SetFields) keep(md protoreflect.MessageDescriptor, paths []string) []str
 			return true
 		}
 
-		if slices.Contains(parents, p) {
+		if parents[p] {
 			return true
 		}
 

@@ -103,14 +103,22 @@ func synthesisSkipFields(msg protoreflect.Message, policy *options) []string {
 // whole sub-message, clearing its unset siblings.
 func synthesisFields(msg protoreflect.Message, policy *options) (skip, descend []string) {
 	skip = policySkipFields(msg.Descriptor(), policy)
-	collectSkipFields(msg, "", &skip, &descend, policy)
+	collectSkipFields(msg, "", maskpath.DepthRoom(policy.maxPathDepth), &skip, &descend, policy)
 
 	return skip, descend
 }
 
 // collectSkipFields appends the skip paths of msg under prefix to paths and
-// its set nested IMMUTABLE fields to descend (see [synthesisFields]).
-func collectSkipFields(msg protoreflect.Message, prefix string, paths, descend *[]string, policy *options) {
+// its set nested IMMUTABLE fields to descend (see [synthesisFields]). room is
+// the number of segments a path under prefix may still hold: the walk stops
+// where the implied paths stop ([WithMaxPathDepth]), so a path at the limit
+// stands for its whole subtree, which the update then checks — or refuses —
+// as a message named whole, never erased by a skip below it.
+func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths, descend *[]string, policy *options) {
+	if room < 1 {
+		return
+	}
+
 	fields := msg.Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
@@ -144,7 +152,7 @@ func collectSkipFields(msg protoreflect.Message, prefix string, paths, descend *
 		switch {
 		case !policy.expandable(fd):
 		case msg.Has(fd):
-			collectSkipFields(msg.Get(fd).Message(), path, paths, descend, policy)
+			collectSkipFields(msg.Get(fd).Message(), path, room-1, paths, descend, policy)
 		case prefix != "" && hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, policy):
 			// Do not select an absent protected subtree as a whole.
 			*paths = append(*paths, path)
