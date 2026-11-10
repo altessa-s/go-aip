@@ -74,7 +74,10 @@ field addresses the resource and is kept, but not compared with the stored value
 | `PathValidationWarn`     | Report every invalid path to `WithPathValidationReporter` and apply the mask; such a path matches no field                  |
 | `PathValidationDisabled` | Ignore invalid paths: they match no field, so a mistyped path clears the field it was meant to keep                         |
 
-An index into a repeated field is rejected in every mode.
+An index into a repeated field is rejected in every mode. Every path is checked on its own before the mask collapses: `Spec.Plan` checks a raw path
+another one covers (`profile.id` with `profile`) as if sent alone, and `Apply` and `ValidateStrict` do so for a path of their `FieldMask` that another
+one covers once both are resolved (`backupOwner` with `backup_owner.org`). `fieldmask.ParsePaths` and `fieldmask.FromProtoFieldMask` refuse a raw
+path another one covers, which a `FieldMask` cannot hold.
 
 ```go
 // Surface bad paths without breaking callers while a fix rolls out.

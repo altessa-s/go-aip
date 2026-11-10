@@ -54,8 +54,11 @@ func (e *BehaviorError) Error() string {
 			buf.WriteString("; ")
 		}
 
-		buf.WriteString(v.Path)
-		buf.WriteString(": ")
+		if v.Path != "" { // a mask-level violation names no path
+			buf.WriteString(v.Path)
+			buf.WriteString(": ")
+		}
+
 		buf.WriteString(v.Reason)
 	}
 
@@ -80,7 +83,11 @@ func (e *BehaviorError) Error() string {
 //     path then matches no field. Indexed list paths ("aliases.0.id",
 //     "list_data.0") and, with [WithStrictDynamicPaths] in the update policy,
 //     paths below a google.protobuf.Struct key or into a Value or ListValue
-//     ("attrs.color.hue") are always rejected.
+//     ("attrs.color.hue") are always rejected. Every path is checked on its
+//     own: one that another path of msk covers once both are resolved (a
+//     parent spelled by its JSON name, "backupOwner" with
+//     "backup_owner.org") is checked in step 3 as if sent alone, though only
+//     the covering path is applied.
 //  3. The field behaviors are applied to the mask, at any depth:
 //     - OUTPUT_ONLY: the path is dropped from the mask, never an error.
 //     - IMMUTABLE and IDENTIFIER: with [WithCurrent], a path whose value
@@ -203,12 +210,14 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 	if all {
 		work = u.replaceAll(descriptor, root)
 	} else {
-		work, err = resolveUpdatePaths(msk, descriptor, policy, o)
+		var covered []fieldmask.FieldMask
+
+		work, covered, err = resolveUpdatePaths(msk.ToPaths(), descriptor, policy, o)
 		if err != nil {
 			return err
 		}
 
-		u.checkMask(work, descriptor, []msgPair{root}, "")
+		u.checkCovering(work, covered, descriptor, root)
 	}
 
 	if len(u.violations) > 0 {
@@ -238,18 +247,23 @@ func impliedUpdateMask(msg proto.Message, policy *options) fieldmask.FieldMask {
 	return fieldmask.FieldMask{}
 }
 
-// resolveUpdatePaths returns the mask of msk's paths spelled by declared
-// names (see [resolveUpdatePath]) after the path checks of
-// [Apply]: schema validation as o configures it, indexed
-// list access, and atomic messages selected whole. A path the schema
-// rejects is kept as written when o lets it through: it matches no field.
-func resolveUpdatePaths(msk fieldmask.FieldMask, md protoreflect.MessageDescriptor, policy *options, o *options) (fieldmask.FieldMask, error) {
-	paths := msk.ToPaths()
+// resolveUpdatePaths returns the mask of paths spelled by declared names
+// (see [resolveUpdatePath]) after the path checks of [Apply]: schema
+// validation as o configures it, indexed list access, and atomic messages
+// selected whole. A path the schema rejects is kept as written when o lets
+// it through: it matches no field. Every path is checked on its own before
+// the mask collapses the paths another one covers ("profile.id" under
+// "profile", or under "profile" spelled otherwise), which come back as the
+// single-path masks covered for the field behavior check
+// ([updateCheck.checkCovering]).
+func resolveUpdatePaths(paths []string, md protoreflect.MessageDescriptor, policy *options, o *options) (
+	work fieldmask.FieldMask, covered []fieldmask.FieldMask, err error,
+) {
 	if err := policy.validateMaskLimits(paths); err != nil {
-		return nil, err // limits hold in every PathValidationMode
+		return nil, nil, err // limits hold in every PathValidationMode
 	}
 
-	resolved := make([]string, 0, len(paths))
+	resolved := make([][]string, 0, len(paths))
 
 	for _, path := range paths {
 		name, err := maskpath.ResolvePath(md, path, policy.strictDynamicPaths)
@@ -260,7 +274,7 @@ func resolveUpdatePaths(msk fieldmask.FieldMask, md protoreflect.MessageDescript
 
 		if err != nil && o.shouldValidatePaths() {
 			if o.pathValidation == PathValidationEnforce {
-				return nil, err // fail-fast on the first schema-invalid path.
+				return nil, nil, err // fail-fast on the first schema-invalid path.
 			}
 			// PathValidationWarn: report every bad path but still apply the
 			// mask. shouldValidatePaths guarantees a non-nil reporter here.
@@ -270,18 +284,68 @@ func resolveUpdatePaths(msk fieldmask.FieldMask, md protoreflect.MessageDescript
 		}
 
 		if err := maskpath.RejectStructural(md, name, policy.strictDynamicPaths); err != nil {
-			return nil, validationError(err)
+			return nil, nil, validationError(err)
 		}
 
-		resolved = append(resolved, name)
+		resolved = append(resolved, maskpath.Split(name))
 	}
 
-	work := fieldmask.FromPaths(resolved...)
-	if err := policy.checkAtomicMask(work, md, ""); err != nil {
-		return nil, err
+	work, covered = coverPaths(resolved)
+	for _, m := range slices.Concat([]fieldmask.FieldMask{work}, covered) {
+		if err := policy.checkAtomicMask(m, md, ""); err != nil {
+			return nil, nil, err
+		}
 	}
 
-	return work, nil
+	return work, covered, nil
+}
+
+// coverPaths returns the mask of the split paths and, for every path a
+// shorter one covers in that mask, the mask of that path alone: the mask
+// holds the covering path only, so the covered one must be checked on its
+// own. An exact duplicate is not covered.
+func coverPaths(paths [][]string) (fieldmask.FieldMask, []fieldmask.FieldMask) {
+	work := fieldmask.FieldMask{}
+	for _, parts := range paths {
+		maskwalk.Insert(work, parts)
+	}
+
+	var covered []fieldmask.FieldMask
+
+	for _, parts := range paths {
+		if maskwalk.CoveredAt(work, parts) > 0 {
+			single := fieldmask.FieldMask{}
+			maskwalk.Insert(single, parts)
+			covered = append(covered, single)
+		}
+	}
+
+	return work, covered
+}
+
+// checkCovering applies the update rules to work, the mask of an update's
+// paths of message type md, and then to each of covered, the single-path
+// masks of the paths work covers ([coverPaths]): a covered path is checked
+// as if sent alone ("profile.id" under "profile" names an IDENTIFIER), but
+// only work is applied. A violation both report is recorded once.
+func (u *updateCheck) checkCovering(work fieldmask.FieldMask, covered []fieldmask.FieldMask, md protoreflect.MessageDescriptor, root msgPair) {
+	u.checkMask(work, md, []msgPair{root}, "")
+
+	if len(covered) == 0 {
+		return
+	}
+
+	for _, m := range covered {
+		u.checkMask(m, md, []msgPair{root}, "")
+	}
+
+	seen := make(map[FieldViolation]bool, len(u.violations))
+	u.violations = slices.DeleteFunc(u.violations, func(v FieldViolation) bool {
+		dup := seen[v]
+		seen[v] = true
+
+		return dup
+	})
 }
 
 // resolveLenient returns msk with every path md's schema accepts spelled by

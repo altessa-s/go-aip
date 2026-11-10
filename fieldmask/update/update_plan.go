@@ -71,7 +71,9 @@ func (p Plan) Secret(name string, value *string) *string {
 //     paths below a secret and the identity fields named on construction (id,
 //     etag) without an IDENTIFIER annotation are refused. A path naming a
 //     message that holds a server-managed field is expanded as "*" expands
-//     one.
+//     one. Every path is resolved and checked on its own before the mask
+//     collapses: a path another path covers ("profile.id" with "profile") is
+//     checked as if sent alone and refused on its own index.
 //
 // An update path walks singular messages, map keys and the "*" wildcard of
 // a repeated or map field (AIP-161), the grammar [Apply]
@@ -232,7 +234,7 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 			explicit = append(explicit, mp)
 		}
 
-		u.checkMask(tree, s.desc, []msgPair{root}, "")
+		u.checkCovering(tree, coveredExplicit(tree, explicit), s.desc, root)
 	}
 
 	if len(u.violations) > 0 {
@@ -248,6 +250,23 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 	p.Paths = declaredPaths(tree, s.desc)
 
 	return p, explicit, s.checkOneofSwitches(p.Paths, root.cur, explicit)
+}
+
+// coveredExplicit returns the single-path masks of the explicit paths that
+// a shorter explicit path covers in tree ("profile.id" under "profile"), for
+// [updateCheck.checkCovering].
+func coveredExplicit(tree fieldmask.FieldMask, explicit []maskPath) []fieldmask.FieldMask {
+	var covered []fieldmask.FieldMask
+
+	for _, mp := range explicit {
+		if maskwalk.CoveredAt(tree, mp.segs) > 0 {
+			single := fieldmask.FieldMask{}
+			maskwalk.Insert(single, mp.segs)
+			covered = append(covered, single)
+		}
+	}
+
+	return covered
 }
 
 // topBehavior is the [topBehavior] of the spec's classes: a secret and an

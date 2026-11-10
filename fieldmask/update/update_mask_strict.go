@@ -23,8 +23,11 @@ type StrictError struct {
 
 // Error lists the violations.
 func (e *StrictError) Error() string {
-	if len(e.Violations) == 0 {
+	switch {
+	case len(e.Violations) == 0:
 		return "invalid update_mask"
+	case e.Violations[0].Path == "": // a mask-level violation names no path
+		return "invalid update_mask: " + e.Violations[0].Reason
 	}
 
 	return fmt.Sprintf("invalid update_mask path %q: %s", e.Violations[0].Path, e.Violations[0].Reason)
@@ -50,7 +53,9 @@ func (e *StrictError) Error() string {
 // Every path is resolved against resource's schema, so a segment may use any
 // spelling of its field ([fieldmask.FieldMask.Resolve]); the returned mask spells it by
 // its declared name. An unknown path, an indexed list path ("aliases.0") and a
-// sub-path into an atomic message are violations.
+// sub-path into an atomic message are violations. Every path is checked on
+// its own, one that another path covers once both are resolved included (see
+// [Apply]).
 //
 // The AIP-203 rules and the mask policy are those of Apply,
 // without mutating resource: OUTPUT_ONLY paths, at any depth, are dropped
@@ -100,7 +105,7 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 		return strictResult(u.replaceAll(descriptor, root), u)
 	}
 
-	work, err := resolveUpdatePaths(msk, descriptor, policy, &options{pathValidation: PathValidationEnforce})
+	work, covered, err := resolveUpdatePaths(msk.ToPaths(), descriptor, policy, &options{pathValidation: PathValidationEnforce})
 	if err != nil {
 		if pathErr, ok := errors.AsType[*fieldmask.ValidationError](err); ok {
 			path := pathErr.Path
@@ -114,7 +119,7 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 		return nil, &StrictError{Cause: err, Violations: []FieldViolation{{Path: policy.updateMaskFieldName, Reason: err.Error()}}}
 	}
 
-	u.checkMask(work, descriptor, []msgPair{root}, "")
+	u.checkCovering(work, covered, descriptor, root)
 
 	return strictResult(work, u)
 }
