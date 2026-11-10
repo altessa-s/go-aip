@@ -108,7 +108,10 @@ func (e *BehaviorError) Error() string {
 //     it holds: setting one member clears the others ([Spec.Plan] refuses it
 //     the same way). This holds for every mask, implied and "*" included, and
 //     for element sub-paths ("items.k.free"); a collection replaced whole
-//     holds new elements and is not checked.
+//     holds new elements and is not checked. Only a switch the merge makes
+//     is refused: a member the request leaves unset is cleared, which
+//     switches nothing, and a "*" sub-path of a map reaches the request
+//     entries no key names, not every stored entry.
 //  4. On any violation msk and msg are left untouched and
 //     *BehaviorError is returned. When no path is left the update
 //     is a no-op (see below). Otherwise the set IDENTIFIER
@@ -417,19 +420,20 @@ func isCovered(msk fieldmask.FieldMask, parts []string) bool {
 	return false
 }
 
-// checkOneofSwitches records a violation for every path of work and of
-// covered, update masks of message type md, that would switch a oneof away
-// from a member the update must not clear ([policyOneofGuard]): setting one
-// member clears the others, so writing the mask would delete such a stored
-// value without naming it (see [Spec.Plan]).
+// checkOneofSwitches records a violation for the first oneof switch the
+// merge of work, or of one of covered, update masks of message type md, would
+// make away from a member the update must not clear ([policyOneofGuard],
+// [oneofGuard.checkMask]): setting one member clears the others, so writing
+// the mask would delete such a stored value without naming it (see
+// [Spec.Plan]). A member the request leaves unset is cleared, not set, and
+// switches nothing.
 func (u *updateCheck) checkOneofSwitches(md protoreflect.MessageDescriptor, root msgPair, work fieldmask.FieldMask, covered []fieldmask.FieldMask) {
 	g := policyOneofGuard(u.policy)
 
 	for _, m := range append([]fieldmask.FieldMask{work}, covered...) {
-		for _, path := range declaredPaths(m, md) {
-			if sw := g.check(path, md, root.cur); sw != nil {
-				u.fail(sw.violation(u.policy))
-			}
+		if sw := g.checkMask(m, md, root.req, root.cur, root.cur != nil, true, ""); sw != nil {
+			u.fail(sw.violation(u.policy))
+			return
 		}
 	}
 }

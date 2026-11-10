@@ -52,7 +52,9 @@ disappears. On a violation neither the mask nor the message is changed.
 `Apply`, `ValidateStrict`, `ApplyMask` and `Spec.Plan` refuse a path that sets a oneof member whose other member is, or holds, an `IMMUTABLE` or
 `IDENTIFIER` field (or a top-level identity or immutable field of the policy) when the stored resource holds that member, and without `WithCurrent`
 whatever it holds: setting one member clears the others, so the write would delete the protected value unnamed (`items.k.free` beside a stored
-`items.k.pinned`). Every mask is checked, implied and `*` included; a collection replaced whole holds new elements and is not.
+`items.k.pinned`). Every mask is checked, implied and `*` included; a collection replaced whole holds new elements and is not. Only a switch the merge
+makes is refused: a member the request leaves unset is cleared, which switches nothing, and `items.*.free` reaches the request entries no key names,
+so a stored `k.pinned` the request does not send is left alone.
 
 `Apply` and `ValidateStrict` keep the presence of the `update_mask` (AIP-134), as `fieldmask.FromProtoFieldMask` builds it, the way `ApplyMask`,
 `Spec.Plan` and `Patch.Run` do with the `*fieldmaskpb.FieldMask`:

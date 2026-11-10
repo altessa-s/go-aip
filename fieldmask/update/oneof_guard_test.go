@@ -104,3 +104,79 @@ func TestApplyMask_OneofSwitch(t *testing.T) {
 		require.ErrorIs(t, err, update.ErrBehaviorViolation)
 	})
 }
+
+// TestOneofGuard_FollowsMergeTargets pins that the guard refuses only a switch
+// the merge makes, in ApplyMask, Apply, ValidateStrict and Spec.Plan alike:
+//   - a member the request leaves unset is cleared, not set: stored
+//     items.k.pinned="old", request items.k={}, ["items.k.free"];
+//   - "*" updates the request entries only: stored k.pinned="old" and
+//     j.free="old", request j.free="new" alone, ["items.*.free"] leaves k
+//     untouched.
+//
+// Each is accepted with the stored resource, and the merge keeps the stored
+// pinned. Without it the first is still accepted (nothing is set); the second
+// is refused, since j itself might hold pinned.
+func TestOneofGuard_FollowsMergeTargets(t *testing.T) {
+	t.Parallel()
+
+	md := collectionDescriptor(t)
+
+	for _, tc := range []struct {
+		name        string
+		stored, req map[string]map[string]string
+		path        string
+		want        map[string]map[string]string
+		unknownOK   bool // accepted without the stored resource too
+	}{
+		{
+			name:      "absent leaf member",
+			stored:    map[string]map[string]string{"k": {"pinned": "old"}},
+			req:       map[string]map[string]string{"k": {}},
+			path:      "items.k.free",
+			want:      map[string]map[string]string{"k": {"pinned": "old"}},
+			unknownOK: true,
+		},
+		{
+			name:   "stored entry the wildcard does not update",
+			stored: map[string]map[string]string{"k": {"pinned": "old"}, "j": {"free": "old"}},
+			req:    map[string]map[string]string{"j": {"free": "new"}},
+			path:   "items.*.free",
+			want:   map[string]map[string]string{"k": {"pinned": "old"}, "j": {"free": "new"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			stored := collectionRoot(md, tc.stored, nil, nil)
+			req := collectionRoot(md, tc.req, nil, nil)
+
+			for _, opts := range [][]update.Option{{update.WithCurrent(stored)}, nil} {
+				if opts == nil && !tc.unknownOK {
+					_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{tc.path}}, proto.Clone(req))
+					require.ErrorIs(t, err, update.ErrBehaviorViolation)
+
+					continue
+				}
+
+				got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{tc.path}}, proto.Clone(req), opts...)
+				require.NoError(t, err)
+				require.Equal(t, []string{tc.path}, got.ToPaths())
+
+				require.NoError(t, update.Apply(fieldmask.FromPaths(tc.path), proto.Clone(req), opts...))
+
+				_, err = update.ValidateStrict(fieldmask.FromPaths(tc.path), req, opts...)
+				require.NoError(t, err)
+			}
+
+			spec, err := update.NewSpec(dynamicpb.NewMessage(md))
+			require.NoError(t, err)
+
+			plan, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{tc.path}}, update.WithCurrent(stored))
+			require.NoError(t, err)
+
+			merged := proto.Clone(stored)
+			require.NoError(t, update.MergePaths(merged, req, plan.Paths))
+			requireProtoEqual(t, collectionRoot(md, tc.want, nil, nil), merged)
+		})
+	}
+}

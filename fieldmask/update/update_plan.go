@@ -256,12 +256,14 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 
 	// A covered path is checked as if sent alone: the oneof switches it
 	// would make are refused too, though only the covering path is planned.
-	checked := p.Paths
-	for _, m := range covered {
-		checked = append(slices.Clip(checked), declaredPaths(m, s.desc)...)
+	g := s.oneofGuard()
+	for _, m := range append([]fieldmask.FieldMask{tree}, covered...) {
+		if sw := g.checkMask(m, s.desc, root.req, root.cur, root.cur != nil, true, ""); sw != nil {
+			return Plan{}, nil, locate(sw.maskPathError(), sw.path, explicit)
+		}
 	}
 
-	return p, explicit, s.checkOneofSwitches(checked, root.cur, explicit)
+	return p, explicit, nil
 }
 
 // coveredExplicit returns the single-path masks of the explicit paths that
