@@ -202,11 +202,11 @@ func TestReplacedRequiredViolations(t *testing.T) {
 		Delegates: map[string]*testpb.Owner{"k": {Email: "d"}},
 	}
 
-	got, exceeded := behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, elementSkip, 8)
+	got, exceeded := behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, elementSkip, 8, nil)
 	require.False(t, exceeded)
 	assert.Equal(t, []string{"members.0.org", "delegates.k.org"}, violationPathsOf(got), "owner.org keeps its stored value")
 
-	got, _ = behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, nil, 8)
+	got, _ = behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, nil, 8, nil)
 	assert.Empty(t, got, "a nil element skip keeps the skip")
 }
 

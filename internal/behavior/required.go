@@ -99,15 +99,18 @@ func RequiredViolations(
 // writes whole: skip governs m and its singular sub-messages, whose IMMUTABLE
 // fields keep their stored value when absent, and elementSkip the elements of
 // every repeated and map field below, which are new values checked as on
-// create (and everything below them).
+// create (and everything below them). skipTop, when set, names fields of m
+// itself that are neither checked nor descended, whatever their behaviors: the
+// top-level fields an update's policy leaves to their stored value.
 func ReplacedRequiredViolations(
 	m protoreflect.Message,
 	prefix string,
 	resolve Resolve,
 	skip, elementSkip []annotations.FieldBehavior,
 	maxDepth int,
+	skipTop func(protoreflect.FieldDescriptor) bool,
 ) ([]Violation, bool) {
-	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip, prefix: prefix}
+	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip, prefix: prefix, skipTop: skipTop}
 	w.walk(m, 0, skip)
 
 	return w.violations, w.exceeded
@@ -149,6 +152,8 @@ type requiredWalk struct {
 	// from them only when it is needed.
 	prefix string
 	segs   []string
+	// skipTop, when set, names fields of the root message the walk skips.
+	skipTop func(protoreflect.FieldDescriptor) bool
 }
 
 // pathOf returns the path of the segment seg of the message the walk visits.
@@ -175,6 +180,10 @@ func (w *requiredWalk) walk(m protoreflect.Message, depth int, skip []annotation
 	for i := range fields.Len() {
 		fd := fields.Get(i)
 		name := string(fd.Name())
+
+		if depth == 0 && w.skipTop != nil && w.skipTop(fd) {
+			continue
+		}
 
 		behaviors := w.resolve(fd)
 		if slices.ContainsFunc(behaviors, func(b annotations.FieldBehavior) bool { return slices.Contains(skip, b) }) {

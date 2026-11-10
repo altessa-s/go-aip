@@ -369,7 +369,7 @@ func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pair
 			}
 		case fd.Message() != nil:
 			u.required(path)(behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, updateRequiredSkip, elementRequiredSkip,
-				requiredMaxDepth))
+				requiredMaxDepth, nil))
 		}
 	}
 }
@@ -548,17 +548,17 @@ func (u *updateCheck) checkSetProtected(fd protoreflect.FieldDescriptor, pairs [
 // unset one keeps its stored value and a set one is compared, so its REQUIRED
 // fields, and those below it, are not checked.
 func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair) fieldmask.FieldMask {
-	v, exceeded := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, requiredMaxDepth)
+	// A top-level field the replacement does not write is skipped before the
+	// walk descends into it: its value, however deep, is compared by expand
+	// below, never checked for REQUIRED fields it does not write.
+	v, exceeded := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, requiredMaxDepth,
+		u.notWritten)
 	if exceeded {
 		u.required("")(nil, true)
 		return nil
 	}
 
 	for _, violation := range v {
-		if parts := maskpath.Split(violation.Path); len(parts) > 0 && u.notWritten(md.Fields().ByName(protoreflect.Name(parts[0]))) {
-			continue
-		}
-
 		u.fail(violation)
 	}
 
