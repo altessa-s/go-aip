@@ -92,6 +92,24 @@ func RequiredViolations(
 	return CheckedRequiredViolations(m, prefix, resolve, skip, maxDepth, nil)
 }
 
+// ReplacedRequiredViolations is [RequiredViolations] for a value an update
+// writes whole: skip governs m and its singular sub-messages, whose IMMUTABLE
+// fields keep their stored value when absent, and elementSkip the elements of
+// every repeated and map field below, which are new values checked as on
+// create (and everything below them).
+func ReplacedRequiredViolations(
+	m protoreflect.Message,
+	prefix string,
+	resolve Resolve,
+	skip, elementSkip []annotations.FieldBehavior,
+	maxDepth int,
+) []Violation {
+	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, elementSkip: elementSkip}
+	w.walk(m, prefix, 0, skip)
+
+	return w.violations
+}
+
 // FieldCheck returns the violations of the populated field fd of m, whose
 // path is path, beyond REQUIRED: fieldbehavior checks the AIP-202 format of a
 // value with it in the same walk.
@@ -108,22 +126,24 @@ func CheckedRequiredViolations(
 	maxDepth int,
 	check FieldCheck,
 ) ([]Violation, bool) {
-	w := requiredWalk{resolve: resolve, skip: skip, maxDepth: maxDepth, check: check}
-	w.walk(m, prefix, 0)
+	w := requiredWalk{resolve: resolve, maxDepth: maxDepth, check: check}
+	w.walk(m, prefix, 0, skip)
 
 	return w.violations, w.exceeded
 }
 
 type requiredWalk struct {
-	resolve    Resolve
-	skip       []annotations.FieldBehavior
-	maxDepth   int
-	check      FieldCheck
-	violations []Violation
-	exceeded   bool
+	resolve Resolve
+	// elementSkip, when set, replaces the skip of the walk in the elements of
+	// repeated and map fields.
+	elementSkip []annotations.FieldBehavior
+	maxDepth    int
+	check       FieldCheck
+	violations  []Violation
+	exceeded    bool
 }
 
-func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int) {
+func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int, skip []annotations.FieldBehavior) {
 	if m == nil || !m.IsValid() {
 		return
 	}
@@ -139,7 +159,7 @@ func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int) {
 		path := JoinPath(prefix, string(fd.Name()))
 
 		behaviors := w.resolve(fd)
-		if slices.ContainsFunc(behaviors, func(b annotations.FieldBehavior) bool { return slices.Contains(w.skip, b) }) {
+		if slices.ContainsFunc(behaviors, func(b annotations.FieldBehavior) bool { return slices.Contains(skip, b) }) {
 			continue
 		}
 
@@ -156,12 +176,17 @@ func (w *requiredWalk) walk(m protoreflect.Message, prefix string, depth int) {
 			w.violations = append(w.violations, w.check(m, fd, path)...)
 		}
 
-		w.descend(m, fd, path, depth)
+		w.descend(m, fd, path, depth, skip)
 	}
 }
 
 // descend walks the populated messages held by field fd of m.
-func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDescriptor, path string, depth int) {
+func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDescriptor, path string, depth int, skip []annotations.FieldBehavior) {
+	elementSkip := skip
+	if w.elementSkip != nil {
+		elementSkip = w.elementSkip
+	}
+
 	switch {
 	case fd.IsList():
 		if fd.Kind() != protoreflect.MessageKind {
@@ -170,7 +195,7 @@ func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDesc
 
 		list := m.Get(fd).List()
 		for i := range list.Len() {
-			w.walk(list.Get(i).Message(), JoinPath(path, strconv.Itoa(i)), depth+1)
+			w.walk(list.Get(i).Message(), JoinPath(path, strconv.Itoa(i)), depth+1, elementSkip)
 		}
 	case fd.IsMap():
 		if fd.MapValue().Kind() != protoreflect.MessageKind {
@@ -179,10 +204,10 @@ func (w *requiredWalk) descend(m protoreflect.Message, fd protoreflect.FieldDesc
 
 		mm := m.Get(fd).Map()
 		for _, k := range SortedMapKeys(mm) {
-			w.walk(mm.Get(k).Message(), JoinPath(path, QuoteSegment(k.String())), depth+1)
+			w.walk(mm.Get(k).Message(), JoinPath(path, QuoteSegment(k.String())), depth+1, elementSkip)
 		}
 	case fd.Message() != nil:
-		w.walk(m.Get(fd).Message(), path, depth+1)
+		w.walk(m.Get(fd).Message(), path, depth+1, skip)
 	}
 }
 

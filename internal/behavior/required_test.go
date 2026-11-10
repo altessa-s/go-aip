@@ -177,3 +177,44 @@ func TestCheckedRequiredViolations(t *testing.T) {
 	assert.Contains(t, got, behavior.Violation{Path: "aliases.0.display_name", Reason: "checked"})
 	assert.Contains(t, got, behavior.Violation{Path: "name", Behavior: annotations.FieldBehavior_REQUIRED, Reason: behavior.ReasonRequired})
 }
+
+// TestReplacedRequiredViolations pins that the element skip governs the
+// elements of repeated and map fields, the skip the message and its singular
+// sub-messages.
+func TestReplacedRequiredViolations(t *testing.T) {
+	t.Parallel()
+
+	resolve := func(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
+		if fd.FullName() == "fieldbehaviortest.v1.Owner.org" {
+			return []annotations.FieldBehavior{annotations.FieldBehavior_REQUIRED, annotations.FieldBehavior_IMMUTABLE}
+		}
+
+		return behavior.Shared(fd)
+	}
+	skip := []annotations.FieldBehavior{annotations.FieldBehavior_IMMUTABLE}
+	elementSkip := []annotations.FieldBehavior{annotations.FieldBehavior_OUTPUT_ONLY}
+
+	msg := &testpb.Account{
+		DisplayName: "d", Key: []byte{1}, Enabled: true, State: testpb.State_ACTIVE, Quota: new(int32(1)),
+		Owner:  &testpb.Owner{Email: "o"},
+		Emails: []string{"e"}, Attributes: map[string]string{"k": "v"}, Billing: &testpb.Account_Card{Card: "c"},
+		Members:   []*testpb.Owner{{Email: "m"}},
+		Delegates: map[string]*testpb.Owner{"k": {Email: "d"}},
+	}
+
+	got := behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, elementSkip, 8)
+	assert.Equal(t, []string{"members.0.org", "delegates.k.org"}, violationPathsOf(got), "owner.org keeps its stored value")
+
+	got = behavior.ReplacedRequiredViolations(msg.ProtoReflect(), "", resolve, skip, nil, 8)
+	assert.Empty(t, got, "a nil element skip keeps the skip")
+}
+
+// violationPathsOf returns the paths of violations.
+func violationPathsOf(violations []behavior.Violation) []string {
+	out := make([]string, 0, len(violations))
+	for _, v := range violations {
+		out = append(out, v.Path)
+	}
+
+	return out
+}

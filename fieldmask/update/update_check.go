@@ -333,8 +333,8 @@ func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pair
 				u.violations = append(u.violations, v...)
 			}
 		case fd.Message() != nil:
-			v, _ := behavior.RequiredViolations(p.req.Get(fd).Message(), path, resolve, updateRequiredSkip, math.MaxInt)
-			u.violations = append(u.violations, v...)
+			u.violations = append(u.violations,
+				behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, updateRequiredSkip, elementRequiredSkip, math.MaxInt)...)
 		}
 	}
 }
@@ -445,7 +445,7 @@ func (u *updateCheck) checkSetProtected(fd protoreflect.FieldDescriptor, pairs [
 // fields of the request are checked as a replacement writes them (a
 // top-level field the update skips excepted).
 func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair) fieldmask.FieldMask {
-	v, _ := behavior.RequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, math.MaxInt)
+	v := behavior.ReplacedRequiredViolations(root.req, "", u.policy.behaviors, updateRequiredSkip, elementRequiredSkip, math.MaxInt)
 	for _, violation := range v {
 		if fd := md.Fields().ByName(protoreflect.Name(violation.Path)); fd != nil && u.top != nil {
 			if _, skip := u.top(fd); skip {
