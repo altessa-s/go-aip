@@ -75,10 +75,14 @@ type updateCheck struct {
 	// refusal is the first refusal of the mask itself (a path error, not a
 	// field behavior violation) the check made, nil otherwise.
 	refusal error
-	// expandVisits and expandLeaves count the messages [updateCheck.expand]
-	// visited and the leaves it emitted, for its budget
-	// ([updateCheck.expandWithin]).
-	expandVisits, expandLeaves int
+	// expandVisits counts the messages [updateCheck.expand] visits in the
+	// whole call, the validation work it bounds ([updateCheck.expandWithin]);
+	// expandLeaves counts the leaves of the current top-level expansion
+	// (expandNesting is zero outside one), which become paths of the mask
+	// unless validationOnly says the expansion only compares protected
+	// values.
+	expandVisits, expandLeaves, expandNesting int
+	validationOnly                            bool
 }
 
 // newUpdateCheck returns the check of an update of req whose stored value is
@@ -392,6 +396,13 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		return nil
 	}
 
+	if u.expandNesting == 0 {
+		u.expandLeaves = 0 // each top-level expansion is a mask of its own
+	}
+
+	u.expandNesting++
+	defer func() { u.expandNesting-- }()
+
 	out := fieldmask.FieldMask{}
 
 	fields := md.Fields()
@@ -412,7 +423,7 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		}
 
 		if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
-			if u.expandLeaves++; u.policy.maxPaths > 0 && u.expandLeaves > u.policy.maxPaths {
+			if u.expandLeaves++; !u.validationOnly && u.policy.maxPaths > 0 && u.expandLeaves > u.policy.maxPaths {
 				u.refuse(&fieldmask.ValidationError{Path: path, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
 					"the replacement expands to more than %d paths, the limit", u.policy.maxPaths)})
 
@@ -446,9 +457,12 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 // expandWithin counts a visit of [updateCheck.expand] to the message at
 // prefix and reports whether the expansion stays within the limits of the
 // policy, recording the refusal otherwise: the paths below prefix must not be
-// deeper than [WithMaxPathDepth], and the messages visited must not exceed
-// [WithMaxPaths] times that depth, the most a mask within the limits needs.
-// An acyclic schema that branches at every level would otherwise expand
+// deeper than [WithMaxPathDepth], and the messages visited in the whole call
+// must not exceed the larger of [WithMaxPaths] and
+// [fieldmask.DefaultMaxPaths] times that depth: a budget for the validation
+// work, apart from the limits of the effective mask (its leaves are counted
+// per top-level expansion, and the mask is checked as a whole afterwards). An
+// acyclic schema that branches at every level would otherwise expand
 // exponentially before the effective mask could be checked; the expansion
 // stops at the first excess instead.
 func (u *updateCheck) expandWithin(prefix string) bool {
@@ -470,9 +484,14 @@ func (u *updateCheck) expandWithin(prefix string) bool {
 		depth = fieldmask.DefaultMaxPathDepth
 	}
 
-	if paths := u.policy.maxPaths; paths > 0 && u.expandVisits > paths*depth {
+	// The validation work of the whole call — every expansion, those that
+	// only compare protected values and those of covered paths included — is
+	// bounded apart from the effective mask, which is checked on its own.
+	if paths := u.policy.maxPaths; paths > 0 && u.expandVisits > max(paths, fieldmask.DefaultMaxPaths)*depth {
+		budget := max(paths, fieldmask.DefaultMaxPaths) * depth
 		u.refuse(&fieldmask.ValidationError{Path: prefix, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
-			"the replacement visits more than %d messages, more than %d paths of at most %d segments need", paths*depth, paths, depth)})
+			"the replacement visits more than %d messages, the work %d paths of at most %d segments bound", budget,
+			max(paths, fieldmask.DefaultMaxPaths), depth)})
 
 		return false
 	}

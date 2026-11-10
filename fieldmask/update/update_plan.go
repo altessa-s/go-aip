@@ -223,8 +223,11 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 		tree = fieldmask.FromPaths(impliedPaths(root.req.Interface(), slices.Concat(s.skip, s.opts.impliedSkipFields), s.opts)...)
 		u.checkMask(tree, s.desc, []msgPair{root}, "")
 		// The implied mask covers the protected fields resource sets: the
-		// expansion of the root compares them and is otherwise discarded.
+		// expansion of the root compares them and is otherwise discarded, so
+		// its leaves are no paths of the plan.
+		u.validationOnly = true
 		u.expand(s.desc, []msgPair{root}, "", map[protoreflect.FullName]bool{s.desc.FullName(): true})
+		u.validationOnly = false
 	case err != nil:
 		return Plan{}, nil, err
 	case all:
