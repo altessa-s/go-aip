@@ -376,10 +376,19 @@ func (g oneofGuard) checkSwitch(
 
 // guarded reports whether an update must not clear fd as a side effect: an
 // IMMUTABLE or IDENTIFIER field or a message holding one at any depth, and,
-// for a top-level field, one topGuarded reports.
+// for a top-level field, one topGuarded reports. An OUTPUT_ONLY field is
+// never guarded, whatever it holds or the policy names it, as OUTPUT_ONLY
+// governs a field in every check of the update.
 func (g oneofGuard) guarded(fd protoreflect.FieldDescriptor, topLevel bool) bool {
 	policy := g.policy
-	if isImmutableBehavior(policy.serverManaged(fd)) {
+
+	switch policy.serverManaged(fd) { //nolint:exhaustive // serverManaged returns only these or UNSPECIFIED.
+	case annotations.FieldBehavior_OUTPUT_ONLY:
+		// OUTPUT_ONLY dominates the other behaviors, its descendants and the
+		// policy names: the server owns the value, and clearing it with the
+		// switch is not a client write.
+		return false
+	case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
 		return true
 	}
 

@@ -437,15 +437,20 @@ func dynamicPaths(msk fieldmask.FieldMask, prefix string) []string {
 
 // holdsImmutable reports whether md holds an IMMUTABLE or IDENTIFIER field
 // (one not also OUTPUT_ONLY) directly or in any message reachable through
-// its fields — singular, repeated or map values — at any depth. visited
-// breaks recursion on self-referential schemas.
+// its fields — singular, repeated or map values — at any depth, never below
+// an OUTPUT_ONLY field, which the server owns whole. visited breaks recursion
+// on self-referential schemas.
 func holdsImmutable(md protoreflect.MessageDescriptor, visited map[protoreflect.FullName]bool, policy *options) bool {
 	visited[md.FullName()] = true
 
 	fields := md.Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		if isImmutableBehavior(policy.serverManaged(fd)) {
+
+		switch policy.serverManaged(fd) { //nolint:exhaustive // serverManaged returns only these or UNSPECIFIED.
+		case annotations.FieldBehavior_OUTPUT_ONLY:
+			continue // the server owns it and everything below it
+		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
 			return true
 		}
 
