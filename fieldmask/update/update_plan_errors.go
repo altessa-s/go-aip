@@ -144,8 +144,15 @@ func locate(err error, path string, explicit []maskPath) error {
 // path updating a sibling of path in place covers it — an IDENTIFIER the
 // mask does not name, compared in the message or element a sub-path such as
 // "profile.display_name" or "aliases.*.display_name" updates. It returns -1
-// and "" when none covers it (an implied or "*" mask).
+// and "" when none covers it (an implied or "*" mask) and for an empty path,
+// a refusal of the whole mask (its path count, say). A "*" of path, the
+// elements a "*" sub-path addresses, is covered by a "*" of an explicit path
+// only, never by a key path naming another entry.
 func maskIndex(explicit []maskPath, path string) (int, string) {
+	if path == "" {
+		return -1, "" // a refusal of the whole mask
+	}
+
 	segs := maskpath.Split(path)
 	best, bestLen, raw := -1, -1, ""
 	sibling, siblingLen, siblingRaw := -1, 0, ""
@@ -170,12 +177,14 @@ func maskIndex(explicit []maskPath, path string) (int, string) {
 	return best, raw
 }
 
-// matchedSegments returns how many leading segments of a and b match, "*"
-// matching any key or index.
+// matchedSegments returns how many leading segments of a, an explicit mask
+// path, and b, the path of a refusal, match: a "*" of a matches any key or
+// index of b, but a "*" of b (a refusal of the elements a "*" addresses)
+// matches only a "*" of a, never a concrete key, which names another entry.
 func matchedSegments(a, b []string) int {
 	n := min(len(a), len(b))
 	for i := range n {
-		if a[i] != b[i] && a[i] != maskpath.Wildcard && b[i] != maskpath.Wildcard {
+		if a[i] != b[i] && a[i] != maskpath.Wildcard {
 			return i
 		}
 	}
