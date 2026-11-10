@@ -438,7 +438,10 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		reqHas, curHas := pairsHold(pairs, fd)
 
 		child := fd.Message().FullName()
-		if (!reqHas && !curHas && u.verify) || (!reqHas && !curHas && onPath[child]) {
+		switch {
+		case u.validationOnly && !reqHas:
+			continue // only the protected values the request sets are compared
+		case (!reqHas && !curHas && u.verify) || (!reqHas && !curHas && onPath[child]):
 			continue
 		}
 
@@ -479,6 +482,19 @@ func (u *updateCheck) expandWithin(prefix string) bool {
 
 	u.expandVisits++
 
+	if u.validationOnly {
+		// A comparison emits no path, so the path depth limit does not apply;
+		// it follows the request, whose nesting the REQUIRED walks bound.
+		if u.expandNesting > requiredMaxDepth {
+			u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", prefix, requiredMaxDepth,
+				fieldbehavior.ErrMaxDepthExceeded))
+
+			return false
+		}
+
+		return u.withinVisits(prefix)
+	}
+
 	depth := u.policy.maxPathDepth
 	if prefix != "" && depth > 0 && maskpath.Depth(prefix) >= depth {
 		u.refuse(&fieldmask.ValidationError{Path: prefix, Cause: fieldmask.ErrMaxPathDepthExceeded, Reason: fmt.Sprintf(
@@ -487,13 +503,21 @@ func (u *updateCheck) expandWithin(prefix string) bool {
 		return false
 	}
 
+	return u.withinVisits(prefix)
+}
+
+// withinVisits reports whether the messages [updateCheck.expand] visited in
+// the whole call stay within the validation work budget, recording the
+// refusal otherwise. The work of every expansion — those that only compare
+// protected values and those of covered paths included — is bounded apart
+// from the effective mask, which is checked on its own: the larger of
+// [WithMaxPaths] and [fieldmask.DefaultMaxPaths] times the path depth limit.
+func (u *updateCheck) withinVisits(prefix string) bool {
+	depth := u.policy.maxPathDepth
 	if depth <= 0 {
 		depth = fieldmask.DefaultMaxPathDepth
 	}
 
-	// The validation work of the whole call — every expansion, those that
-	// only compare protected values and those of covered paths included — is
-	// bounded apart from the effective mask, which is checked on its own.
 	if paths := u.policy.maxPaths; paths > 0 && u.expandVisits > max(paths, fieldmask.DefaultMaxPaths)*depth {
 		budget := max(paths, fieldmask.DefaultMaxPaths) * depth
 		u.refuse(&fieldmask.ValidationError{Path: prefix, Cause: fieldmask.ErrMaxPathsExceeded, Reason: fmt.Sprintf(
