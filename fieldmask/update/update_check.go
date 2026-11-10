@@ -875,11 +875,14 @@ func selectField(tmpl protoreflect.Message, fd protoreflect.FieldDescriptor, m p
 
 // clearOutputOnly clears every OUTPUT_ONLY value of msg at any depth,
 // collection elements included: AIP-203 requires a service to clear them from
-// a request.
+// a request. It runs after the request was filtered, so it only clears: the
+// AIP-202 format checks of [fieldbehavior.Strip] are off (an update mask
+// check reports no format violation), and nothing else can fail.
 func clearOutputOnly(msg proto.Message, policy *options) error {
 	return fieldbehavior.Strip(msg,
 		fieldbehavior.WithBehaviors(annotations.FieldBehavior_OUTPUT_ONLY),
 		fieldbehavior.WithResolver(policy.resolver),
+		fieldbehavior.WithFieldFormats(false),
 		fieldbehavior.WithMaxDepth(math.MaxInt))
 }
 
