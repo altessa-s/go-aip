@@ -2,7 +2,7 @@ name: Dependency Review
 
 on:
   pull_request:
-    branches: [ develop, main ]
+    branches: [develop, main]
 
 permissions:
   contents: read
@@ -10,6 +10,9 @@ permissions:
 jobs:
   dependency-review:
     name: Dependency Review
+    # The dependency review API needs GitHub Code Security on a private
+    # repository; without it the action only fails, so the job is skipped there.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
