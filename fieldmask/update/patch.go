@@ -4,6 +4,8 @@
 
 package update
 
+//go:generate optgen generate --type=patchOptions --option-type=PatchOption --output=patch_options_gen.go
+
 import (
 	"context"
 	"errors"

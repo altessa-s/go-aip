@@ -80,15 +80,6 @@ func TestParseRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSentinelsAreCoreSentinels(t *testing.T) {
-	t.Parallel()
-
-	require.ErrorIs(t, coreetag.ErrMissing, coreetag.ErrMissing)
-	require.ErrorIs(t, coreetag.ErrInvalidTag, coreetag.ErrInvalidTag)
-	require.ErrorIs(t, coreetag.ErrMismatch, coreetag.ErrMismatch)
-	require.ErrorIs(t, coreetag.ErrNotVersion, coreetag.ErrNotVersion)
-}
-
 func TestFromRevision(t *testing.T) {
 	t.Parallel()
 
