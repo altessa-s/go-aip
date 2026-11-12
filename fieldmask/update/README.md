@@ -28,7 +28,9 @@ pair by index and map elements by key. New protected values without stored count
 Routing identifiers and unverified protected values are preserved using a separate private filtering mask; they never become effective write paths.
 `DropIdentifiers` is no longer needed after `Apply`. `Apply(nil, ...)` cannot assign its synthesized mask back to the caller; use `ApplyMask` instead.
 
-A nil mask implies populated fields; a provided empty mask is a no-op that leaves the request untouched; `*` alone means full replacement.
+A nil mask implies populated fields; a provided empty mask is a no-op; `*` alone means full replacement.
+For an explicit empty mask, stateless `Apply`, `ValidateStrict` and `ApplyMask` leave the request untouched.
+`Prepare` captures the original input first, then sanitizes the handler-visible request even when no write paths remain.
 A completed empty mask writes no resource fields, but normalization can still clear
 OUTPUT_ONLY request input. An empty interim mask does not authorize skipping deferred completion. REQUIRED validation, path limits and strict
 handling of invalid masks still apply.
@@ -78,7 +80,7 @@ A successfully completed mask whose every path is dropped (OUTPUT_ONLY, unchange
 `Plan.Empty` does. Normalization still clears OUTPUT_ONLY input, even when no write paths remain; the request need not remain as sent.
 An interim effective mask from `Prepare` can be empty while a collection replacement or protected comparison remains deferred. Always complete
 that plan against stored state, directly or through `Spec.Plan` / `Patch.Run`, before deciding there are no writes. A provided empty mask is the
-separate no-op case described above. Never store the normalized request as the resource.
+separate no-op case described above; `Prepare` still sanitizes its input. Never store the normalized request as the resource.
 
 The mask policy options govern the top-level fields of `ApplyMask`, `Apply` and `ValidateStrict` as they govern `Spec.Plan`: a field named by
 `WithImmutableFields` is IMMUTABLE, and a field named by `WithIdentityFields` (`id` and `etag` by default) is IDENTIFIER when the mask names it.
@@ -109,13 +111,31 @@ message replacement, reaches the same decision. Its selection contains populated
 
 `Prepare(raw, resource, opts...)` performs stateless normalization and returns a `DeferredPlan`. Its `Mask` is the initial effective mask;
 `Operations` describes deferred set, clear and whole-replacement intent. `Complete(stored)` compares the captured values, restores any deferred
-replacement paths, and updates the bound request to the same result as a stateful `ApplyMask`. It leaves stored state untouched and is idempotent.
+replacement paths, and updates the bound request to the same result as a stateful `ApplyMask`.
+When preparation already had `WithCurrent`, completion keeps that sanitized result. It leaves stored state untouched and is idempotent.
 A validation or behavior refusal restores the captured original request; message mismatch and conversion failures leave the current request untouched.
 An explicit protected clear remains a comparison even when the initial mask is empty. The plan retains one resource snapshot and the raw mask,
 subject to the existing path limits, even when `Operations()` is empty. Collection validation (including stored elements of an absent request list), expansion and retained routing-message
 sanitization can need stored state without a protected comparison. An empty `Operations()` result does not authorize skipping completion.
 `Patch` uses the captured resource for `allow_missing` creation, ignoring the update mask, including invalid paths.
 Both the boundary's and the Spec's OUTPUT_ONLY clearing apply before `Create` or the `validate_only` return.
+
+After successful `Prepare`, the handler and downstream validators see:
+
+| Client mask | Handler-visible resource |
+|---|---|
+| Omitted | Populated leaves imply selection. Unselected values are filtered even when no work remains; protected values, routing identities and containers needed for deferred comparison are retained. OUTPUT_ONLY is cleared. |
+| Explicit empty | Unselected mutable input and OUTPUT_ONLY are cleared under the same filtering policy. Protected values and routing identities (including etag) are retained. The mask stays explicitly empty, with no comparisons, writes or secret changes. |
+| Only OUTPUT_ONLY / dropped paths | Unselected input is filtered with the same preservation policy; OUTPUT_ONLY is cleared. The effective mask is explicitly empty. |
+| Writable paths remain | Selected input is retained; unselected input is filtered except protected values, identities and containers needed for deferred comparison. OUTPUT_ONLY is cleared. |
+| `*` | Replacement selection is processed; OUTPUT_ONLY is cleared and protected input is retained. |
+
+Preservation follows the configured resolver, identity, immutable and atomic policies.
+The captured original input remains the source for deferred replacements, secrets and creation.
+Standalone `Complete` replays that original input, so it can restore unselected input on success
+(including explicit-empty input) as stateful `ApplyMask` does; a refusal restores the original request.
+A plan prepared with `WithCurrent` is already resolved and keeps its sanitized request.
+The stateless APIs retain their documented empty-mask behavior and error ordering.
 
 With a bound plan, `Spec.Plan` and `Patch.Run` behave as on the client's original request and mask after the boundary's OUTPUT_ONLY
 sanitization: values are cleared and wholly OUTPUT_ONLY paths dropped, keeping keyed exclusions and empty-mask no-ops.

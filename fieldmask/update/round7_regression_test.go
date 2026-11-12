@@ -111,7 +111,12 @@ func TestRound7EmptyImpliedOneofMessage(t *testing.T) {
 					t.Fatalf("empty mutable message implies no writes: mask=%v err=%v", mask, err)
 				}
 
-				requireProtoEqual(t, parseMessageChoice(t, md, `config { a {} }`), req)
+				wantRequest := `config { a {} }`
+				if entry == "Prepare" {
+					wantRequest = "" // no populated mutable leaf or protected value
+				}
+
+				requireProtoEqual(t, parseMessageChoice(t, md, wantRequest), req)
 			})
 		}
 

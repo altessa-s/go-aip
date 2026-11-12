@@ -52,7 +52,13 @@ func TestRound6ProtectedLeafOneofSibling(t *testing.T) {
 				_, err := round2Entry(t, entry, req, stored, maskOf(paths), update.WithResolver(resolver))
 				requireProtectedViolation(t, err, "config.b", b)
 				requireProtoEqual(t, before, stored)
-				requireProtoEqual(t, parseMessageChoice(t, md, `config { a {} }`), req)
+
+				wantRequest := `config { a {} }`
+				if entry == "DeferredSpec" || entry == "DeferredPatch" {
+					wantRequest = "" // refusal preserves the sanitized boundary request
+				}
+
+				requireProtoEqual(t, parseMessageChoice(t, md, wantRequest), req)
 			})
 		}
 	}

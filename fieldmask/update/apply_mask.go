@@ -28,8 +28,9 @@ import (
 // directly or through [Spec.Plan] / [Patch.Run]. ApplyMask returns only its mask.
 //
 // A nil raw mask implies populated leaves; empty mutable messages contribute
-// no path. A provided mask with no paths is a no-op that leaves msg untouched; "*" alone is a full
-// replacement. A mask
+// no path. A provided mask with no paths is a no-op that leaves msg untouched.
+// Unlike ApplyMask, [Prepare] sanitizes input even for an explicit empty mask.
+// "*" alone is a full replacement. A mask
 // whose paths are all dropped is interim without stored state: completion may
 // restore deferred writes, so always complete a [Prepare] plan. OUTPUT_ONLY input is
 // cleared. Never store msg itself as the resource after this filtering step.
@@ -65,7 +66,7 @@ import (
 // path-validation option and wraps refusals as *[StrictError], matching
 // [ErrInvalidUpdateMask]. On error msg is untouched.
 func ApplyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, opts ...Option) (fieldmask.FieldMask, error) {
-	p, err := Prepare(raw, msg, opts...)
+	p, err := prepare(raw, msg, false, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +99,8 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options, pendin
 			if err = pending.capture(raw, msg, o); err != nil {
 				return nil, err
 			}
+
+			return fieldmask.FieldMask{}, u.filterInput(fieldmask.FieldMask{}, msg)
 		}
 
 		return fieldmask.FieldMask{}, nil // a provided empty update_mask is a no-op (AIP-134).
@@ -153,13 +156,20 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options, pendin
 		}
 	}
 
-	if len(work) == 0 {
+	if len(work) == 0 && pending == nil {
 		return fieldmask.FieldMask{}, clearOutputOnly(msg, o) // no writes, but output-only input is still cleared
 	}
 
 	effective := work.Clone()
 	dropPolicyIdentifiers(effective, md, o)
 
+	return effective, u.filterInput(work, msg)
+}
+
+// filterInput uses a private mask to retain routing and comparison values without
+// adding write paths, including when the effective selection is empty.
+func (u *updateCheck) filterInput(work fieldmask.FieldMask, msg proto.Message) error {
+	o := u.policy
 	preserveIdentifierFields(work, msg, o)
 
 	if !u.verify {
@@ -168,11 +178,7 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options, pendin
 
 	maskwalk.Filter(work, msg, false)
 
-	if err := clearOutputOnlyKeeping(msg, work, o); err != nil {
-		return nil, err
-	}
-
-	return effective, nil
+	return clearOutputOnlyKeeping(msg, work, o)
 }
 
 // checkGrammar returns paths without the ones the grammar rejects, after

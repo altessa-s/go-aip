@@ -213,7 +213,19 @@ func TestRound8RootEntryPoints(t *testing.T) {
 
 						requireProtoEqual(t, tc.req, stored)
 
-						if err != nil || entry == "ValidateStrict" || entry == "Spec" || entry == "Patch" || entry == "StripUpdate" || empty {
+						if err == nil && empty && (entry == "Prepare" || (entry == "Complete" && known)) {
+							wantRequest := tc.req
+							switch m := tc.req.(type) {
+							case *structpb.Struct:
+								wantRequest = &structpb.Struct{}
+							case *structpb.Value:
+								if m.GetStructValue() != nil {
+									wantRequest = structpb.NewStructValue(&structpb.Struct{})
+								}
+							}
+
+							requireProtoEqual(t, wantRequest, req)
+						} else if err != nil || entry == "ValidateStrict" || entry == "Spec" || entry == "Patch" || entry == "StripUpdate" || empty {
 							requireProtoEqual(t, tc.req, req)
 						} else if tc.name == "StructMissingKey" {
 							requireProtoEqual(t, &structpb.Struct{}, req)

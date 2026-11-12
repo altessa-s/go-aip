@@ -314,7 +314,12 @@ func TestStatelessProtectedOutputOnly(t *testing.T) {
 						t.Fatalf("mask = %v, want %v", mask.ToPaths(), wantPaths)
 					}
 
-					requireProtoEqual(t, parse("", "new"), req)
+					wantRequest := parse("", "new")
+					if entry == "Prepare" && !sibling {
+						wantRequest.ProtoReflect().Clear(wantRequest.ProtoReflect().Descriptor().Fields().ByName("title"))
+					}
+
+					requireProtoEqual(t, wantRequest, req)
 
 					if pending != nil {
 						mask, err = pending.Complete(stored)

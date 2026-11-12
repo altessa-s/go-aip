@@ -81,9 +81,13 @@ type DeferredPlan struct {
 	resolved     bool // Prepare already had current state
 }
 
-// Prepare applies the same checks and mutations as [ApplyMask], and retains
+// Prepare applies the same checks as [ApplyMask], and retains
 // the original resource and raw mask for completion, secret consumption and
 // allow_missing creation. [DeferredPlan.Complete] finishes stored-state work.
+// After capturing the input, Prepare filters unselected values and clears OUTPUT_ONLY
+// input even when no write paths remain. Routing identities and unverified
+// protected values are retained under the same policy as non-empty masks.
+// An explicit empty mask remains a no-op with no comparisons or secret changes.
 // With [WithCurrent] it finishes immediately and retains no pending comparisons.
 // On failure it returns no plan and leaves resource unchanged. A stateless
 // refusal precedes stored-state comparison, so it can report fewer violations
@@ -92,6 +96,12 @@ type DeferredPlan struct {
 // Errors have ApplyMask's shape: a [fieldmask.ValidationError], [BehaviorError],
 // or, with [WithStrict], [StrictError].
 func Prepare(raw *fieldmaskpb.FieldMask, resource proto.Message, opts ...Option) (*DeferredPlan, error) {
+	return prepare(raw, resource, true, opts...)
+}
+
+// prepare shares transactional validation while preserving ApplyMask's stateless
+// empty-mask behavior. Only Prepare captures and sanitizes empty selections.
+func prepare(raw *fieldmaskpb.FieldMask, resource proto.Message, deferred bool, opts ...Option) (*DeferredPlan, error) {
 	o := newOptions(opts...)
 	if o.strict {
 		o.pathValidation = PathValidationEnforce
@@ -101,7 +111,12 @@ func Prepare(raw *fieldmaskpb.FieldMask, resource proto.Message, opts ...Option)
 
 	work, err := cloneMessage(resource)
 	if err == nil {
-		p.mask, err = applyMask(raw, work, o, p)
+		var pending *DeferredPlan
+		if deferred {
+			pending = p
+		}
+
+		p.mask, err = applyMask(raw, work, o, pending)
 	}
 
 	if err == nil {
@@ -135,7 +150,9 @@ func (p *DeferredPlan) Operations() []DeferredOperation {
 
 // Complete finishes the update against stored without changing stored. On
 // success its mask and resource match [ApplyMask] on the original request with
-// [WithCurrent](stored). A validation or behavior refusal restores the original
+// [WithCurrent](stored), including its explicit-empty no-op behavior. If Prepare
+// already had current state, Complete keeps that sanitized result unchanged.
+// A validation or behavior refusal restores the original
 // request, matching a one-stage refusal. A message mismatch or conversion
 // failure leaves the bound resource as it was immediately before Complete.
 // Changed protected values produce a *[BehaviorError]; [WithStrict] retains its

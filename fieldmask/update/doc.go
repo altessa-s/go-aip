@@ -10,10 +10,12 @@
 // rejected; retained for caller comparison without WithCurrent, outside the effective mask). REQUIRED paths must hold non-empty
 // values, and a message named whole keeps its stored
 // server-managed values. They and Patch keep the presence of the update mask (AIP-134), as fieldmask.FromProtoFieldMask builds it: nil
-// is the implied mask of the populated fields, a provided empty mask is a no-op that leaves the message untouched and "*" is a full
+// is the implied mask of the populated fields, a provided empty mask is a no-op and "*" is a full
 // replacement. An interim effective mask may be empty while validation or writes remain deferred: always complete a Prepare plan
 // against stored state (directly or through Spec.Plan or Patch). Only a successfully completed empty mask or completed Plan.Empty means there
-// are no writes. Normalization can clear OUTPUT_ONLY input even when no write paths remain. Merge and MergePaths copy the fields
+// are no writes. For explicit empty masks, stateless Apply, ValidateStrict and ApplyMask leave the message untouched.
+// Prepare captures the original input, then clears OUTPUT_ONLY and filters unselected values even when no write paths remain,
+// preserving routing identities and unverified protected input under the configured policy. Merge and MergePaths copy the fields
 // of update paths in a read-modify-write, and Patch runs the whole read-modify-write with an optional
 // AIP-154 etag precondition (Int64Precondition, TagPrecondition), allow_missing and AIP-163 validate_only.
 //
