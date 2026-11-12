@@ -336,7 +336,13 @@ func TestProtectedSelectedMutation(t *testing.T) {
 							}
 						}
 
-						requireProtoEqual(t, tc.req, req)
+						want := proto.CloneOf(tc.req)
+						if (entry == "DeferredSpec" || entry == "DeferredPatch") &&
+							b == annotations.FieldBehavior_IMMUTABLE && tc.path == "owner.note" && want.Owner != nil {
+							want.Owner.Email = "" // unselected input is absent at the boundary
+						}
+
+						requireProtoEqual(t, want, req)
 
 						return
 					}

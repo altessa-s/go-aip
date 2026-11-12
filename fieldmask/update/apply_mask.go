@@ -170,9 +170,21 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options, pendin
 // adding write paths, including when the effective selection is empty.
 func (u *updateCheck) filterInput(work fieldmask.FieldMask, msg proto.Message) error {
 	o := u.policy
+
+	selectedOnly := u.deferred != nil && u.orderMode == referenceExplicit
+	if selectedOnly && !u.verify {
+		// The plan owns comparison input; validators only need selected values.
+		work = u.preparedInput.Clone()
+		if work == nil {
+			work = fieldmask.FieldMask{}
+		}
+
+		preserveSelectedUnverified(work, msg.ProtoReflect(), o)
+	}
+
 	preserveIdentifierFields(work, msg, o)
 
-	if !u.verify {
+	if !u.verify && !selectedOnly {
 		preserveUnverified(work, msg.ProtoReflect(), o)
 	}
 

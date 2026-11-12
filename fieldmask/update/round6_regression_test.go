@@ -54,9 +54,7 @@ func TestRound6ProtectedLeafOneofSibling(t *testing.T) {
 				requireProtoEqual(t, before, stored)
 
 				wantRequest := `config { a {} }`
-				if entry == "DeferredSpec" || entry == "DeferredPatch" {
-					wantRequest = "" // refusal preserves the sanitized boundary request
-				}
+				// Selected descendant containers also survive deferred preparation.
 
 				requireProtoEqual(t, parseMessageChoice(t, md, wantRequest), req)
 			})

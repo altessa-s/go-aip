@@ -85,8 +85,10 @@ type DeferredPlan struct {
 // the original resource and raw mask for completion, secret consumption and
 // allow_missing creation. [DeferredPlan.Complete] finishes stored-state work.
 // After capturing the input, Prepare filters unselected values and clears OUTPUT_ONLY
-// input even when no write paths remain. Routing identities and unverified
-// protected values are retained under the same policy as non-empty masks.
+// input even when no write paths remain. Routing identities (including etag) and
+// selected protected values are retained. Unselected non-identity IMMUTABLE input
+// is cleared, including in unselected containers; selected whole collections and
+// atomic messages retain their protected descendants for deferred comparison.
 // An explicit empty mask remains a no-op with no comparisons or secret changes.
 // With [WithCurrent] it finishes immediately and retains no pending comparisons.
 // On failure it returns no plan and leaves resource unchanged. A stateless

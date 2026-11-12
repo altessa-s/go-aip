@@ -76,6 +76,8 @@ type updateCheck struct {
 	// identity fields of the policy ([WithIdentityFields]) that carry no
 	// IDENTIFIER annotation.
 	addressOnly func(fd protoreflect.FieldDescriptor) bool
+	// preparedInput retains the selection before protected write paths are pruned.
+	preparedInput fieldmask.FieldMask
 	// namedInput preserves explicit naming for routing checks after ignored paths
 	// are removed; it is never used to evaluate a merge or derive writes.
 	namedInput   fieldmask.FieldMask

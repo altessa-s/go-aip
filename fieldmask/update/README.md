@@ -125,12 +125,17 @@ After successful `Prepare`, the handler and downstream validators see:
 | Client mask | Handler-visible resource |
 |---|---|
 | Omitted | Populated leaves imply selection. Unselected values are filtered even when no work remains; protected values, routing identities and containers needed for deferred comparison are retained. OUTPUT_ONLY is cleared. |
-| Explicit empty | Unselected mutable input and OUTPUT_ONLY are cleared under the same filtering policy. Protected values and routing identities (including etag) are retained. The mask stays explicitly empty, with no comparisons, writes or secret changes. |
-| Only OUTPUT_ONLY / dropped paths | Unselected input is filtered with the same preservation policy; OUTPUT_ONLY is cleared. The effective mask is explicitly empty. |
-| Writable paths remain | Selected input is retained; unselected input is filtered except protected values, identities and containers needed for deferred comparison. OUTPUT_ONLY is cleared. |
+| Explicit empty | Only routing identities (including etag) are retained. Unselected IMMUTABLE input, mutable input and OUTPUT_ONLY are cleared. The mask stays explicitly empty, with no comparisons, writes or secret changes. |
+| Only OUTPUT_ONLY / dropped paths | Only routing identities and any selected protected input are retained; unselected IMMUTABLE input and OUTPUT_ONLY are cleared. The effective mask is explicitly empty. |
+| Writable paths remain | Selected input (including protected values) is retained; unselected input is filtered except routing identities and containers needed for selected descendants. OUTPUT_ONLY is cleared. |
 | `*` | Replacement selection is processed; OUTPUT_ONLY is cleared and protected input is retained. |
 
 Preservation follows the configured resolver, identity, immutable and atomic policies.
+Omitted masks and `*` retain their existing preservation policy.
+A covering path keeps protected descendants; a selected whole collection or atomic message is kept whole, apart from OUTPUT_ONLY clearing.
+With explicit paths or an explicit empty mask, an unselected container is dropped even when it contains IMMUTABLE or nested IDENTIFIER fields.
+Within selected branches, nested identifiers retain the existing identity-preservation behavior.
+Stateless `Apply` and `ApplyMask` still retain unverified protected input for callers to compare, including whole collections needed for positional comparison.
 The captured original input remains the source for deferred replacements, secrets and creation.
 Standalone `Complete` replays that original input, so it can restore unselected input on success
 (including explicit-empty input) as stateful `ApplyMask` does; a refusal restores the original request.

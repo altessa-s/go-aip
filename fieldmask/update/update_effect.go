@@ -25,6 +25,10 @@ func (u *updateCheck) evaluateSelection(selection fieldmask.FieldMask, root msgP
 
 	u.inputSelection(selection, md)
 
+	if u.deferred != nil && !u.verify {
+		u.preparedInput = selection.Clone()
+	}
+
 	if u.refusal != nil {
 		return
 	}

@@ -25,6 +25,7 @@ func TestPrepareSanitizesEmptySelections(t *testing.T) {
 	for _, dynamic := range []bool{false, true} {
 		for _, tc := range []struct {
 			name      string
+			clear     bool
 			paths     []string
 			changed   bool
 			secret    bool
@@ -33,12 +34,13 @@ func TestPrepareSanitizesEmptySelections(t *testing.T) {
 		}{
 			{name: "explicit empty output", paths: []string{}},
 			{name: "explicit empty mutable and secret", paths: []string{}, secret: true, changed: true},
-			{name: "output only", paths: []string{"edition"}},
+			{name: "output only", paths: []string{"edition"}, changed: true},
 			{name: "equal immutable", paths: []string{"name"}},
 			{name: "changed immutable", paths: []string{"name"}, changed: true},
 			{name: "omitted", write: true},
 			{name: "omitted without mutable leaves", noMutable: true},
-			{name: "selected mutable", paths: []string{"package"}, write: true},
+			{name: "selected mutable", paths: []string{"package"}, write: true, changed: true},
+			{name: "cleared immutable", paths: []string{"name"}, clear: true},
 			{name: "replacement", paths: []string{"*"}, write: true},
 		} {
 			t.Run(tc.name+map[bool]string{false: "/generated", true: "/dynamic"}[dynamic], func(t *testing.T) {
@@ -52,6 +54,10 @@ func TestPrepareSanitizesEmptySelections(t *testing.T) {
 
 				if tc.changed {
 					input.Name = new("changed")
+				}
+
+				if tc.clear {
+					input.Name = nil
 				}
 
 				if tc.secret {
@@ -84,7 +90,13 @@ func TestPrepareSanitizesEmptySelections(t *testing.T) {
 
 				want := proto.CloneOf(input)
 
+				compares := tc.paths == nil || slices.Contains(tc.paths, "name") || slices.Contains(tc.paths, "*")
+
 				want.Edition, want.Syntax = nil, nil
+				if !compares {
+					want.Name = nil
+				}
+
 				if !tc.write {
 					want.Package = nil
 				}
@@ -110,20 +122,24 @@ func TestPrepareSanitizesEmptySelections(t *testing.T) {
 
 				ops := pending.Operations()
 
-				compares := tc.paths == nil || slices.Contains(tc.paths, "name") || slices.Contains(tc.paths, "*")
 				if (len(ops) > 0) != compares {
 					t.Fatalf("Operations = %v, comparison wanted: %t", ops, compares)
 				}
 
+				wantIntent := update.DeferredSet
+				if tc.clear {
+					wantIntent = update.DeferredClear
+				}
+
 				for _, op := range ops {
-					if op.Field != "name" || op.Behavior != annotations.FieldBehavior_IMMUTABLE || op.Intent != update.DeferredSet {
+					if op.Field != "name" || op.Behavior != annotations.FieldBehavior_IMMUTABLE || op.Intent != wantIntent {
 						t.Fatalf("unexpected operation: %+v", op)
 					}
 				}
 
 				completed, completeErr := pending.Complete(stored)
 
-				refused := tc.changed && compares
+				refused := (tc.changed || tc.clear) && compares
 				if refused {
 					if completeErr == nil || !strings.Contains(completeErr.Error(), "name") {
 						t.Fatalf("Complete refusal = %v, want name", completeErr)
@@ -210,7 +226,7 @@ func TestPrepareSanitizesEmptySelections(t *testing.T) {
 	}
 }
 
-func TestPrepareEmptyPreservesAtomicComparisonInput(t *testing.T) {
+func TestPrepareKeepsOnlySelectedAtomicComparisonInput(t *testing.T) {
 	policy := sourcePolicy{
 		atomic: "google.protobuf.FileOptions",
 		fields: map[protoreflect.FullName]annotations.FieldBehavior{
@@ -219,7 +235,7 @@ func TestPrepareEmptyPreservesAtomicComparisonInput(t *testing.T) {
 		},
 	}
 
-	for _, paths := range [][]string{{}, nil} {
+	for _, paths := range [][]string{{}, {"options"}, nil} {
 		req := &descriptorpb.FileDescriptorProto{
 			Options: &descriptorpb.FileOptions{
 				JavaPackage: new("fixed"), JavaOuterClassname: new("retained for atomic comparison"),
@@ -233,11 +249,15 @@ func TestPrepareEmptyPreservesAtomicComparisonInput(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if req.Options.GetJavaPackage() != "fixed" || req.Options.GetJavaOuterClassname() == "" || req.Options.OptimizeFor != nil {
+		if paths != nil && len(paths) == 0 {
+			if req.Options != nil {
+				t.Fatalf("unselected atomic input = %v", req)
+			}
+		} else if req.Options.GetJavaPackage() != "fixed" || req.Options.GetJavaOuterClassname() == "" || req.Options.OptimizeFor != nil {
 			t.Fatalf("atomic input = %v", req)
 		}
 
-		if paths != nil && len(pending.Operations()) != 0 {
+		if paths != nil && len(paths) == 0 && len(pending.Operations()) != 0 {
 			t.Fatalf("no-op has operations: %v", pending.Operations())
 		}
 

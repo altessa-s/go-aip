@@ -17,23 +17,38 @@ import (
 // Collections are kept whole so element positions and keys remain available
 // for comparison; retaining them does not authorize writing them.
 func preserveUnverified(keep fieldmask.FieldMask, msg protoreflect.Message, policy *options) {
-	preserveUnverifiedDepth(keep, msg, policy, true, requiredMaxDepth)
+	preserveUnverifiedDepth(keep, msg, policy, true, false, requiredMaxDepth)
 }
 
-func preserveUnverifiedDepth(keep fieldmask.FieldMask, msg protoreflect.Message, policy *options, top bool, room int) {
+// preserveSelectedUnverified keeps selected identities and protected collections
+// whole, without adding unselected protected fields or containers. Prepare owns
+// the original input, so its handler-visible request needs no other comparisons.
+func preserveSelectedUnverified(keep fieldmask.FieldMask, msg protoreflect.Message, policy *options) {
+	preserveUnverifiedDepth(keep, msg, policy, true, true, requiredMaxDepth)
+}
+
+func preserveUnverifiedDepth(keep fieldmask.FieldMask, msg protoreflect.Message, policy *options, top, selectedOnly bool, room int) {
 	msg.Range(func(fd protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		name := string(fd.Name())
+		if _, selected := keep[name]; selectedOnly && !selected {
+			return true
+		}
+
 		b := policy.serverManaged(fd)
 		if top {
 			b, _ = policyTopBehavior(policy)(fd)
 		}
 
-		name := string(fd.Name())
-
 		switch {
 		case b == annotations.FieldBehavior_OUTPUT_ONLY:
 			return true
 		case isImmutableBehavior(b):
+			if selectedOnly && b == annotations.FieldBehavior_IMMUTABLE && keep[name] != nil {
+				return true // a selected descendant does not select its siblings
+			}
+
 			keep[name] = nil
+
 			return true
 		}
 
@@ -46,6 +61,10 @@ func preserveUnverifiedDepth(keep fieldmask.FieldMask, msg protoreflect.Message,
 			return true // already kept whole
 		}
 
+		if selectedOnly && room == 0 {
+			return true // retain only the selection at the traversal bound
+		}
+
 		if fd.IsList() || fd.IsMap() || isAtomicValue(fd, policy) || room == 0 {
 			keep[name] = nil
 			return true
@@ -56,7 +75,7 @@ func preserveUnverifiedDepth(keep fieldmask.FieldMask, msg protoreflect.Message,
 			nested = fieldmask.FieldMask{}
 		}
 
-		preserveUnverifiedDepth(nested, value.Message(), policy, false, room-1)
+		preserveUnverifiedDepth(nested, value.Message(), policy, false, selectedOnly, room-1)
 
 		if len(nested) > 0 {
 			keep[name] = nested

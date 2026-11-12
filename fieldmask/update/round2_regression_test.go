@@ -226,6 +226,11 @@ func TestPrepareIgnoredPolicySelection(t *testing.T) {
 					t.Fatalf("ignored selection retained work: mask=%v operations=%v", pending.Mask(), pending.Operations())
 				}
 
+				completed := proto.Clone(want)
+				if name == "immutable" {
+					want.Owner = nil // ignored input is not a selected protected value
+				}
+
 				requireProtoEqual(t, want, req)
 
 				mask, err := pending.Complete(nil) // no comparison should read stored state
@@ -233,7 +238,7 @@ func TestPrepareIgnoredPolicySelection(t *testing.T) {
 					t.Fatalf("ignored completion: %v, %v", mask, err)
 				}
 
-				requireProtoEqual(t, want, req)
+				requireProtoEqual(t, completed, req)
 			})
 		}
 	}
