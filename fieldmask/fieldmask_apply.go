@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
 // Validate checks every path of the mask against the schema of msg by the

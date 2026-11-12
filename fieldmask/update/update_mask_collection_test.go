@@ -39,12 +39,11 @@ func violationPaths(tb testing.TB, err error) []string {
 	return paths
 }
 
-// TestApplyUpdateMask_CollectionElementIdentifierRejected pins that a sub-path
-// into collection elements cannot name an element identifier: through a map
-// key or a map or list wildcard, the update would change the identifier of
-// every addressed element. A list index and the implicit per-element form are
-// rejected before, by the path grammar.
-func TestApplyUpdateMask_CollectionElementIdentifierRejected(t *testing.T) {
+// TestApplyUpdateMask_CollectionElementIdentifierDeferred pins that identifier
+// selections through map keys and collection wildcards defer comparison with
+// stored state: input values stay intact and paths leave the effective mask.
+// A list index is still rejected by the path grammar.
+func TestApplyUpdateMask_CollectionElementIdentifierDeferred(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -64,11 +63,11 @@ func TestApplyUpdateMask_CollectionElementIdentifierRejected(t *testing.T) {
 				Aliases: []*pb.Profile{{Id: "client"}},
 				Labels:  map[string]*pb.Profile{"k": {Id: "client"}, "a.b": {Id: "client"}},
 			}
-			err := update.Apply(fieldmask.FromPaths(tt.path, "description"), res)
-			require.Equal(t, []string{tt.path}, violationPaths(t, err))
-
-			behaviorErr, _ := errors.AsType[*update.BehaviorError](err)
-			require.Equal(t, annotations.FieldBehavior_IDENTIFIER, behaviorErr.Violations[0].Behavior)
+			want := proto.Clone(res)
+			mask := fieldmask.FromPaths(tt.path, "description")
+			require.NoError(t, update.Apply(mask, res))
+			require.Equal(t, []string{"description"}, mask.ToPaths())
+			requireProtoEqual(t, want, res)
 		})
 	}
 
@@ -94,9 +93,9 @@ func TestApplyUpdateMask_CollectionElementOutputOnlyRemoved(t *testing.T) {
 		paths []string
 		want  []string
 	}{
-		{name: "keyed map", paths: []string{"labels.k.updated_at", "labels.k.display_name"}, want: []string{"labels.k.display_name", "labels.k.id"}},
+		{name: "keyed map", paths: []string{"labels.k.updated_at", "labels.k.display_name"}, want: []string{"labels.k.display_name"}},
 		{name: "keyed map only output-only", paths: []string{"labels.k.updated_at"}, want: []string{}},
-		{name: "whole elements", paths: []string{"labels.k", "aliases.*"}, want: []string{"aliases.*", "labels.k"}},
+		{name: "whole elements", paths: []string{"labels.k", "aliases.*"}, want: []string{"aliases", "labels.k"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -107,7 +106,7 @@ func TestApplyUpdateMask_CollectionElementOutputOnlyRemoved(t *testing.T) {
 				Labels:  map[string]*pb.Profile{"k": {Id: "l", DisplayName: "x", UpdatedAt: "client"}},
 			}
 			mask := fieldmask.FromPaths(tt.paths...)
-			require.NoError(t, update.Apply(mask, res))
+			require.NoError(t, update.Apply(mask, res, update.WithCurrent(proto.Clone(res))))
 			require.ElementsMatch(t, tt.want, mask.ToPaths())
 		})
 	}
@@ -221,17 +220,18 @@ func TestApplyUpdateMask_NestedInCollectionElement(t *testing.T) {
 		paths []string
 		want  []string
 	}{
-		{name: "identifier in element message", paths: []string{"elems.k.inner.id"}, want: []string{"elems.k.inner.id"}},
+		{name: "identifier in element message", paths: []string{"elems.k.inner.id"}, want: []string{}},
 		{name: "immutable in element message", paths: []string{"list.*.inner.code"}, want: []string{"list.*.inner.code"}},
-		{name: "map in element", paths: []string{"elems.k.subs.x.id"}, want: []string{"elems.k.subs.x.id"}},
-		{name: "list in element", paths: []string{"list.*.items.*.code", "list.*.items.*.id"}, want: []string{"list.*.items.*.code", "list.*.items.*.id"}},
+		{name: "map in element", paths: []string{"elems.k.subs.x.id"}, want: []string{}},
+		{name: "list in element", paths: []string{"list.*.items.*.code", "list.*.items.*.id"}, want: []string{"list.*.items.*.code"}},
 	}
 	for _, tt := range rejected {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := update.Apply(fieldmask.FromPaths(tt.paths...), dynamicpb.NewMessage(md))
-			require.Equal(t, tt.want, violationPaths(t, err))
+			mask := fieldmask.FromPaths(tt.paths...)
+			require.NoError(t, update.Apply(mask, dynamicpb.NewMessage(md)))
+			require.Empty(t, mask)
 		})
 	}
 
@@ -242,7 +242,7 @@ func TestApplyUpdateMask_NestedInCollectionElement(t *testing.T) {
 	}{
 		{name: "editable leaves", paths: []string{"elems.k.inner.note", "list.*.items.*.note"}, want: []string{"elems.k.inner.note", "list.*.items.*.note"}},
 		{name: "output-only removed", paths: []string{"elems.k.inner.stamp", "list.*.subs.x.stamp", "title"}, want: []string{"title"}},
-		{name: "collection in element named whole", paths: []string{"elems.k.subs", "list.*.items"}, want: []string{"elems.k.subs", "list.*.items"}},
+		{name: "collection in element named whole", paths: []string{"elems.k.subs", "list.*.items"}, want: []string{}},
 		// The element message is replaced through its other fields: the
 		// unset protected ones keep their stored values.
 		{name: "element message named whole", paths: []string{"elems.*.inner"}, want: []string{"elems.*.inner.note"}},

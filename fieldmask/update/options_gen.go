@@ -4,6 +4,7 @@
 package update
 
 import (
+	"context"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -28,17 +29,24 @@ func WithAtomicMessage(v func(protoreflect.MessageDescriptor) bool) Option {
 // current is the stored resource the update applies to, a message of the
 // request resource's type. With it an IMMUTABLE or IDENTIFIER value equal
 // to the stored one is ignored and a different one is a violation
-// (AIP-203); without it (nil) the stored value is unknown and every
-// IMMUTABLE or IDENTIFIER value the update would write is a violation.
+// (AIP-203); without it (nil) protected values are kept for the caller
+// to compare and excluded from the effective write mask.
 func WithCurrent(v proto.Message) Option {
 	return func(o *options) {
 		o.current = v
 	}
 }
 
-// WithEmptyMaskImplied makes [ApplyMask] apply the implied mask of the populated fields ([FromSetFields]) to an update_mask
-// sent with no paths, as to an omitted one, instead of treating it as a no-op (AIP-134). It is decided on the mask as sent: a
-// mask whose paths are all dropped is never implied. Only ApplyMask reads it.
+// WithDeferredPlan supplies the plan made by [Prepare] to [Spec.Plan]. It must belong to the same resource instance.
+func WithDeferredPlan(v *DeferredPlan) Option {
+	return func(o *options) {
+		o.deferredPlan = v
+	}
+}
+
+// WithEmptyMaskImplied is retained for source compatibility and has no effect.
+//
+// Deprecated: AIP-134 requires a provided empty mask to be a no-op. Omit the mask to imply populated fields.
 func WithEmptyMaskImplied(v bool) Option {
 	return func(o *options) {
 		o.emptyMaskImplied = v
@@ -156,6 +164,13 @@ func WithPathValidationReporter(v func(*fieldmask.ValidationError)) Option {
 	}
 }
 
+// WithPlanContext lets [Spec.Plan] find the resource's plan attached by [ContextWithPlan]. [Patch.Run] supplies its context automatically.
+func WithPlanContext(v context.Context) Option {
+	return func(o *options) {
+		o.planContext = v
+	}
+}
+
 // WithResolver replaces annotation lookup for update planning, including nested fields. Nil uses annotations.
 func WithResolver(v fieldbehavior.Resolver) Option {
 	return func(o *options) {
@@ -164,7 +179,7 @@ func WithResolver(v fieldbehavior.Resolver) Option {
 }
 
 // WithStrict makes [ApplyMask] check the mask as [ValidateStrict] does: every path is enforced whatever [WithPathValidation]
-// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. Only ApplyMask reads it.
+// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. ApplyMask and Prepare read it.
 func WithStrict(v bool) Option {
 	return func(o *options) {
 		o.strict = v

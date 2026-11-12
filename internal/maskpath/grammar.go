@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -39,7 +40,7 @@ import (
 //     scalars;
 //   - a google.protobuf.Struct is addressed as a map<string, Value>: the
 //     segment after it is "*" (every key) or a key, any string quoted as a
-//     map key is, the literal key "*" excepted;
+//     map key is; a quoted "*" is a literal JSON key;
 //   - below that, the dynamic JSON of a Struct entry, a google.protobuf.Value
 //     or a ListValue is walked by its data, an extension beyond AIP-161: a
 //     key addresses an entry of a Struct value at any depth
@@ -64,6 +65,10 @@ type Segment struct {
 // backtick, a backtick inside an unquoted segment, or "*" followed by more
 // segments at the root — is a *[Error] naming raw.
 func Parse(raw string) ([]Segment, error) {
+	if !utf8.ValidString(raw) {
+		return nil, &Error{Path: raw, Reason: "path is not valid UTF-8"}
+	}
+
 	if raw == "" {
 		return nil, &Error{Path: raw, Reason: "path is empty"}
 	}
@@ -180,10 +185,39 @@ func Join(segs []string) string {
 			b.WriteString(Separator)
 		}
 
-		b.WriteString(behavior.QuoteSegment(s))
+		b.WriteString(PathSegment(s))
 	}
 
 	return b.String()
+}
+
+// PathSegment renders a mask-tree segment, preserving the distinction between
+// the wildcard and a literal JSON "*" key. Other keys use AIP-161 quoting.
+func PathSegment(s string) string {
+	if s == LiteralStar {
+		return "`*`"
+	}
+
+	return behavior.QuoteSegment(s)
+}
+
+// JSONKey decodes a mask-tree segment to its literal JSON object key.
+func JSONKey(s string) string {
+	if s == LiteralStar {
+		return Wildcard
+	}
+
+	return s
+}
+
+// QuoteJSONKey renders a literal JSON key as a path segment, including "*".
+// Use PathSegment instead when s is already a mask-tree key (possibly wildcard).
+func QuoteJSONKey(s string) string {
+	if s == Wildcard {
+		return PathSegment(LiteralStar)
+	}
+
+	return behavior.QuoteSegment(s)
 }
 
 // Check walks a path against a message schema by the path grammar.
@@ -338,7 +372,7 @@ const (
 // (reported whatever the schema validation, see [Check]). By default a
 // key or "*" may follow a Struct or a Value at any depth and "*" a ListValue
 // field; with strict only a key or "*" right after a Struct is accepted.
-// The literal key "*" is rejected, as in a map.
+// A quoted "*" names a literal JSON key and retains that identity in the tree.
 func DynamicTail(md protoreflect.MessageDescriptor, at string, segs []Segment, strict bool) ([]string, string, bool) {
 	pos := dynamicValue
 
@@ -366,11 +400,14 @@ func DynamicTail(md protoreflect.MessageDescriptor, at string, segs []Segment, s
 			return nil, fmt.Sprintf("indexed access to ListValue '%s' is not permitted; use '*' to address every element", where), true
 		case pos == dynamicList && !IsWildcard(seg):
 			return nil, fmt.Sprintf("ListValue '%s' must be followed by '*' to address its elements", where), false
-		case seg.Quoted && seg.Text == Wildcard:
-			return nil, fmt.Sprintf("'%s' cannot address the literal key '*'", where), false
 		}
 
-		texts = append(texts, seg.Text)
+		text := seg.Text
+		if seg.Quoted && text == Wildcard {
+			text = LiteralStar
+		}
+
+		texts = append(texts, text)
 		pos = dynamicValue
 	}
 

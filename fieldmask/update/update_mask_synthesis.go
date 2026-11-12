@@ -12,48 +12,26 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
-// FromSetFields returns the update mask an update request implies
-// when its update_mask is omitted (AIP-134: an omitted mask updates every
-// populated field), ready for [Apply], which applies it
-// on its own to a nil mask. A provided empty mask is not omitted: it updates
-// nothing, so pass it to Apply as is instead of synthesizing one.
-// The result is [FromSetFields] of msg with the server-managed fields skipped
-// (see [fieldmask.WithSkipFields]):
-//   - every IDENTIFIER field, top-level and in populated singular
-//     sub-messages: the identifier addresses the resource (AIP-203), it is
-//     not a field the update changes;
-//   - every top-level identity field of the policy ([WithIdentityFields]; id
-//     and etag by default), for the same reason;
-//   - every path of [WithImpliedSkipFields], top-level or nested;
-//   - every OUTPUT_ONLY field of a populated sub-message: never written by
-//     an update (a top-level one is dropped by Apply);
-//   - the unset IMMUTABLE fields of a populated sub-message (a set one is
-//     kept, to be compared, but never lets its parent be named whole: the
-//     mask names the sub-message's set fields instead, so echoing an
-//     unchanged IMMUTABLE value does not replace the whole sub-message);
-//     a set IMMUTABLE value, a top-level field of [WithImmutableFields]
-//     included, is never descended into: it is named and compared whole;
-//   - the absent singular sub-messages of a populated one whose schema holds
-//     a server-managed field (OUTPUT_ONLY, IDENTIFIER or IMMUTABLE) at any
-//     depth.
+// FromSetFields returns the populated leaf selection of msg for an update with
+// an omitted mask (AIP-134). Empty mutable messages contribute no path. Lists,
+// maps, atomic messages and populated IMMUTABLE fields are selected whole.
+// OUTPUT_ONLY fields, routing identifiers and [WithImpliedSkipFields] are omitted.
+// A provided empty update mask is a no-op; pass it to [Apply] without synthesis.
 //
-// A nested skip drops the parents that cover it, so a populated sub-message
-// holding such a field is masked by its other set fields instead of whole. A
-// sub-message whose only populated field is skipped drops out of the mask
-// altogether. A set IMMUTABLE field, top-level or nested (a top-level field
-// of [WithImmutableFields] included), is not skipped: it is part of the
-// update, so Apply compares it with the stored resource of
-// WithCurrent (ignored when unchanged, a violation when changed or when no
-// stored resource is supplied). Repeated and map fields are named whole and
-// replaced as a whole, as with [FromSetFields]. Pass the options given to
-// Apply.
+// Pass the same options as [Apply]. Selected IMMUTABLE values are compared with
+// [WithCurrent], or retained with their paths deferred without current state.
+// This helper omits identifiers from its returned mask; [Apply] still validates
+// populated identifiers in visited messages. Prefer [Prepare] with a nil mask
+// for a two-stage update: it retains all protected input for completion by
+// [Spec.Plan] or [Patch.Run]. Never store the normalized request as the resource.
 //
-// The result can be empty: the request populates nothing to update, and
-// Apply treats it as a no-op that leaves msg untouched.
+// The result can be empty when nothing writable is populated. [Apply] treats a
+// provided empty mask as a no-op and leaves msg untouched.
 func FromSetFields(msg proto.Message, opts ...Option) fieldmask.FieldMask {
 	if msg == nil {
 		return fieldmask.FieldMask{}
@@ -69,9 +47,13 @@ func fromSetFields(msg proto.Message, policy *options) fieldmask.FieldMask {
 	}
 
 	m := msg.ProtoReflect()
-	skip, descend := synthesisFields(m, policy)
+	skip := synthesisSkipFields(m, policy)
+	top := func(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
+		b, _ := policyTopBehavior(policy)(fd)
+		return []annotations.FieldBehavior{b}
+	}
 
-	return fieldmask.FromPaths(maskpath.Collect(m, true, maskpath.SetFields{Skip: skip, Descend: descend}, policy.maxPathDepth)...)
+	return fieldmask.FromPaths(maskmerge.ImpliedPaths(m, skip, policy.behaviors, policy.atomicMessage, policy.maxPathDepth, true, top)...)
 }
 
 // policySkipFields returns the skip paths the policy adds for a message of
@@ -119,6 +101,20 @@ func synthesisFields(msg protoreflect.Message, policy *options) (skip, descend [
 // stands for its whole subtree, which the update then checks — or refuses —
 // as a message named whole, never erased by a skip below it.
 func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths, descend *[]string, policy *options) {
+	walk := synthesisWalk{policy, serverManagedBehavior, isProtectedAtomic, hasProtectedDescendants}
+	walk.collect(msg, prefix, room, paths, descend)
+}
+
+// synthesisWalk shares the skip-path traversal while letting the base diagnostic
+// walk retain its original protected-field predicates.
+type synthesisWalk struct {
+	policy      *options
+	managed     func(protoreflect.FieldDescriptor, *options) annotations.FieldBehavior
+	atomic      func(protoreflect.FieldDescriptor, *options) bool
+	descendants func(protoreflect.MessageDescriptor, map[protoreflect.FullName]bool, *options) bool
+}
+
+func (w synthesisWalk) collect(msg protoreflect.Message, prefix string, room int, paths, descend *[]string) {
 	if room < 1 {
 		return
 	}
@@ -129,8 +125,8 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 
 		path := behavior.JoinPath(prefix, string(fd.Name()))
 
-		b := serverManagedBehavior(fd, policy)
-		if prefix == "" && b == annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED && slices.Contains(policy.immutableFields, string(fd.Name())) {
+		b := w.managed(fd, w.policy)
+		if prefix == "" && b == annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED && slices.Contains(w.policy.immutableFields, string(fd.Name())) {
 			b = annotations.FieldBehavior_IMMUTABLE // a top-level field the policy makes immutable
 		}
 
@@ -164,7 +160,7 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 		}
 
 		switch {
-		case prefix != "" && isProtectedAtomic(fd, policy):
+		case prefix != "" && w.atomic(fd, w.policy):
 			// A protected leaf, as a set IMMUTABLE value: named on its own and
 			// compared whole when set, its parent masked by its other set
 			// fields; when unset, it must not let its parent be named whole.
@@ -173,10 +169,10 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 			} else {
 				*paths = append(*paths, path)
 			}
-		case !policy.expandable(fd):
+		case !w.policy.expandable(fd):
 		case msg.Has(fd):
-			collectSkipFields(msg.Get(fd).Message(), path, room-1, paths, descend, policy)
-		case prefix != "" && hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, policy):
+			w.collect(msg.Get(fd).Message(), path, room-1, paths, descend)
+		case prefix != "" && w.descendants(fd.Message(), map[protoreflect.FullName]bool{}, w.policy):
 			// Do not select an absent protected subtree as a whole.
 			*paths = append(*paths, path)
 		}
@@ -188,17 +184,15 @@ func collectSkipFields(msg protoreflect.Message, prefix string, room int, paths,
 // element sub-masks of repeated and map fields. A branch left empty is removed
 // too: it names no field.
 //
-// [Apply] adds the set IDENTIFIER fields to the mask so
-// they survive the filter; they address the resource (AIP-203) rather than
-// name fields to change, so a caller that hands the cleaned mask on — the gRPC
-// fieldmask interceptor writes it back to the request — drops them first. An
-// IDENTIFIER the client names in the mask is either rejected by
-// Apply or, unchanged, dropped from the mask and re-added as an
-// address, so every entry removed then addresses the resource.
+// [Apply] and [ApplyMask] already exclude IDENTIFIER and policy identity paths
+// from their effective masks; routing values survive through a private filter
+// mask. An explicitly named IDENTIFIER is accepted and compared with current
+// state, or deferred without it. DropIdentifiers is only needed for caller-built
+// masks and performs no comparison. Preserve a [Prepare] plan for completion
+// before consuming an effective mask; removing paths alone loses clear intent.
 //
 // The top-level identity fields of the policy ([WithIdentityFields]; id and
-// etag by default) that Apply keeps as the address are removed
-// too, whether added by it or left unchanged by the client.
+// etag by default) are removed too.
 //
 // Mutates msk. Pass the same policy used by Apply.
 func DropIdentifiers(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) {

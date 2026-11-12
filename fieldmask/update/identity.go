@@ -19,27 +19,34 @@ import (
 // by default) — the fields [Apply] keeps whatever the mask selects. Every
 // other top-level field is cleared, and so are the OUTPUT_ONLY values left
 // below a kept field (a message-valued identity field), exactly as Apply
-// clears them: the protected values of an atomic message are kept whole.
+// clears them. Without current state, client OUTPUT_ONLY descendants are always
+// cleared, including inside retained protected atomic values. With current state,
+// protected descendants of whole values are restored from stored state.
 //
-// [Apply] and [ApplyMask] leave the message untouched when the mask ends up
-// empty (an empty update_mask, a mask whose every path is dropped): the
-// update changes nothing and the message must not be stored. A caller that
-// hands the message on anyway, as a gRPC interceptor does, uses KeepIdentity
-// to give it the shape any other mask leaves, so values the update does not
-// use are neither validated nor seen downstream.
+// An empty effective mask does not mean validation is complete: protected
+// comparisons and covering replacements may still be pending. KeepIdentity
+// destroys that input. Interceptors must use [Prepare], attach its retained plan
+// with [ContextWithPlan], and leave cleanup until [DeferredPlan.Complete],
+// [Spec.Plan] or [Patch.Run] has finished validation and consumed the request
+// (including secrets and allow_missing create input). Never store a normalized
+// request as the resource. KeepIdentity is optional destructive cleanup, not a
+// normalization step or a way to finish protected-field validation.
 //
-// Mutates msg. Pass the same policy used by Apply. A nil msg is left alone.
-// The error is the one of the OUTPUT_ONLY walk ([fieldbehavior.Strip]).
+// Mutates msg only on success, preserving its identity. Pass the same policy
+// used by Apply. A nil msg is left alone. Errors from cloning or restoring
+// values match [ErrMessageMismatch]; sanitization errors are those of the
+// OUTPUT_ONLY walk ([fieldbehavior.Strip]). Every error leaves msg unchanged.
 func KeepIdentity(msg proto.Message, opts ...Option) error {
-	if msg == nil {
+	if !validMessage(msg) {
 		return nil
 	}
 
-	prf := msg.ProtoReflect()
-	if !prf.IsValid() {
-		return nil
+	work, err := cloneMessage(msg)
+	if err != nil {
+		return err
 	}
 
+	prf := work.ProtoReflect()
 	policy := newOptions(opts...)
 	keep := identifierFields(prf.Descriptor(), policy)
 
@@ -65,5 +72,9 @@ func KeepIdentity(msg proto.Message, opts ...Option) error {
 		kept[string(fd.Name())] = nil
 	}
 
-	return clearOutputOnlyKeeping(msg, kept, policy)
+	if err := clearOutputOnlyKeeping(work, kept, policy); err != nil {
+		return err
+	}
+
+	return publishMessage(msg, work)
 }

@@ -11,6 +11,7 @@ import (
 	"errors"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
@@ -61,13 +62,20 @@ type Patch[E any, P proto.Message, V any] struct {
 
 // Run applies an update after checking the precondition, including for empty
 // plans: it parses the revision, refuses a malformed or unknown mask path
-// before any read, reads the stored resource, checks the revision against
+// before the read (unless allow_missing may create or a bound plan requires
+// boundary-first validation), reads the stored resource, checks the revision against
 // it, plans the mask against it ([Spec.Plan] with [WithCurrent], so an
 // unchanged IMMUTABLE or IDENTIFIER value is ignored and a changed one
-// refused with a [coreerrs.FieldError] on the resource field, Field + "." +
-// its path, matching [ErrProtectedField]), clears the OUTPUT_ONLY values of
+// refused with a [coreerrs.FieldError] on Field + "." + its path,
+// matching [ErrProtectedField]), clears the OUTPUT_ONLY values of
 // the request, merges the planned paths and saves. It returns the stored
-// resource or the first error.
+// resource or the first error. A [DeferredPlan] attached to ctx with
+// [ContextWithPlan] is completed for this exact resource before the merge;
+// handlers need no changes after an interceptor switches to [Prepare]. With a
+// bound plan, Run behaves as on the original request and mask after the boundary's
+// OUTPUT_ONLY sanitization, with additional refusals when the boundary rejects
+// that request against the current stored resource or the complete write,
+// including Plan.Secret operations, changes a value the boundary protects.
 //
 // mask keeps its presence (AIP-134): nil (update_mask omitted) updates the
 // fields the request populates, a mask with no paths (update_mask sent
@@ -78,8 +86,11 @@ type Patch[E any, P proto.Message, V any] struct {
 // creates the resource instead (AIP-134 allow_missing): the precondition must
 // accept a missing resource ([Precondition.Missing]; [Int64Precondition] and
 // [TagPrecondition] refuse an etag sent for one as [etag.ErrMismatch], a
-// [coreerrs.ErrConflict]), the update mask is ignored once its paths are
-// checked, and Create receives a copy of in without its OUTPUT_ONLY values.
+// [coreerrs.ErrConflict]), the update mask is ignored entirely, including
+// invalid paths, and Create receives a copy of the original request without its
+// OUTPUT_ONLY values. A bound [DeferredPlan] supplies that input after the
+// boundary's stateless OUTPUT_ONLY clearing, even when normalization removed
+// fields outside the update mask. The Spec's OUTPUT_ONLY clearing also applies.
 // Without Create, such a request is [ErrInvalidPatch].
 //
 // With [WithValidateOnly](true) (AIP-163 validate_only), Run performs every
@@ -90,9 +101,73 @@ type Patch[E any, P proto.Message, V any] struct {
 // or update time, a generated identifier) are not computed: the returned
 // resource keeps the stored values, or none for a create. Create is still
 // required for an allow_missing request.
+//
+// Library mutations are private until every check and callback succeeds. On
+// error the request and the stored proto returned by ToProto are unchanged.
+// Save consumes its merged argument and Plan.Secret; request restoration is
+// published only after Save returns successfully. Callbacks remain responsible
+// for the atomicity of their own external writes.
 func (p Patch[E, P, V]) Run(ctx context.Context, in P, tag string, mask *fieldmaskpb.FieldMask, opts ...PatchOption) (P, error) {
 	var zero P
-	if nilcheck.IsNil(p.Precondition) || p.Read == nil || p.ToProto == nil || p.Save == nil || p.Spec == nil {
+
+	if !validMessage(in) {
+		return zero, ErrMessageMismatch
+	}
+
+	work, err := cloneMessage(in)
+	if err != nil {
+		return zero, err
+	}
+
+	request, ok := work.(P)
+	if !ok {
+		return zero, ErrMessageMismatch
+	}
+
+	if pending, ok := PlanFromContext(ctx, in); ok {
+		bound := *pending
+		bound.resource = request
+		ctx = ContextWithPlan(ctx, &bound)
+	}
+
+	var prepared proto.Message
+
+	ready := func() error {
+		var prepareErr error
+
+		prepared, prepareErr = preparePublication(in, request)
+
+		return prepareErr
+	}
+
+	result, err := p.run(ctx, request, tag, mask, ready, opts...)
+	if err != nil {
+		return zero, err
+	}
+
+	commitMessage(in, prepared)
+
+	return result, nil
+}
+
+// valid reports whether the update workflow has all required dependencies.
+func (p Patch[E, P, V]) valid() bool {
+	return !nilcheck.IsNil(p.Precondition) && p.Read != nil && p.ToProto != nil && p.Save != nil && p.Spec != nil
+}
+
+// run owns its request and merge destination, even when ToProto returns the
+// stored instance. Callback failures cannot publish partial library mutations.
+func (p Patch[E, P, V]) run(
+	ctx context.Context, in P, tag string, mask *fieldmaskpb.FieldMask, ready func() error, opts ...PatchOption,
+) (result P, err error) {
+	if pending, ok := PlanFromContext(ctx, in); ok && p.Spec != nil {
+		// Spec has already translated its errors; all remaining branches
+		// (including allow_missing and callbacks) use client coordinates.
+		defer func() { err = originalMaskProvenance(pending.raw).translate(err, p.Spec.opts.updateMaskFieldName) }()
+	}
+
+	var zero P
+	if !p.valid() {
 		return zero, ErrInvalidPatch
 	}
 
@@ -106,26 +181,45 @@ func (p Patch[E, P, V]) Run(ctx context.Context, in P, tag string, mask *fieldma
 		return zero, err
 	}
 
-	if err = p.Spec.checkPaths(mask.GetPaths()); err != nil {
-		return zero, err
+	// Bound plans validate their captured mask, with boundary refusals first;
+	// preflighting the rewritten mask would change that precedence.
+	_, deferred := PlanFromContext(ctx, in)
+	if !o.allowMissing && !deferred {
+		if err = p.Spec.checkPaths(mask.GetPaths()); err != nil {
+			return zero, err
+		}
 	}
 
 	cur, err := p.Read(ctx)
 	if o.allowMissing && errors.Is(err, coreerrs.ErrNotFound) {
-		return p.create(ctx, in, expected, o.validateOnly)
+		return p.create(ctx, in, expected, o.validateOnly, ready)
 	}
 
 	if err != nil {
 		return zero, err
 	}
 
+	if o.allowMissing && !deferred {
+		if err = p.Spec.checkPaths(mask.GetPaths()); err != nil {
+			return zero, err
+		}
+	}
+
 	if err = p.Precondition.Check(cur, expected); err != nil {
 		return zero, err
 	}
 
-	merged := p.ToProto(cur)
+	snapshot, err := cloneCurrent(in, p.ToProto(cur))
+	if err != nil {
+		return zero, err
+	}
 
-	plan, err := p.Spec.Plan(in, mask, WithCurrent(merged))
+	merged, ok := snapshot.(P)
+	if !ok {
+		return zero, ErrMessageMismatch
+	}
+
+	plan, err := p.Spec.Plan(in, mask, WithCurrent(merged), WithPlanContext(ctx))
 	if changed, ok := errors.AsType[*changedError](err); ok {
 		return zero, &coreerrs.FieldError{Field: p.Field + "." + changed.path, Reason: "cannot be changed", Err: err}
 	}
@@ -135,15 +229,20 @@ func (p Patch[E, P, V]) Run(ctx context.Context, in P, tag string, mask *fieldma
 	}
 
 	if plan.Empty() {
+		if err = ready(); err != nil {
+			return zero, err
+		}
+
 		return merged, nil
 	}
 
-	src := proto.Clone(in)
-	if err = clearOutputOnlyKeeping(src, fieldmask.FromPaths(plan.Paths...), p.Spec.opts); err != nil {
+	plan.captureSecrets(in)
+
+	if err = p.Spec.mergePlan(merged, in, plan); err != nil {
 		return zero, err
 	}
 
-	if err = mergePaths(merged, src, plan.Paths, p.Spec.opts); err != nil {
+	if err = ready(); err != nil {
 		return zero, err
 	}
 
@@ -159,22 +258,73 @@ func (p Patch[E, P, V]) Run(ctx context.Context, in P, tag string, mask *fieldma
 	return p.ToProto(out), nil
 }
 
+// mergePlan applies the selected input to the private stored-resource copy.
+func (s *Spec) mergePlan(merged, in proto.Message, plan Plan) error {
+	src, err := cloneMessage(in)
+	if err != nil {
+		return err
+	}
+
+	policy := *s.opts
+	policy.current = merged
+
+	if err = clearOutputOnlyKeeping(src, fieldmask.FromPaths(plan.Paths...), &policy); err != nil {
+		return err
+	}
+
+	if err = mergePaths(merged, src, plan.Paths, s.opts); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// captureSecrets retains input-only strings for the save callback.
+func (p *Plan) captureSecrets(in proto.Message) {
+	p.secrets = make(map[string]string, len(p.set))
+	for _, name := range p.set {
+		fd := in.ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name(name))
+		if fd != nil && fd.Kind() == protoreflect.StringKind && !fd.IsList() && !fd.IsMap() {
+			p.secrets[name] = in.ProtoReflect().Get(fd).String()
+		}
+	}
+}
+
 // create is the allow_missing branch of [Patch.Run]: it checks the
 // precondition against the missing resource and creates in without its
 // OUTPUT_ONLY values; validateOnly returns that resource without creating
 // it.
-func (p Patch[E, P, V]) create(ctx context.Context, in P, expected V, validateOnly bool) (P, error) {
+func (p Patch[E, P, V]) create(ctx context.Context, in P, expected V, validateOnly bool, ready func() error) (P, error) {
 	var zero P
 	if err := p.Precondition.Missing(expected); err != nil {
 		return zero, err
 	}
 
-	src, ok := proto.Clone(in).(P)
+	var input proto.Message = in
+	if pending, ok := PlanFromContext(ctx, in); ok {
+		var err error
+
+		input, err = pending.boundaryInput()
+		if err != nil {
+			return zero, err
+		}
+	}
+
+	cloned, err := cloneMessage(input)
+	if err != nil {
+		return zero, err
+	}
+
+	src, ok := cloned.(P)
 	if !ok {
 		return zero, ErrMessageMismatch
 	}
 
-	if err := clearOutputOnly(src, p.Spec.opts); err != nil {
+	if err = clearOutputOnly(src, p.Spec.opts); err != nil {
+		return zero, err
+	}
+
+	if err = ready(); err != nil {
 		return zero, err
 	}
 

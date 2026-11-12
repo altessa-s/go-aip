@@ -7,18 +7,19 @@ package update
 import (
 	"errors"
 	"slices"
-	"strings"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/altessa-s/go-aip/internal/maskmerge"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // DefaultUpdateMaskField is the request field an update mask arrives in (AIP-134),
-// the field every [Spec.Plan] error names.
+// the field [Spec.Plan] names for refusals.
 const DefaultUpdateMaskField = "updateMask"
 
 // Identity fields of a versioned resource (AIP-154, AIP-203): never
@@ -61,7 +62,7 @@ type Spec struct {
 // options replace identity names, atomic-message policy and the error field.
 // WithImmutableFields adds create-only fields. Nil resources return ErrMessageMismatch.
 func NewSpec(resource proto.Message, opts ...Option) (*Spec, error) {
-	if resource == nil || !resource.ProtoReflect().IsValid() {
+	if !validMessage(resource) {
 		return nil, ErrMessageMismatch
 	}
 
@@ -125,11 +126,5 @@ func (s *Spec) fieldError(err error) error {
 // except the dynamic Struct, Value and ListValue messages, whose JSON a path addresses by
 // key and "*" (see [WithStrictDynamicPaths]).
 func DefaultAtomicMessage(md protoreflect.MessageDescriptor) bool {
-	name := string(md.FullName())
-	switch name {
-	case "google.protobuf.Struct", "google.protobuf.Value", "google.protobuf.ListValue":
-		return false
-	}
-
-	return strings.HasPrefix(name, "google.protobuf.") || strings.HasPrefix(name, "google.type.")
+	return maskmerge.DefaultAtomicMessage(md)
 }

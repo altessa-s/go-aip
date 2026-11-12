@@ -8,14 +8,16 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
 // checkOneofSwitches refuses an update path whose chain sets a field of a
@@ -31,11 +33,21 @@ import (
 // (implied, "*" or explicit) can switch away from a protected branch. A
 // member holding only OUTPUT_ONLY fields is not guarded: the server owns
 // those values, and clearing them with the switch is not a client write.
-func (s *Spec) checkOneofSwitches(paths []string, cur protoreflect.Message, explicit []maskPath) error {
+func (s *Spec) checkOneofSwitches(paths []string, cur protoreflect.Message, explicit []maskPath, u *updateCheck) error {
 	g := s.oneofGuard()
 	for _, path := range paths {
 		if sw := g.check(path, s.desc, cur); sw != nil {
-			return locate(sw.maskPathError(), path, explicit)
+			if sw.err != nil {
+				return sw.err
+			}
+
+			if cur == nil {
+				return locate(sw.maskPathError(), path, explicit)
+			}
+
+			for _, v := range sw.violations {
+				u.fail(v)
+			}
 		}
 	}
 
@@ -55,17 +67,6 @@ func (s *Spec) oneofGuard() oneofGuard {
 	}}
 }
 
-// policyOneofGuard returns the guard of the mask policy of [Apply],
-// [ValidateStrict] and [ApplyMask]: a top-level field the policy names an
-// identity ([WithIdentityFields]) or immutable ([WithImmutableFields]) field
-// is guarded besides the annotated ones.
-func policyOneofGuard(policy *options) oneofGuard {
-	return oneofGuard{policy: policy, topGuarded: func(fd protoreflect.FieldDescriptor) bool {
-		name := string(fd.Name())
-		return slices.Contains(policy.identityFields, name) || slices.Contains(policy.immutableFields, name)
-	}}
-}
-
 // oneofGuard refuses an update path that switches a oneof away from a member
 // an update must not clear (see [Spec.checkOneofSwitches]).
 type oneofGuard struct {
@@ -78,8 +79,10 @@ type oneofGuard struct {
 // oneofSwitch is an update path that would clear the guarded member other
 // of its oneof.
 type oneofSwitch struct {
-	path  string
-	other protoreflect.FieldDescriptor
+	path       string
+	other      protoreflect.FieldDescriptor
+	violations []FieldViolation
+	err        error
 }
 
 func (sw *oneofSwitch) reason() string {
@@ -127,13 +130,15 @@ func (g oneofGuard) check(path string, md protoreflect.MessageDescriptor, cur pr
 // those the merge updates — a key the mask names, or under "*" the request
 // entries no key names — paired with the stored entries of the same key. A
 // field named whole is not descended: a collection replaced whole holds new
-// elements. prefix is the mask path of md, "*" kept as in the mask.
+// elements. prefix is the concrete path of md, including each index or key.
 func (g oneofGuard) checkMask(
 	msk fieldmask.FieldMask, md protoreflect.MessageDescriptor, req, stored protoreflect.Message, known, topLevel bool, prefix string,
-) *oneofSwitch {
+) []*oneofSwitch {
 	if req == nil || maskpath.IsDynamicMessage(md) {
 		return nil
 	}
+
+	var switches []*oneofSwitch
 
 	fields := md.Fields()
 	for _, name := range slices.Sorted(maps.Keys(msk)) {
@@ -146,30 +151,24 @@ func (g oneofGuard) checkMask(
 
 		if od := fd.ContainingOneof(); od != nil && !od.IsSynthetic() {
 			if sw := g.checkSwitch(path, fd, od, topLevel, stored, known); sw != nil {
-				return sw
+				switches = append(switches, sw)
 			}
 		}
 
 		nested := msk[name]
 
-		var sw *oneofSwitch
-
 		switch {
 		case nested == nil:
 		case fd.IsList():
-			sw = g.checkList(fd, nested[maskpath.Wildcard], req, stored, known, path)
+			switches = append(switches, g.checkList(fd, nested[maskpath.Wildcard], req, stored, known, path)...)
 		case fd.IsMap():
-			sw = g.checkMap(fd, nested, req, stored, known, path)
+			switches = append(switches, g.checkMap(fd, nested, req, stored, known, path)...)
 		case fd.Message() != nil:
-			sw = g.checkMask(nested, fd.Message(), req.Get(fd).Message(), behavior.Child(stored, fd), known, false, path)
-		}
-
-		if sw != nil {
-			return sw
+			switches = append(switches, g.checkMask(nested, fd.Message(), req.Get(fd).Message(), behavior.Child(stored, fd), known, false, path)...)
 		}
 	}
 
-	return nil
+	return switches
 }
 
 // checkList runs [oneofGuard.checkMask] with sub, the "*" sub-mask of the
@@ -177,14 +176,16 @@ func (g oneofGuard) checkMask(
 // element of the same index.
 func (g oneofGuard) checkList(
 	fd protoreflect.FieldDescriptor, sub fieldmask.FieldMask, req, stored protoreflect.Message, known bool, path string,
-) *oneofSwitch {
+) []*oneofSwitch {
 	elem := maskpath.ValueMessage(fd)
 	if sub == nil || elem == nil {
 		return nil
 	}
 
+	var switches []*oneofSwitch
+
 	list := req.Get(fd).List()
-	storedList := listOf(stored, fd)
+	storedList := maskmerge.ListOf(stored, fd)
 
 	for i := range list.Len() {
 		var cur protoreflect.Message
@@ -192,12 +193,10 @@ func (g oneofGuard) checkList(
 			cur = storedList.Get(i).Message()
 		}
 
-		if sw := g.checkMask(sub, elem, list.Get(i).Message(), cur, known, false, elementPath(path, maskpath.Wildcard)); sw != nil {
-			return sw
-		}
+		switches = append(switches, g.checkMask(sub, elem, list.Get(i).Message(), cur, known, false, elementPath(path, strconv.Itoa(i)))...)
 	}
 
-	return nil
+	return switches
 }
 
 // checkMap runs [oneofGuard.checkMask] on the entries of the map field fd
@@ -206,13 +205,15 @@ func (g oneofGuard) checkList(
 // names, each paired with the stored entry of the same key.
 func (g oneofGuard) checkMap(
 	fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, req, stored protoreflect.Message, known bool, path string,
-) *oneofSwitch {
+) []*oneofSwitch {
 	elem := maskpath.ValueMessage(fd)
 	if elem == nil {
 		return nil
 	}
 
-	reqMap, storedMap := req.Get(fd).Map(), mapOf(stored, fd)
+	var switches []*oneofSwitch
+
+	reqMap, storedMap := req.Get(fd).Map(), maskmerge.MapOf(stored, fd)
 	entry := func(m protoreflect.Map, k protoreflect.MapKey) protoreflect.Message {
 		if m == nil {
 			return nil
@@ -236,14 +237,12 @@ func (g oneofGuard) checkMap(
 			continue
 		}
 
-		if sw := g.checkMask(sub, elem, entry(reqMap, k), entry(storedMap, k), known, false, elementPath(path, key)); sw != nil {
-			return sw
-		}
+		switches = append(switches, g.checkMask(sub, elem, entry(reqMap, k), entry(storedMap, k), known, false, elementPath(path, key))...)
 	}
 
 	wildcard := nested[maskpath.Wildcard]
 	if wildcard == nil {
-		return nil
+		return switches
 	}
 
 	for _, k := range behavior.SortedMapKeys(reqMap) {
@@ -251,12 +250,11 @@ func (g oneofGuard) checkMap(
 			continue
 		}
 
-		if sw := g.checkMask(wildcard, elem, entry(reqMap, k), entry(storedMap, k), known, false, elementPath(path, maskpath.Wildcard)); sw != nil {
-			return sw
-		}
+		prefix := behavior.JoinPath(path, behavior.QuoteSegment(k.String()))
+		switches = append(switches, g.checkMask(wildcard, elem, entry(reqMap, k), entry(storedMap, k), known, false, prefix)...)
 	}
 
-	return nil
+	return switches
 }
 
 // checkOneofPath runs [oneofGuard.checkSwitch] on every field of the
@@ -367,6 +365,30 @@ func (g oneofGuard) checkSwitch(
 
 		if known && (stored == nil || !stored.Has(other)) {
 			continue
+		}
+
+		if known {
+			resolve := func(f protoreflect.FieldDescriptor) []annotations.FieldBehavior {
+				if f == other && topLevel && g.topGuarded != nil && g.topGuarded(f) && !isImmutableBehavior(g.policy.serverManaged(f)) {
+					return []annotations.FieldBehavior{annotations.FieldBehavior_IMMUTABLE}
+				}
+
+				return g.policy.behaviors(f)
+			}
+			// Secret writes are outside the merge mask. Only this sibling can
+			// be cleared: compare a sparse holder without copying unrelated
+			// payload for every secret switch. Comparison only reads the value.
+			affected := stored.Type().New()
+			if err := maskmerge.SetValue(affected, other, stored.Get(other)); err != nil {
+				return &oneofSwitch{path: path, other: other, err: conversionError(err)}
+			}
+
+			changes, err := maskmerge.ProtectedChanges[fieldmask.FieldMask](nil, affected, nil, resolve, "", nil)
+			if err == nil && len(changes) == 0 {
+				continue
+			}
+
+			return &oneofSwitch{path: path, other: other, violations: changes, err: conversionError(err)}
 		}
 
 		return &oneofSwitch{path: path, other: other}

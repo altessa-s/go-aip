@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/altessa-s/go-aip/fieldbehavior"
 	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
@@ -25,9 +26,7 @@ import (
 
 // Violation reasons of the AIP-203 checks.
 const (
-	reasonIdentifierUnverified = "identifier field cannot be modified"
-	reasonImmutableUnverified  = "immutable field cannot be modified"
-	reasonRequired             = "required field must be set to a non-empty value"
+	reasonRequired = "required field must be set to a non-empty value"
 )
 
 // applyMaskCase is one ApplyMask call: the raw mask (nil paths for an omitted
@@ -53,6 +52,10 @@ func (tc applyMaskCase) run(t *testing.T) {
 	t.Helper()
 
 	msg := proto.Clone(tc.req)
+
+	if tc.current != nil {
+		checkDeferredEquivalence(t, maskOf(tc.paths), tc.req, tc.current, tc.opts...)
+	}
 
 	opts := tc.opts
 	if tc.current != nil {
@@ -85,7 +88,10 @@ func (tc applyMaskCase) run(t *testing.T) {
 
 		want := tc.wantMsg
 		if want == nil {
-			want = tc.req
+			want = proto.Clone(tc.req)
+			if len(tc.paths) != 0 || tc.paths == nil {
+				require.NoError(t, fieldbehavior.Strip(want, fieldbehavior.WithBehaviors(annotations.FieldBehavior_OUTPUT_ONLY), fieldbehavior.WithFieldFormats(false)))
+			}
 		}
 
 		requireProtoEqual(t, want, msg)
@@ -129,18 +135,17 @@ func TestApplyMask_Presence(t *testing.T) {
 		{name: "omitted: the implied mask", paths: nil, req: req, want: []string{"description", "profile.display_name"}, wantMsg: implied},
 		{name: "empty: a no-op", paths: []string{}, req: req, want: []string{}},
 		{name: "empty implied on request", paths: []string{}, req: req, opts: []update.Option{update.WithEmptyMaskImplied(true)},
-			want: []string{"description", "profile.display_name"}, wantMsg: implied},
+			want: []string{}},
 		{name: "omitted with nothing set", paths: nil, req: &pb.Resource{Id: "r"}, want: []string{}},
 		{name: "every path dropped: a no-op, never implied", paths: []string{"create_time", "profile.updated_at"}, req: req,
 			opts: []update.Option{update.WithEmptyMaskImplied(true)}, want: []string{}},
 		{name: "omitted with an IMMUTABLE value and no stored resource", paths: nil, req: immutable,
-			violations: []FieldViolation{{Path: "tenant_id", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: reasonImmutableUnverified}}},
+			want: []string{"description"}},
 		{name: "omitted with an unchanged IMMUTABLE value", paths: nil, req: immutable, current: &pb.Resource{TenantId: "t"},
 			want: []string{"description"}, wantMsg: &pb.Resource{Description: "d"}},
 		{name: "wildcard with an IMMUTABLE value and no stored resource", paths: []string{"*"}, req: immutable,
 			violations: []FieldViolation{
 				{Path: "name", Behavior: annotations.FieldBehavior_REQUIRED, Reason: reasonRequired},
-				{Path: "tenant_id", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: reasonImmutableUnverified},
 			}},
 		{name: "wildcard: every field but the protected ones", paths: []string{"*"}, req: full, current: stored,
 			want:    []string{"aliases", "description", "labels", "name", "password", "profile.display_name", "profile.secret"},
@@ -159,7 +164,7 @@ func TestApplyMask_Paths(t *testing.T) {
 	t.Parallel()
 
 	req := &pb.Resource{
-		Id: "r", Description: "d", Password: "p", TenantId: "t", CreateTime: "c",
+		Id: "r", Description: "d", Password: "p", CreateTime: "c",
 		Profile: &pb.Profile{Id: "p", DisplayName: "n", UpdatedAt: "u", Secret: "s"},
 	}
 
@@ -168,22 +173,24 @@ func TestApplyMask_Paths(t *testing.T) {
 			want:    []string{"profile.display_name", "profile.secret"},
 			wantMsg: &pb.Resource{Id: "r", Profile: &pb.Profile{Id: "p", DisplayName: "n", Secret: "s"}}},
 		{name: "covered IDENTIFIER without a stored resource", paths: []string{"profile", "profile.id"}, req: req,
-			violations: []FieldViolation{{Path: "profile.id", Behavior: annotations.FieldBehavior_IDENTIFIER, Reason: reasonIdentifierUnverified}}},
+			want:    []string{"profile.display_name", "profile.secret"},
+			wantMsg: &pb.Resource{Id: "r", Profile: &pb.Profile{Id: "p", DisplayName: "n", Secret: "s"}}},
 		{name: "covered IDENTIFIER, child first", paths: []string{"profile.id", "profile"}, req: req,
-			violations: []FieldViolation{{Path: "profile.id", Behavior: annotations.FieldBehavior_IDENTIFIER, Reason: reasonIdentifierUnverified}}},
+			want:    []string{"profile.display_name", "profile.secret"},
+			wantMsg: &pb.Resource{Id: "r", Profile: &pb.Profile{Id: "p", DisplayName: "n", Secret: "s"}}},
 		{name: "covered IDENTIFIER unchanged", paths: []string{"profile", "profile.id"}, req: req, current: proto.Clone(req),
 			want:    []string{"profile.display_name", "profile.secret"},
 			wantMsg: &pb.Resource{Id: "r", Profile: &pb.Profile{Id: "p", DisplayName: "n", Secret: "s"}}},
 		{name: "covered unknown path", paths: []string{"description", "description.no_such"}, req: req, errPath: "description.no_such"},
 		{name: "covered index", paths: []string{"aliases", "aliases.0.id"}, req: req, errPath: "aliases.0.id"},
 		{name: "top-level INPUT_ONLY kept", paths: []string{"password"}, req: req, want: []string{"password"},
-			wantMsg: &pb.Resource{Id: "r", Password: "p"}},
+			wantMsg: &pb.Resource{Id: "r", Password: "p", Profile: &pb.Profile{Id: "p"}}},
 		{name: "OUTPUT_ONLY dropped", paths: []string{"create_time", "description"}, req: req, want: []string{"description"},
-			wantMsg: &pb.Resource{Id: "r", Description: "d"}},
+			wantMsg: &pb.Resource{Id: "r", Description: "d", Profile: &pb.Profile{Id: "p"}}},
 		{name: "only OUTPUT_ONLY: a no-op", paths: []string{"create_time", "profile.updated_at", "audit"}, req: req, want: []string{}},
 		{name: "IMMUTABLE without a stored resource", paths: []string{"tenant_id"}, req: req,
-			violations: []FieldViolation{{Path: "tenant_id", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: reasonImmutableUnverified}}},
-		{name: "IMMUTABLE unchanged: a no-op", paths: []string{"tenant_id"}, req: req, current: &pb.Resource{Id: "r", TenantId: "t"}, want: []string{}},
+			want: []string{}},
+		{name: "IMMUTABLE unchanged: a no-op", paths: []string{"tenant_id"}, req: req, current: &pb.Resource{Id: "r"}, want: []string{}},
 		{name: "IDENTIFIER named unchanged", paths: []string{"id", "description"}, req: req, current: &pb.Resource{Id: "r"},
 			want: []string{"description"}, wantMsg: &pb.Resource{Id: "r", Description: "d"}},
 		{name: "JSON spelling", paths: []string{"profile.displayName"}, req: req, want: []string{"profile.display_name"},
@@ -192,7 +199,7 @@ func TestApplyMask_Paths(t *testing.T) {
 		{name: "REQUIRED field left empty", paths: []string{"name"}, req: req,
 			violations: []FieldViolation{{Path: "name", Behavior: annotations.FieldBehavior_REQUIRED, Reason: reasonRequired}}},
 		{name: "unset field in the mask is cleared", paths: []string{"source_url"}, req: req, want: []string{"source_url"},
-			wantMsg: &pb.Resource{Id: "r"}},
+			wantMsg: &pb.Resource{Id: "r", Profile: &pb.Profile{Id: "p"}}},
 	})
 }
 
@@ -214,28 +221,28 @@ func TestApplyMask_Collections(t *testing.T) {
 	account := &pb.Account{Members: []*pb.Owner{{Org: "o"}}, Delegates: map[string]*pb.Owner{"k": {Email: "e", Org: "o"}}}
 
 	runApplyMaskCases(t, []applyMaskCase{
-		{name: "whole list", paths: []string{"aliases"}, req: req, want: []string{"aliases"},
+		{name: "whole list", paths: []string{"aliases"}, req: req, current: req, want: []string{"aliases"},
 			wantMsg: &pb.Resource{Aliases: clean.GetAliases()}},
-		{name: "whole map", paths: []string{"labels"}, req: req, want: []string{"labels"}, wantMsg: &pb.Resource{Labels: clean.GetLabels()}},
-		{name: "map entry", paths: []string{"labels.k"}, req: req, want: []string{"labels.k"},
+		{name: "whole map", paths: []string{"labels"}, req: req, current: req, want: []string{"labels"}, wantMsg: &pb.Resource{Labels: clean.GetLabels()}},
+		{name: "map entry", paths: []string{"labels.k"}, req: req, current: req, want: []string{"labels.k"},
 			wantMsg: &pb.Resource{Labels: map[string]*pb.Profile{"k": {Id: "l", DisplayName: "y"}}}},
-		{name: "list wildcard", paths: []string{"aliases.*"}, req: req, want: []string{"aliases.*"},
+		{name: "list wildcard", paths: []string{"aliases.*"}, req: req, current: req, want: []string{"aliases"},
 			wantMsg: &pb.Resource{Aliases: clean.GetAliases()}},
-		{name: "element sub-path keeps the element IDENTIFIER", paths: []string{"aliases.*.display_name"}, req: req,
+		{name: "element sub-path keeps the element IDENTIFIER", paths: []string{"aliases.*.display_name"}, req: req, current: req,
 			want: []string{"aliases.*.display_name"}, wantMsg: &pb.Resource{Aliases: clean.GetAliases()}},
-		{name: "map entry sub-path", paths: []string{"labels.k.display_name"}, req: req, want: []string{"labels.k.display_name"},
+		{name: "map entry sub-path", paths: []string{"labels.k.display_name"}, req: req, current: req, want: []string{"labels.k.display_name"},
 			wantMsg: &pb.Resource{Labels: map[string]*pb.Profile{"k": {Id: "l", DisplayName: "y"}}}},
 		{name: "element IDENTIFIER named", paths: []string{"labels.k.id"}, req: req,
-			violations: []FieldViolation{{Path: "labels.k.id", Behavior: annotations.FieldBehavior_IDENTIFIER, Reason: reasonIdentifierUnverified}}},
-		{name: "element OUTPUT_ONLY: a no-op", paths: []string{"aliases.*.updated_at"}, req: req, want: []string{}},
+			want: []string{}},
+		{name: "element OUTPUT_ONLY: a no-op", paths: []string{"aliases.*.updated_at"}, req: req, current: req, want: []string{}},
 		{name: "REQUIRED left empty in a replaced element", paths: []string{"members"}, req: account,
 			violations: []FieldViolation{{Path: "members.0.email", Behavior: annotations.FieldBehavior_REQUIRED, Reason: reasonRequired}}},
-		{name: "IMMUTABLE of a replaced element kept as new", paths: []string{"delegates"}, req: account, want: []string{"delegates"},
+		{name: "IMMUTABLE of a replaced element kept as new", paths: []string{"delegates"}, req: account, current: account, want: []string{"delegates"},
 			wantMsg: &pb.Account{Delegates: account.GetDelegates()}},
 		{name: "element IMMUTABLE named", paths: []string{"delegates.*.org"}, req: account,
-			violations: []FieldViolation{{Path: "delegates.*.org", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: reasonImmutableUnverified}}},
+			want: []string{}},
 		{name: "covered element sub-path", paths: []string{"members", "members.*.org"}, req: &pb.Account{Members: []*pb.Owner{{Email: "e", Org: "o"}}},
-			violations: []FieldViolation{{Path: "members.*.org", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: reasonImmutableUnverified}}},
+			want: []string{}},
 	})
 }
 
@@ -330,8 +337,9 @@ func TestApplyMask_Strict(t *testing.T) {
 		{name: "unknown path when disabled", paths: []string{"no_such"}, msg: req,
 			opts: []update.Option{update.WithPathValidation(update.PathValidationDisabled)}, path: "no_such",
 			reason: "field 'no_such' does not exist in message fieldbehaviortest.v1.Resource", sentinels: []error{fieldmask.ErrInvalidPath}},
-		{name: "covered identifier", paths: []string{"profile", "profile.id"}, msg: req, path: "profile.id",
-			reason: reasonIdentifierUnverified, sentinels: []error{update.ErrBehaviorViolation}},
+		{name: "changed covered identifier", paths: []string{"profile", "profile.id"}, msg: req, path: "profile.id",
+			opts:   []update.Option{update.WithCurrent(&pb.Resource{Profile: &pb.Profile{Id: "other"}})},
+			reason: "identifier field cannot be changed from its stored value", sentinels: []error{update.ErrBehaviorViolation}},
 		{name: "path count", paths: []string{"a", "b"}, msg: req, opts: []update.Option{update.WithMaxPaths(1), update.WithUpdateMaskFieldName("update_mask")},
 			path: "update_mask", reason: "the mask has 2 paths, more than the limit of 1", sentinels: []error{fieldmask.ErrMaxPathsExceeded}},
 		{name: "wildcard twice", paths: []string{"*", "*"}, msg: req, path: "*", reason: `"*" must be the only path`,
@@ -426,4 +434,14 @@ func TestApplyMask_MatchesApply(t *testing.T) {
 			require.Equal(t, mask.ToPaths(), got.ToPaths(), "%v", paths)
 		}
 	}
+}
+
+// withoutOutputOnly prepares an expected request with server-owned input removed.
+func withoutOutputOnly(t *testing.T, msg proto.Message) proto.Message {
+	t.Helper()
+
+	out := proto.Clone(msg)
+	require.NoError(t, fieldbehavior.Strip(out, fieldbehavior.WithBehaviors(annotations.FieldBehavior_OUTPUT_ONLY), fieldbehavior.WithFieldFormats(false)))
+
+	return out
 }

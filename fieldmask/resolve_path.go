@@ -7,7 +7,7 @@ package fieldmask
 import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // ResolvePath returns path of md spelled by declared names

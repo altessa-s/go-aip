@@ -99,7 +99,7 @@ func TestAtomicCollectionElementsWhole(t *testing.T) {
 
 			got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{path}}, proto.Clone(req), update.WithCurrent(stored))
 			require.NoError(t, err)
-			require.Equal(t, []string{path}, got.ToPaths())
+			require.Equal(t, []string{strings.TrimSuffix(path, ".*")}, got.ToPaths())
 
 			require.NoError(t, update.Apply(fieldmask.FromPaths(path), proto.Clone(req), update.WithCurrent(stored)))
 

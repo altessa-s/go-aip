@@ -48,13 +48,13 @@ func TestApplyMask_OneofSwitch(t *testing.T) {
 			msg := proto.Clone(req)
 			_, err := update.ApplyMask(maskOf(tc.paths), msg, update.WithCurrent(stored))
 
-			if tc.path == "items" { // a collection replaced whole holds new elements, as with Spec.Plan
-				require.NoError(t, err)
+			if tc.path == "items" { // whole replacements also compare protected descendants
+				require.ErrorIs(t, err, update.ErrBehaviorViolation)
 				return
 			}
 
-			want := []FieldViolation{{Path: tc.path, Behavior: annotations.FieldBehavior_IMMUTABLE,
-				Reason: `path "` + tc.path + `" would clear "pinned" of its oneof, which an update must not change`}}
+			want := []FieldViolation{{Path: "items.k.pinned", Behavior: annotations.FieldBehavior_IMMUTABLE,
+				Reason: "immutable field cannot be changed from its stored value"}}
 			require.Equal(t, want, behaviorViolations(t, err))
 			requireProtoEqual(t, req, msg)
 
@@ -82,8 +82,7 @@ func TestApplyMask_OneofSwitch(t *testing.T) {
 		for _, paths := range [][]string{nil, {"*"}, {"free"}} {
 			msg := proto.Clone(reqElem)
 			_, err := update.ApplyMask(maskOf(paths), msg, update.WithCurrent(storedElem))
-			require.Equal(t, []FieldViolation{{Path: "free", Behavior: annotations.FieldBehavior_IMMUTABLE,
-				Reason: `path "free" would clear "pinned" of its oneof, which an update must not change`}}, behaviorViolations(t, err), "%v", paths)
+			require.ErrorIs(t, err, update.ErrBehaviorViolation, "%v", paths)
 			requireProtoEqual(t, reqElem, msg)
 		}
 	})

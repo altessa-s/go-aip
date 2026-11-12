@@ -28,7 +28,7 @@ state belongs to the caller or an explicitly constructed instance; consumers sho
 | `RequiredViolations`        | Walk populated messages for absent or empty REQUIRED fields                    |
 | `CheckedRequiredViolations` | `RequiredViolations` plus a `FieldCheck` per visited populated field (formats) |
 | `SameValue`, `Child`        | Compare a field with its stored counterpart; reach a singular sub-message      |
-| `ProtectedViolation`        | Build the violation of a changed or unverifiable IMMUTABLE/IDENTIFIER value    |
+| `ProtectedViolation`        | Build the violation of a changed IMMUTABLE/IDENTIFIER value    |
 | `SortedMapKeys`             | Visit map entries in a deterministic order                                     |
 
 Public applications inject `fieldbehavior.Resolver` for alternative metadata or an instance-owned bounded cache.

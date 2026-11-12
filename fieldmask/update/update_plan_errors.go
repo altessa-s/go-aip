@@ -7,13 +7,16 @@ package update
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -27,7 +30,9 @@ func planViolationError(v FieldViolation, explicit []maskPath) error {
 	case v.Reason == behavior.ReasonImmutableChanged || v.Reason == behavior.ReasonIdentifierChanged:
 		return planPathError(&changedError{path: v.Path}, v.Path, explicit, fmt.Sprintf("path %q cannot be changed", v.Path))
 	default:
-		return planPathError(ErrProtectedField, v.Path, explicit, fmt.Sprintf("path %q cannot be updated", v.Path))
+		// The remaining refusal is the conservative stateless oneof guard;
+		// preserve the base guard's explanation and sentinel-only cause.
+		return planPathError(ErrProtectedField, v.Path, explicit, v.Reason)
 	}
 }
 
@@ -38,6 +43,10 @@ func planViolationError(v FieldViolation, explicit []maskPath) error {
 // nesting more messages than the REQUIRED walk checks) is located on the
 // bare mask field and classified by err itself.
 func planRefusalError(err error, explicit []maskPath) error {
+	if count, ok := errors.AsType[*elementCountError](err); ok {
+		return planPathError(ErrElementCountMismatch, count.Path, explicit, count.Reason)
+	}
+
 	ve, ok := errors.AsType[*fieldmask.ValidationError](err)
 	if !ok {
 		return indexedFieldError(err, -1, "", "", err.Error())
@@ -49,6 +58,68 @@ func planRefusalError(err error, explicit []maskPath) error {
 	}
 
 	return planPathError(cause, ve.Path, explicit, ve.Reason)
+}
+
+// orderImpliedBoundaryRefusal applies the Spec's base implied-mask order to
+// violations already found by the boundary. ApplyMask checks its populated
+// tree in a different order; taking its first violation would change Spec's
+// public refusal merely because a request passed through Prepare. The boundary
+// still decides acceptance, and reference-only violations are never added.
+func (s *Spec) orderImpliedBoundaryRefusal(err error, pending *DeferredPlan, input, current proto.Message) error {
+	be, ok := errors.AsType[*BehaviorError](err)
+	if pending.raw != nil || !ok || len(be.Violations) < 2 {
+		return err
+	}
+
+	u, _, checkErr := newUpdateCheck(input, current, s.opts)
+	if checkErr != nil {
+		return checkErr
+	}
+
+	u.top = s.topBehavior
+	u.orderMode = referenceSpecImplied
+	u.orderSkip = slices.Concat(s.skip, s.opts.impliedSkipFields)
+	u.violations = slices.Clone(be.Violations)
+
+	violations, orderErr := u.orderedViolations(s.desc)
+	if orderErr != nil {
+		return orderErr
+	}
+
+	return &BehaviorError{Violations: violations}
+}
+
+// completionError translates a refusal under the normalization policy into
+// the spec's base error construction. A different boundary policy may refuse
+// input the spec accepts; it still must not introduce an aggregate plan error.
+func (s *Spec) completionError(err error, raw *fieldmaskpb.FieldMask, boundary *options) error {
+	var explicit []maskPath
+
+	for i, path := range raw.GetPaths() {
+		if segs, reason := resolveUpdateSegments(s.desc, path, boundary); reason == "" {
+			explicit = append(explicit, maskPath{index: i, raw: path, segs: segs})
+		}
+	}
+
+	if be, ok := errors.AsType[*BehaviorError](err); ok && len(be.Violations) > 0 {
+		return s.fieldError(planViolationError(be.Violations[0], explicit))
+	}
+
+	if se, ok := errors.AsType[*StrictError](err); ok {
+		if len(se.Violations) > 0 && se.Violations[0].Behavior != annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED {
+			return s.fieldError(planViolationError(se.Violations[0], explicit))
+		}
+
+		if se.Cause != nil {
+			err = se.Cause
+		}
+	}
+
+	if errors.Is(err, ErrMessageMismatch) {
+		return err
+	}
+
+	return s.fieldError(planRefusalError(err, explicit))
 }
 
 // changedError is the cause of a plan refusal for an IMMUTABLE or IDENTIFIER
@@ -70,7 +141,7 @@ func (e *changedError) Unwrap() error { return ErrProtectedField }
 // or the bare update-mask field when Index is -1.
 type MaskPathError struct {
 	// Index is the position of the offending path in the update mask, -1
-	// when the refusal comes from the implied or "*" mask.
+	// when no raw path covers the refusal (including an implied or "*" mask).
 	Index int
 	// Path is the offending mask path as the request spelled it, "" when
 	// Index is -1.

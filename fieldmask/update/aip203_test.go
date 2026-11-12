@@ -78,13 +78,13 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 	}{
 		{
 			name: "output-only paths are ignored at any depth", paths: []string{"update_time", "owner.create_time", "uid", "display_name"},
-			wantPaths: []string{"display_name", "etag", "name"},
+			wantPaths: []string{"display_name"},
 		},
 		{
 			name: "immutable path without the stored resource", paths: []string{"region"},
-			want: []violation{{"region", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be modified"}},
+			wantPaths: []string{},
 		},
-		{name: "unchanged immutable path", paths: []string{"region", "display_name"}, current: true, wantPaths: []string{"display_name", "etag", "name"}},
+		{name: "unchanged immutable path", paths: []string{"region", "display_name"}, current: true, wantPaths: []string{"display_name"}},
 		{
 			name: "changed immutable path", paths: []string{"region"}, current: true, mutate: func(a *pb.Account) { a.Region = "us" },
 			want: []violation{{"region", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be changed from its stored value"}},
@@ -95,7 +95,7 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		},
 		{
 			name: "identifier path without the stored resource", paths: []string{"name"},
-			want: []violation{{"name", annotations.FieldBehavior_IDENTIFIER, "identifier field cannot be modified"}},
+			wantPaths: []string{},
 		},
 		{name: "unchanged identifier path updates nothing", paths: []string{"name"}, current: true, wantPaths: []string{}},
 		{
@@ -105,7 +105,7 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		},
 		{
 			name: "identifier the mask does not name, without the stored resource", paths: []string{"display_name"},
-			mutate: func(a *pb.Account) { a.Name = "accounts/2" }, wantPaths: []string{"display_name", "etag", "name"},
+			mutate: func(a *pb.Account) { a.Name = "accounts/2" }, wantPaths: []string{"display_name"},
 		},
 		{
 			name: "required path set to an empty value", paths: []string{"display_name", "quota", "state"},
@@ -118,7 +118,7 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		},
 		{
 			name: "required field absent from the mask may be omitted", paths: []string{"etag", "invoice_email"}, current: true,
-			mutate: func(a *pb.Account) { a.DisplayName, a.Owner = "", nil }, wantPaths: []string{"etag", "invoice_email", "name"},
+			mutate: func(a *pb.Account) { a.DisplayName, a.Owner = "", nil }, wantPaths: []string{"invoice_email"},
 		},
 		{
 			name: "nested required path", paths: []string{"owner.email"}, mutate: func(a *pb.Account) { a.Owner.Email = "" },
@@ -131,7 +131,7 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		},
 		{
 			name: "cleared optional message", paths: []string{"backup_owner"}, mutate: func(a *pb.Account) { a.BackupOwner = nil },
-			current: true, wantPaths: []string{"backup_owner.email", "backup_owner.note", "etag", "name"},
+			current: true, wantPaths: []string{"backup_owner.email", "backup_owner.note"},
 		},
 		{
 			name: "cleared required message", paths: []string{"owner"}, mutate: func(a *pb.Account) { a.Owner = nil },
@@ -144,7 +144,7 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		},
 		{
 			name: "replaced message keeps an unchanged immutable value", paths: []string{"owner"}, current: true,
-			mutate: func(a *pb.Account) { a.Owner.Note = "new" }, wantPaths: []string{"etag", "name", "owner.email", "owner.note"},
+			mutate: func(a *pb.Account) { a.Owner.Note = "new" }, wantPaths: []string{"owner.email", "owner.note"},
 		},
 		{
 			name: "replaced message with a changed immutable value", paths: []string{"owner"}, current: true,
@@ -153,15 +153,15 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		},
 		{
 			name: "replaced message, immutable left unset", paths: []string{"owner"}, mutate: func(a *pb.Account) { a.Owner.Org = "" },
-			wantPaths: []string{"etag", "name", "owner.email", "owner.note"},
+			wantPaths: []string{"owner.email", "owner.note"},
 		},
 		{
-			name: "replaced collection elements are new values", paths: []string{"members", "delegates"}, current: true,
+			name: "replaced collection elements are compared", paths: []string{"members", "delegates"}, current: true,
 			mutate: func(a *pb.Account) {
 				a.Members = []*pb.Owner{{Email: "x@example.com", Org: "new"}}
 				a.Delegates = map[string]*pb.Owner{"k": {Email: "x@example.com", Org: "new"}}
 			},
-			wantPaths: []string{"delegates", "etag", "members", "name"},
+			want: []violation{{"members.0.org", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be changed from its stored value"}, {"delegates.k.org", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be changed from its stored value"}},
 		},
 		{
 			name: "map entry sub-path compared by key", paths: []string{"delegates.k.org"}, current: true,
@@ -169,11 +169,11 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 			want:   []violation{{"delegates.k.org", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be changed from its stored value"}},
 		},
 		{name: "unchanged map entry sub-path", paths: []string{"delegates.k.org", "delegates.k.note"}, current: true,
-			wantPaths: []string{"delegates.k.note", "etag", "name"}},
+			wantPaths: []string{"delegates.k.note"}},
 		{
 			name: "list element sub-path compared by index", paths: []string{"members.*.org"}, current: true,
 			mutate: func(a *pb.Account) { a.Members[0].Org = "other" },
-			want:   []violation{{"members.*.org", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be changed from its stored value"}},
+			want:   []violation{{"members.0.org", annotations.FieldBehavior_IMMUTABLE, "immutable field cannot be changed from its stored value"}},
 		},
 		{
 			name: "element sub-path to a required field", paths: []string{"members.*.email", "delegates.k.email"},
@@ -186,12 +186,12 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 		{
 			name: "message holding only output-only fields, recursively", paths: []string{"settings"},
 			mutate:    func(a *pb.Account) { a.Settings = &pb.Settings{Theme: "dark", UpdatedBy: "client"} },
-			wantPaths: []string{"etag", "name", "settings.theme"},
+			wantPaths: []string{"settings.theme"},
 		},
 		{
 			name: "recursive message held by the stored resource", paths: []string{"settings"}, current: true,
 			mutate:    func(a *pb.Account) { a.Settings = &pb.Settings{Theme: "dark", Defaults: &pb.Settings{Theme: "light"}} },
-			wantPaths: []string{"etag", "name", "settings.defaults.theme", "settings.theme"},
+			wantPaths: []string{"settings.defaults.theme", "settings.theme"},
 		},
 	}
 	for _, tt := range tests {
@@ -231,7 +231,7 @@ func TestApplyUpdateMask_AIP203(t *testing.T) {
 			require.Equal(t, tt.wantPaths, mask.ToPaths())
 
 			if mask.IsEmpty() {
-				require.True(t, proto.Equal(before, req), "an update of nothing leaves the message untouched")
+				require.Empty(t, req.GetUpdateTime(), "output-only input is cleared even when no path remains")
 				return
 			}
 
@@ -269,10 +269,7 @@ func TestApplyUpdateMask_FullReplacement(t *testing.T) {
 	// Sub-messages holding server-managed fields that neither side holds
 	// (backup_owner, settings, parent) and the unset oneof member are left
 	// out; region is unchanged and name is kept as the address.
-	require.Equal(t, []string{
-		"attributes", "card", "delegates", "display_name", "emails", "enabled", "etag", "key", "members", "name", "owner.email",
-		"owner.note", "quota", "state",
-	}, mask.ToPaths())
+	require.Equal(t, []string{"attributes", "card", "delegates", "display_name", "emails", "enabled", "key", "members", "owner.email", "owner.note", "quota", "state"}, mask.ToPaths())
 	assert.Empty(t, req.GetRegion(), "the unchanged IMMUTABLE value is ignored")
 
 	req = storedAccount()
@@ -285,11 +282,11 @@ func TestApplyUpdateMask_FullReplacement(t *testing.T) {
 	violations = behaviorViolations(t, update.Apply(fieldmask.FromPaths("*"), req, update.WithCurrent(storedAccount())))
 	require.Equal(t, "region", violations[0].Path)
 
-	violations = behaviorViolations(t, update.Apply(fieldmask.FromPaths("*"), storedAccount()))
-	require.Equal(t, []update.FieldViolation{
-		{Path: "owner.org", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: "immutable field cannot be modified"},
-		{Path: "region", Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: "immutable field cannot be modified"},
-	}, violations, "without the stored resource a set IMMUTABLE value cannot be verified")
+	req = storedAccount()
+	mask = fieldmask.FromPaths("*")
+	require.NoError(t, update.Apply(mask, req))
+	require.NotContains(t, mask, "region")
+	require.Equal(t, "eu", req.GetRegion())
 
 	var ve *fieldmask.ValidationError
 	require.ErrorAs(t, update.Apply(fieldmask.FromPaths("*", "name"), storedAccount()), &ve)
@@ -337,7 +334,7 @@ func TestValidateStrictUpdateMask_AIP203(t *testing.T) {
 	require.Equal(t, []string{"display_name", "region"}, []string{strict.Violations[0].Path, strict.Violations[1].Path})
 
 	_, err = update.ValidateStrict(fieldmask.FromPaths("region"), storedAccount())
-	require.ErrorIs(t, err, update.ErrBehaviorViolation, "without the stored resource an immutable path cannot be verified")
+	require.NoError(t, err, "without current state the comparison is deferred")
 
 	mask, err = update.ValidateStrict(fieldmask.FromPaths("*"), storedAccount(), current)
 	require.NoError(t, err)
@@ -376,22 +373,19 @@ func TestPlan_AIP203(t *testing.T) {
 		opts   []update.Option
 		reason string
 		cause  error
-		// located reports a refusal of the first explicit path.
-		located bool
+		field  string
 	}{
-		{name: "immutable without the stored resource", paths: []string{"region"}, reason: `path "region" cannot be updated`,
-			cause: update.ErrProtectedField, located: true},
 		{name: "changed immutable", paths: []string{"region"}, mutate: func(a *pb.Account) { a.Region = "us" }, opts: []update.Option{current},
-			reason: `path "region" cannot be changed`, cause: update.ErrProtectedField, located: true},
+			reason: `path "region" cannot be changed`, cause: update.ErrProtectedField, field: "updateMask.paths[0]"},
 		{name: "changed identifier", paths: []string{"display_name"}, mutate: func(a *pb.Account) { a.Name = "accounts/2" },
-			opts: []update.Option{current}, reason: `path "name" cannot be changed`, cause: update.ErrProtectedField},
+			opts: []update.Option{current}, reason: `path "name" cannot be changed`, cause: update.ErrProtectedField, field: "updateMask"},
 		{name: "empty required", paths: []string{"display_name"}, mutate: func(a *pb.Account) { a.DisplayName = "" },
-			reason: `path "display_name" is required and cannot be empty`, cause: update.ErrBehaviorViolation, located: true},
+			reason: `path "display_name" is required and cannot be empty`, cause: update.ErrBehaviorViolation, field: "updateMask.paths[0]"},
 		{name: "full replacement without a required field", paths: []string{"*"}, mutate: func(a *pb.Account) { a.Emails = nil },
-			opts: []update.Option{current}, reason: `path "emails" is required and cannot be empty`, cause: update.ErrBehaviorViolation},
-		{name: "etag is not updatable", paths: []string{"etag"}, reason: `path "etag" cannot be updated`, cause: update.ErrProtectedField, located: true},
+			opts: []update.Option{current}, reason: `path "emails" is required and cannot be empty`, cause: update.ErrBehaviorViolation, field: "updateMask"},
+		{name: "etag is not updatable", paths: []string{"etag"}, reason: `path "etag" cannot be updated`, cause: update.ErrProtectedField, field: "updateMask.paths[0]"},
 		{name: "implied changed immutable", mutate: func(a *pb.Account) { a.Owner.Org = "other" }, opts: []update.Option{current},
-			reason: `path "owner.org" cannot be changed`, cause: update.ErrProtectedField},
+			reason: `path "owner.org" cannot be changed`, cause: update.ErrProtectedField, field: "updateMask"},
 	}
 	for _, tt := range refused {
 		t.Run(tt.name, func(t *testing.T) {
@@ -407,12 +401,7 @@ func TestPlan_AIP203(t *testing.T) {
 			var fe *coreerrs.FieldError
 			require.ErrorAs(t, err, &fe)
 
-			want := update.DefaultUpdateMaskField
-			if tt.located {
-				want += ".paths[0]"
-			}
-
-			require.Equal(t, want, fe.Field)
+			require.Equal(t, tt.field, fe.Field)
 			require.Equal(t, tt.reason, fe.Reason)
 			require.ErrorIs(t, err, tt.cause)
 		})
@@ -445,7 +434,7 @@ func TestPatchRun_AIP203(t *testing.T) {
 
 	req := storedAccount()
 	req.DisplayName, req.UpdateTime = "New", "client"
-	req.Members = []*pb.Owner{{Email: "n@example.com", CreateTime: "client"}}
+	req.Members = []*pb.Owner{{Email: "n@example.com", Org: "m-org", CreateTime: "client"}}
 	out, err := patch.Run(t.Context(), req, tag, &fieldmaskpb.FieldMask{Paths: []string{"display_name", "region", "update_time", "members"}})
 	require.NoError(t, err)
 	require.Equal(t, "New", out.GetDisplayName())

@@ -33,7 +33,7 @@ segment = name | "`" { char | "``" } "`" | "*"
 | Typed map key                                                   | `ports.443` (int32), `flags.true` (bool)                                                                     | `ports.0443`, `ports.x`, `flags.yes`: a key must format back as is |
 | Quoted segment                                                  | ``labels.`a.b` ``, ``labels.`x``y.z` `` (the key ``x`y.z``)                                                  | `` a`b ``, `` `a`b ``, an unclosed backtick                        |
 | Scalar                                                          | `display_name`                                                                                               | `display_name.x`, `tags.*.x` (a repeated scalar)                   |
-| `Struct` field                                                  | `attrs`, `attrs.*` (both whole), `attrs.color`, ``attrs.`a.b` ``                                             | ``attrs.`*` `` (the literal key `*`)                               |
+| `Struct` field                                                  | `attrs`, `attrs.*` (both whole), `attrs.color`, ``attrs.`a.b` ``, ``attrs.`*` `` (literal key)                       | malformed quoting                               |
 | Dynamic JSON (default, beyond AIP-161)                          | `attrs.work.from`, `attrs.*.from`, `attrs.items.*.name`, `value.key`, `items.*.name` (`items` a `ListValue`) | `items.0` (index), `items.name` (a `ListValue` without `*`)        |
 | Dynamic JSON with `WithStrictDynamicPaths(true)` (AIP-161 only) | `attrs`, `attrs.*`, `attrs.color`, `value`, `items`                                                          | `attrs.color.hue`, `attrs.*.hue`, `value.key`, `items.*`           |
 | Full replacement                                                | `*` alone                                                                                                    | `*` with any other path (`ErrWildcardNotAlone`), `*.x`             |
@@ -179,3 +179,10 @@ A mask over a limit is `ErrMaxPathsExceeded`, `ErrMaxPathLengthExceeded` or `Err
 - [fieldpolicy](../fieldpolicy/README.md)
 - [projection](../projection/README.md)
 - [fieldmask guide](../docs/fieldmask.md)
+
+## Protected update input
+
+Use `update.ApplyMask` for request masks. Without current state it retains IMMUTABLE and IDENTIFIER input for caller comparison and excludes
+protected paths from the effective mask; with `WithCurrent`, equal values are ignored and changes rejected. For two-stage updates, `update.Prepare`
+retains explicit clears and deferred replacements in a plan carried by `update.ContextWithPlan`; `Spec.Plan` / `Patch.Run` complete it with stored
+state. `Apply` writes an effective mask directly, without adding routing identifiers. See the [update contract](update/README.md).

@@ -35,13 +35,13 @@ func TestRejectedKeyPathBesideMapWildcard(t *testing.T) {
 
 		msg := delegatesAccount(map[string][2]string{"k": {"alice@example.com", "corp"}})
 		mask := fieldmask.FromPaths("delegates.*", "delegates.k.typo")
-		require.NoError(t, update.Apply(mask, msg, opt))
-		require.Equal(t, []string{"delegates.*"}, mask.ToPaths())
+		require.NoError(t, update.Apply(mask, msg, opt, update.WithCurrent(proto.Clone(msg))))
+		require.Equal(t, []string{"delegates"}, mask.ToPaths())
 		requireProtoEqual(t, delegatesAccount(map[string][2]string{"k": {"alice@example.com", "corp"}}), msg)
 
 		msg = delegatesAccount(map[string][2]string{"k": {"new@example.com", "corp"}})
 		mask = fieldmask.FromPaths("delegates.*.email", "delegates.k.typo")
-		require.NoError(t, update.Apply(mask, msg, opt))
+		require.NoError(t, update.Apply(mask, msg, opt, update.WithCurrent(proto.Clone(msg))))
 		require.Equal(t, []string{"delegates.*.email"}, mask.ToPaths())
 		requireProtoEqual(t, delegatesAccount(map[string][2]string{"k": {"new@example.com", ""}}), msg)
 

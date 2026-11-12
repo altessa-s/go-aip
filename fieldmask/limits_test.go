@@ -200,6 +200,8 @@ func TestMaskLimitErrorsAreStructured(t *testing.T) {
 	mp, ok = errors.AsType[*update.MaskPathError](err)
 	require.True(t, ok)
 	require.Equal(t, -1, mp.Index)
+	require.Empty(t, mp.Path)
+	require.Empty(t, mp.Field)
 	require.ErrorIs(t, err, fieldmask.ErrMaxPathsExceeded)
 
 	_, err = fieldmask.ParsePaths(deepPath(fieldmask.DefaultMaxPathDepth + 1))

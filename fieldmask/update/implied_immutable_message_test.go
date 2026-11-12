@@ -20,9 +20,9 @@ import (
 // whose request sets a message the policy makes immutable
 // (WithImmutableFields("owner")): the implied mask names owner whole, so an
 // empty Owner{} and an Owner{Email} clearing the stored org and note are
-// refused — as unverifiable without the stored resource, as changed with it
-// — by ApplyMask, Apply and ValidateStrict, instead of being dropped from the
-// mask or compared through owner.email alone. An unchanged owner is ignored.
+// retained without current state and refused as changed with it, by
+// ApplyMask, Apply and ValidateStrict. The value is compared whole, not
+// through owner.email alone. An unchanged owner is ignored.
 func TestImpliedMaskImmutableMessage(t *testing.T) {
 	t.Parallel()
 
@@ -33,7 +33,7 @@ func TestImpliedMaskImmutableMessage(t *testing.T) {
 		req := &pb.Account{DisplayName: "new", Owner: owner}
 		require.Contains(t, update.FromSetFields(req, immutable).ToPaths(), "owner")
 
-		for _, opts := range [][]update.Option{{immutable}, {immutable, update.WithCurrent(stored)}} {
+		for _, opts := range [][]update.Option{{immutable, update.WithCurrent(stored)}} {
 			_, err := update.ApplyMask(nil, proto.Clone(req), opts...)
 			require.ErrorIs(t, err, update.ErrBehaviorViolation)
 

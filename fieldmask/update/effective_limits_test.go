@@ -44,21 +44,21 @@ func TestEffectiveMaskLimits(t *testing.T) {
 			t.Parallel()
 
 			msg := proto.Clone(req)
-			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{tc.path}}, msg, tc.limit)
+			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{tc.path}}, msg, tc.limit, update.WithCurrent(req))
 			require.ErrorIs(t, err, tc.cause)
 			requireProtoEqual(t, req, msg)
 
 			msg = proto.Clone(req)
-			require.ErrorIs(t, update.Apply(fieldmask.FromPaths(tc.path), msg, tc.limit), tc.cause)
+			require.ErrorIs(t, update.Apply(fieldmask.FromPaths(tc.path), msg, tc.limit, update.WithCurrent(req)), tc.cause)
 			requireProtoEqual(t, req, msg)
 
-			_, err = update.ValidateStrict(fieldmask.FromPaths(tc.path), req, tc.limit)
+			_, err = update.ValidateStrict(fieldmask.FromPaths(tc.path), req, tc.limit, update.WithCurrent(req))
 			require.ErrorIs(t, err, tc.cause)
 
 			spec, err := update.NewSpec(&pb.Resource{}, tc.limit)
 			require.NoError(t, err)
 
-			_, err = spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{tc.path}})
+			_, err = spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{tc.path}}, update.WithCurrent(req))
 			require.ErrorIs(t, err, tc.cause)
 		})
 	}

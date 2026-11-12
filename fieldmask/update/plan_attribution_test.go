@@ -30,7 +30,7 @@ func planRefusalIndex(t *testing.T, err error) int {
 
 // TestPlanRefusalAttribution pins that Spec.Plan locates a refusal at the
 // mask path it concerns: a limit of the whole effective mask on the bare mask
-// field (index -1), not the explicit path with the most segments; and a
+// field (index -1); and a
 // refusal of the entries a "*" sub-path addresses on that path, not on a key
 // path beside it naming another entry — a changed IMMUTABLE value under
 // "delegates.*.org" beside an unchanged "delegates.k.org", and a protected
@@ -45,7 +45,7 @@ func TestPlanRefusalAttribution(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = spec.Plan(&pb.Resource{Description: "d", Profile: &pb.Profile{DisplayName: "n"}},
-			&fieldmaskpb.FieldMask{Paths: []string{"profile", "description"}})
+			&fieldmaskpb.FieldMask{Paths: []string{"profile", "description"}}, update.WithCurrent(&pb.Resource{}))
 		require.ErrorIs(t, err, fieldmask.ErrMaxPathsExceeded)
 		require.Equal(t, -1, planRefusalIndex(t, err))
 	})

@@ -8,8 +8,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // Filter recursively applies the filter mask msk to msg: unmatched fields
@@ -21,19 +21,23 @@ import (
 // of dynamic JSON the mask addresses nothing of is dropped; without it (the
 // cleaning of an update request) it is left as is.
 func Filter[M ~map[string]M](msk M, msg proto.Message, dropUnaddressed bool) {
-	filterWith(msk, msg, dynamicMask[M]{dropUnaddressed: dropUnaddressed})
+	FilterWith(msk, msg, dynamicMask[M]{dropUnaddressed: dropUnaddressed}.hooks(), KeyMask[M])
 }
 
-// filterWith is [Filter] applying dyn to dynamic JSON.
-func filterWith[M ~map[string]M](msk M, msg proto.Message, dyn dynamicMask[M]) {
+// FilterWith applies [Filter]'s traversal with the supplied dynamic handling
+// and map-key lookup. The update reference walk uses the a8b17ba callbacks
+// so that sharing traversal does not change its dynamic-message semantics.
+// All callbacks are required and are retained throughout recursion.
+func FilterWith[M ~map[string]M](msk M, msg proto.Message, dyn DynamicHooks[M], keyMask func(M, string) (M, bool)) {
 	walk(msk, msg, maskOp[M]{
 		onUnmatched:         func(prf protoreflect.Message, fd protoreflect.FieldDescriptor) { prf.Clear(fd) },
 		onLeaf:              func(protoreflect.Message, protoreflect.FieldDescriptor) {},
-		recurse:             func(n M, m proto.Message) { filterWith(n, m, dyn) },
+		recurse:             func(n M, m proto.Message) { FilterWith(n, m, dyn, keyMask) },
 		onListWildcardLeaf:  func(protoreflect.Message, protoreflect.FieldDescriptor) {},
 		onMapEntryUnmatched: func(mm protoreflect.Map, k protoreflect.MapKey) { mm.Clear(k) },
 		onMapEntryLeaf:      func(protoreflect.Map, protoreflect.MapKey) {},
 		dynamic:             dyn,
+		keyMask:             keyMask,
 
 		dropsUnmatchedEntries: true,
 	})
@@ -51,7 +55,8 @@ func Prune[M ~map[string]M](msk M, msg proto.Message) {
 		onListWildcardLeaf:  func(prf protoreflect.Message, fd protoreflect.FieldDescriptor) { prf.Clear(fd) },
 		onMapEntryUnmatched: func(protoreflect.Map, protoreflect.MapKey) {},
 		onMapEntryLeaf:      func(mm protoreflect.Map, k protoreflect.MapKey) { mm.Clear(k) },
-		dynamic:             dynamicMask[M]{prune: true},
+		dynamic:             dynamicMask[M]{prune: true}.hooks(),
+		keyMask:             KeyMask[M],
 	})
 }
 
@@ -70,12 +75,11 @@ func applyToMessageList[M ~map[string]M](fd protoreflect.FieldDescriptor, lst pr
 
 // KeyMask returns the sub-mask nested, the sub-mask of a map field, names
 // the map entry key with, and whether it names it by key. The mask key "*"
-// is the wildcard, never a literal key (AIP-161 cannot address a literal "*"
-// key), so an entry whose key is "*" is never named: only the wildcard
-// reaches it.
+// is the wildcard, never a literal key. A quoted JSON "*" key has the distinct
+// LiteralStar representation; a protobuf map still rejects that key path.
 func KeyMask[M ~map[string]M](nested M, key string) (M, bool) {
 	if key == maskpath.Wildcard {
-		return nil, false
+		key = maskpath.LiteralStar
 	}
 
 	sub, ok := nested[key]

@@ -12,16 +12,16 @@ and `INPUT_ONLY` on responses. `ValidateRequired` checks the `REQUIRED` fields o
 
 ## AIP-203 conformance
 
-Every normative rule of AIP-203, and the update-mask rules of AIP-134 and AIP-161 that depend on it, maps to the functions below. "Stored value" is
+The implemented AIP-203 behavior and related update-mask rules map to the functions below. "Stored value" is
 the current resource passed with `WithCurrent` (fieldbehavior and fieldmask/update both have one).
 
 | AIP-203 rule                                                                             | Implemented by                                                                                                  | Behavior                                                                                                                                                                                                                                                           |
 |------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | OUTPUT_ONLY: the server must clear the value from a request and must not return an error | `StripCreate`, `StripUpdate`, `Strip` (any set naming it); `update.Apply`, `Patch`                              | Cleared at every depth (singular, repeated, map), strict mode included; never a violation.                                                                                                                                                                         |
 | OUTPUT_ONLY: ignored in update masks, at any depth                                       | `update.Apply`, `ValidateStrict`, `Spec.Plan`                                                                   | A path naming or crossing an OUTPUT_ONLY field is dropped. A message named whole that holds one is expanded to its other fields, so the stored value survives.                                                                                                     |
-| IDENTIFIER: not accepted as input on create                                              | `StripCreate`                                                                                                   | Cleared silently (the server assigns the identifier); `WithStrict(true)` reports it instead, as an opt-in policy.                                                                                                                                                  |
-| IDENTIFIER: IMMUTABLE, and accepted as input on mutation methods                         | `StripUpdate`; `update.Apply`, `ValidateStrict`, `Spec.Plan`                                                    | Kept to address the resource. With the stored value, a different identifier is a violation and an equal one named in the mask is ignored. Without it, naming the identifier in the mask is a violation; an unnamed one is accepted as the address.                 |
-| IMMUTABLE: an unchanged value is ignored, a change is INVALID_ARGUMENT                   | `StripUpdate`; `update.Apply`, `ValidateStrict`, `Spec.Plan`, `Patch`                                           | Compared with the stored value: equal is ignored (cleared from the payload, dropped from the mask), different is a violation. Without the stored value every IMMUTABLE value the update would write is a violation, so a change is never applied or lost silently. |
+| IDENTIFIER: not accepted as input on create                                              | `StripCreate`                                                                                                   | Cleared by default; strict mode rejects a supplied identifier, deviating from AIP-203's instruction to ignore it on create.                                                                                                                        |
+| IDENTIFIER: IMMUTABLE, and accepted as input on mutation methods                         | `StripUpdate`; `update.Apply`, `ValidateStrict`, `Spec.Plan`                                                    | Kept to address the resource. With the stored value, a different identifier is a violation and an equal one named in the mask is ignored. Without it, the value is retained for caller comparison and its path is dropped from the effective mask.                 |
+| IMMUTABLE: an unchanged value is ignored, a change is INVALID_ARGUMENT                   | `StripUpdate`; `update.Apply`, `ValidateStrict`, `Spec.Plan`, `Patch`                                           | Compared with the stored value: equal is retained in the payload for subsequent planning and dropped from the write mask, different is a violation. Without stored state, IMMUTABLE values are retained for caller comparison and excluded from the effective write mask. |
 | REQUIRED: present and set to a non-empty value                                           | `ValidateRequired` (create, requests)                                                                           | Absent or falsy (empty string or bytes, zero, false, zero enum, empty list or map, unset message) is a violation, at every depth of populated messages.                                                                                                            |
 | REQUIRED on update: omitted when absent from the mask; a falsy value is an error         | `update.Apply`, `ValidateStrict`, `Spec.Plan`                                                                   | A REQUIRED path (nested ones too) with a falsy value is a violation; a REQUIRED field outside the mask may be omitted. A value written whole — a replaced message, a replaced collection's elements, the resource under `*` — has its REQUIRED fields checked.     |
 | INPUT_ONLY: not included in output                                                       | `StripResponse`                                                                                                 | Cleared at every depth.                                                                                                                                                                                                                                            |
@@ -31,18 +31,14 @@ the current resource passed with `WithCurrent` (fieldbehavior and fieldmask/upda
 | AIP-202 field formats (`google.api.field_info`), checked in the same walk                | `Strip`, `StripCreate`, `StripUpdate`, `ValidateRequired` (`WithFieldFormats`, default on); not `StripResponse` | Every kept string value — singular, repeated element, map value, at every depth — that breaks its `UUID4`/`IPV4`/`IPV6`/`IPV4_OR_IPV6` format is a violation (Behavior unspecified); cleared or rejected fields are not checked. See [fieldinfo](fieldinfo.md).    |
 | AIP-154 etag: no field behavior                                                          | every walker                                                                                                    | Nothing requires the etag to carry an annotation. `Spec` treats `id` and `etag` as identity fields by name: never implied, refused when named in a mask.                                                                                                           |
 
-Two interpretations complete the rules where AIP-203 is silent:
+Collection elements are compared by list index or map key when current state is supplied, including elements named whole in an update mask.
+Without current state, masked replacements of whole collections or atomic messages containing protected fields are deferred: the covering path is
+omitted while the request value is retained. `update.Prepare` captures these replacements in a `DeferredPlan`, which completes with stored state. A protected value whose stored parent is absent differs from its stored value.
 
-* **Collection elements are new values.** An update replaces a repeated or map field as a whole, and list elements have no identity in an update mask
-  (AIP-161 forbids indexes). The IMMUTABLE and IDENTIFIER values inside the elements of a replaced collection are therefore the first values of new
-  elements: they are neither compared nor rejected. Their OUTPUT_ONLY values are still cleared and their REQUIRED fields still checked. A sub-path
-  into the elements (`labels.k.org`, `aliases.*.org`) updates them in place and compares per element: a map entry with the stored entry of the same
-  key, a list element with the stored element of the same index.
-* **A path whose parent the stored resource does not hold has no stored value.** Setting an IMMUTABLE field inside a sub-message the stored resource
-  lacks is a change.
-
-Without the stored value an unchanged IMMUTABLE value cannot be told from a change, and the package refuses rather than guesses. Pass `WithCurrent` on
-every update; `update.Patch` does it for you.
+Without stored state, `update.Prepare` retains comparisons and explicit clear intent in a plan. Attach it with `update.ContextWithPlan` for
+`Patch.Run`, or pass `update.WithPlanContext` and `WithCurrent` to `Spec.Plan`. `StripUpdate` has no mask: AIP-134's omitted mask implies populated
+fields, so an unpopulated field is outside the update and requests no clear. Its retained protected values are compared by `Spec.Plan` / `Patch.Run`
+with the implied mask and stored state. Never store the stripped request as the resource.
 
 ## When to reach for `fieldbehavior`
 
@@ -50,7 +46,7 @@ every update; `update.Patch` does it for you.
 |--------------------------------------------------------------------------------------|---------------------------------------------------------|
 | Strip server-managed identifiers and timestamps from a Create resource               | `StripCreate(req.GetResource())`                        |
 | Reject absent or empty REQUIRED fields on Create (or on any request message)         | `ValidateRequired(req.GetResource())`                   |
-| Sanitize an Update whose populated fields are the update (no mask, full replacement) | `StripUpdate(req.GetResource(), WithCurrent(stored))`   |
+| Sanitize an Update that selects its populated fields (no mask) | `StripUpdate(req.GetResource(), WithCurrent(stored))`   |
 | Update driven by an `update_mask`                                                    | `update.Apply` with `WithCurrent` (no strip)            |
 | Strip secrets (`INPUT_ONLY` — passwords, tokens) from a response before returning it | `StripResponse(resp)`                                   |
 | Reject identifiers or secrets instead of silently clearing them                      | Add `WithStrict(true)` → `*BehaviorViolationError`      |
@@ -92,20 +88,19 @@ func (s *server) ReplaceBucket(ctx context.Context, req *pb.ReplaceBucketRequest
 }
 ```
 
-`DefaultUpdateBehaviors() = [OUTPUT_ONLY, IMMUTABLE]`. OUTPUT_ONLY values are cleared; an IMMUTABLE value equal to the stored one is cleared too (the
-update ignores it), a different one is a violation. `IDENTIFIER` is kept: it addresses the resource, and with `WithCurrent` a different one is a
-violation. `StripUpdate` treats every populated field as part of the update, which suits an update without a field mask or a full replacement.
+`DefaultUpdateBehaviors() = [OUTPUT_ONLY, IMMUTABLE]`. OUTPUT_ONLY values are cleared; an IMMUTABLE value equal to the stored one is retained for subsequent
+planning, a different one is a violation. `IDENTIFIER` is kept: it addresses the resource, and with `WithCurrent` a different one is a
+violation. `StripUpdate` treats every populated field as part of the update, which suits an update without a field mask whose populated fields are selected. For full replacement, use `update.ApplyMask` with `*` and stored state.
 An update driven by an `update_mask` uses `update.Apply` with `update.WithCurrent(stored)` instead: it applies the same
 rules to the masked fields only and clears the OUTPUT_ONLY values itself.
 
-Without `WithCurrent`, `StripUpdate` reports every populated IMMUTABLE field (`immutable field cannot be modified`): it never silently discards a
-change it cannot verify. A stored resource of another message type is `ErrCurrentMismatch`.
+Without `WithCurrent`, `StripUpdate` retains protected values for the caller to compare; it neither rejects them as unverified nor discards them. A stored resource of another message type is `ErrCurrentMismatch`.
 
 #### Migrating from the earlier Update defaults
 
 `StripUpdate` used to clear `IDENTIFIER` fields, and later used to clear `IMMUTABLE` fields silently, so a requested change was lost without an error.
-It now keeps identifiers and compares immutable values with the stored resource. Pass `WithCurrent(stored)`; a caller that persists the stripped
-payload as it is must still exclude the identifiers from what it writes.
+It now keeps both unverified and validated immutable and identifier values, and compares them when supplied with stored state. This preserves comparison evidence inside mutable atomic messages. Pass `WithCurrent(stored)`; a caller that persists the stripped
+payload must merge only validated mutable fields and preserve stored protected values.
 
 ### Response — strip INPUT_ONLY secrets
 
@@ -178,8 +173,8 @@ All return `error`: `nil`, `*BehaviorViolationError` (matching `ErrBehaviorViola
 | Repeated/map of scalars | Handled per behavior                 | No-op                                      |
 | Oneof case              | Case handled if set                  | Recursive descent if the case is a message |
 
-"Handled" means: OUTPUT_ONLY cleared; IMMUTABLE compared with the stored value (cleared when equal, a violation otherwise or without a stored value),
-kept inside collection elements; any other behavior cleared, or reported under `WithStrict`. The check runs before any mutation, so a payload with a
+"Handled" means: OUTPUT_ONLY cleared; IMMUTABLE compared by the shared merge-effect evaluator (retained when equal, a violation when changed),
+retained without current state for later comparison; any other behavior cleared, or reported under `WithStrict`. The check runs before any mutation, so a payload with a
 violation is never partly cleared. Paths use dots for repeated indices and map keys (`aliases.2.id`, `labels.k.id`); a map key that is empty or
 holds a dot or a backtick is backtick-quoted with every backtick doubled, matching fieldmask paths. Map entries are visited in key order, so
 violations are deterministic.
@@ -192,16 +187,18 @@ compares such a slug because `IMMUTABLE` is in `DefaultUpdateBehaviors()`; `Stri
 
 ### What is **not** traversed
 
-* Unpopulated fields: an absent field is never cleared nor reported (`ValidateRequired` aside, which reports absent REQUIRED fields).
+* Unpopulated fields outside collections: an absent field is not selected by `StripUpdate`. Inside a supplied collection replacement,
+  an absent protected field is compared with its stored counterpart. `ValidateRequired` separately checks absent REQUIRED fields.
 * Message types whose descriptor tree carries no relevant annotation — no behavior of the set and, when formats are checked, no field format: the
   walk is skipped (fast path).
 
 ## Strict mode
 
-`WithStrict(true)` reports, instead of clearing, the populated fields whose behavior AIP-203 lets a service reject: IDENTIFIER on create, INPUT_ONLY
+`WithStrict(true)` reports, instead of clearing, matching populated fields: IDENTIFIER on create, INPUT_ONLY
 in a response (a server bug worth surfacing), or any custom behavior. It never reports OUTPUT_ONLY — AIP-203 forbids an error for it, so those values
 are cleared in every mode — and it does not change the IMMUTABLE rule, which already reports a change and ignores an unchanged value. When strict mode
-reports nothing, the OUTPUT_ONLY and unchanged IMMUTABLE values are cleared as usual.
+reports nothing, OUTPUT_ONLY values are cleared and validated IMMUTABLE values remain available for planning. Rejecting a create identifier under strict mode
+remains a behavior difference from AIP-203's instruction to ignore the supplied identifier on create.
 
 ## Wiring into gRPC
 

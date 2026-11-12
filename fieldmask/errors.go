@@ -7,7 +7,7 @@ package fieldmask
 import (
 	"errors"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )

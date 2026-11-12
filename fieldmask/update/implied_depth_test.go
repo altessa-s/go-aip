@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/altessa-s/go-aip/fieldbehavior"
 	"github.com/altessa-s/go-aip/fieldmask"
@@ -48,10 +47,7 @@ func TestImpliedMaskOverDeepPayload(t *testing.T) { //nolint:paralleltest // see
 			_, err := update.ApplyMask(nil, proto.Clone(deep))
 			return err
 		},
-		"ApplyMask empty implied": func() error {
-			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{}, proto.Clone(deep), update.WithEmptyMaskImplied(true))
-			return err
-		},
+
 		"Apply": func() error { return update.Apply(nil, proto.Clone(deep)) },
 		"ValidateStrict": func() error {
 			_, err := update.ValidateStrict(nil, deep)

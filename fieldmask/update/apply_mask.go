@@ -12,107 +12,70 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
-// ApplyMask applies the update_mask raw of an update request (AIP-134), exactly
-// as the client sent it, to the request resource msg under the field
-// behaviors of AIP-203, and returns the effective mask to write back to the
-// request. Pass the stored resource with [WithCurrent]: only then can an
-// unchanged IMMUTABLE or IDENTIFIER value be told from a change.
+// ApplyMask applies the raw update_mask of an update request (AIP-134) to msg
+// and returns its effective write mask. Every raw path is checked before paths
+// covered by another path are collapsed. Use it instead of converting the raw
+// mask with [fieldmask.FromProtoFieldMask] before [Apply].
 //
-// Use it on the raw mask of a request in place of [fieldmask.FromProtoFieldMask]
-// followed by [Apply]: a [fieldmask.FieldMask] is a set of paths none of which
-// covers another, so it cannot hold a path that another path of the mask
-// covers ("profile.id" with "profile"); ApplyMask reads every path as sent.
-// [ValidateStrict] checks without applying, and [Spec.Plan] plans a
-// read-modify-write of the stored resource instead of filtering msg.
+// Without [WithCurrent], IMMUTABLE and IDENTIFIER values are retained for the
+// caller to compare with the stored resource; their paths are excluded from the
+// effective mask. Use [Prepare] instead for two-stage updates: its [DeferredPlan]
+// retains clear intent and replacement values and completes with stored state,
+// directly or through [Spec.Plan] / [Patch.Run]. ApplyMask returns only its mask.
 //
-// The presence of raw decides the mode (AIP-134):
-//   - nil (update_mask omitted): the implied mask, [FromSetFields] of msg
-//     under the options, is applied and returned;
-//   - no paths (update_mask sent empty): a no-op that returns a non-nil
-//     empty mask and leaves msg untouched; with [WithEmptyMaskImplied] it is
-//     treated as omitted. A mask that names paths is never implied, even
-//     when every one of them is dropped below: it is then a no-op too;
-//   - "*" alone: a full replacement of every field but the OUTPUT_ONLY ones,
-//     as with Apply.
+// A nil raw mask implies populated leaves; empty mutable messages contribute
+// no path. A provided mask with no paths is a no-op that leaves msg untouched; "*" alone is a full
+// replacement. [WithEmptyMaskImplied] is deprecated and has no effect. A mask
+// whose paths are all dropped is interim without stored state: completion may
+// restore deferred writes, so always complete a [Prepare] plan. OUTPUT_ONLY input is
+// cleared. Never store msg itself as the resource after this filtering step.
 //
-// The paths are checked in this order, all before msg is touched:
-//  1. The limits of the options ([WithMaxPaths], [WithMaxPathLength],
-//     [WithMaxPathDepth]) on the raw paths, duplicates included, in every
-//     [PathValidationMode].
-//  2. The grammar of each raw path: an empty or malformed path, and "*"
-//     combined with any other path (another "*" included, matching
-//     [fieldmask.ErrWildcardNotAlone]). Under [WithPathValidation],
-//     [PathValidationEnforce] (the default) refuses the first, while
-//     [PathValidationWarn] reports each one to [WithPathValidationReporter]
-//     and drops it, and [PathValidationDisabled] drops it silently.
-//  3. The schema and the field behaviors of each raw path on its own, in any
-//     spelling of its fields, a path another one covers included: such a path
-//     is checked as if sent alone ("profile.id" under "profile" names an
-//     IDENTIFIER), though only the covering path is applied. A path the
-//     schema rejects follows the mode as in step 2; an index into a repeated
-//     field, a sub-path into an atomic message and, with
-//     [WithStrictDynamicPaths], a path below a google.protobuf.Struct key are
-//     refused in every mode.
+// With current state, equal IMMUTABLE and IDENTIFIER values are ignored and
+// changed values, including clears through explicit or covering paths and "*",
+// are field behavior violations. Singular messages containing protected fields
+// are expanded to their other fields. A whole collection or atomic value with
+// protected descendants cannot be safely represented as a replacement without
+// current state: its entire covering path is deferred, and its request value is
+// retained. With current state those descendants are compared before replacement,
+// including removed elements; lists pair by index and maps by key.
+// Stored-dependent expansion, collection validation and wildcard exclusions
+// remain unresolved without current state. Prepare retains their intent;
+// Complete enforces final expansion limits. An interim expansion that cannot
+// fit the limits contributes no paths until completion.
 //
-// Past the checks msg is mutated exactly as Apply mutates it: fields outside
-// the mask are cleared, the set IDENTIFIER fields of the masked branches are
-// kept, a message holding a server-managed field named whole is replaced
-// through its other fields, a collection or map entry named whole is replaced
-// by new values (their IMMUTABLE and IDENTIFIER values kept as sent, their
-// OUTPUT_ONLY ones cleared) and every OUTPUT_ONLY value left is cleared. The
-// field behaviors, the mask policy of the options, the refusal of a path
-// that switches a oneof away from a protected member and the treatment of a
-// collection are those of Apply.
+// The effective mask uses declared field names and excludes OUTPUT_ONLY and
+// protected paths. A private filter mask keeps routing identifiers and, without
+// current state, unverified protected input. Other unselected values are cleared.
+// INPUT_ONLY fields remain ordinary input fields here. [Apply] describes the
+// remaining behavior and policy rules.
 //
-// As with Apply, an omitted mask or "*" whose request sets an IMMUTABLE value
-// is refused without [WithCurrent], whatever the value: the stored one is
-// unknown, so a change could not be told from an unchanged value (AIP-203).
-// Pass the stored resource, or name the paths to update.
+// Raw path limits apply in every [PathValidationMode], before grammar, schema
+// and behavior checks. [PathValidationEnforce] rejects invalid paths;
+// [PathValidationWarn] reports and drops them; [PathValidationDisabled] drops
+// them. Structural restrictions (list indexes, atomic descent and strict dynamic
+// paths) are enforced in every mode. "*" must be the only raw path.
 //
-// The returned mask is the mask the update applied, ready for
-// [fieldmask.FieldMask.ToProtoFieldMask] and the request: spelled by declared
-// names, with "*" and every message named whole that holds a server-managed
-// field expanded so that no path covers an OUTPUT_ONLY, IMMUTABLE or
-// IDENTIFIER field, without the OUTPUT_ONLY paths, the unchanged IMMUTABLE
-// and IDENTIFIER paths and the IDENTIFIER entries Apply adds to address the
-// resource (as [DropIdentifiers] removes them). INPUT_ONLY fields are
-// ordinary fields here and stay in it. An empty result means the update
-// changes nothing; msg is then left as sent and must not be stored as the
-// resource.
-//
-// A nil or invalid msg, or a [WithCurrent] message of another type, is
-// [ErrMessageMismatch]. A rejected path is a *[fieldmask.ValidationError]
-// (matching [fieldmask.ErrInvalidPath], and the limit or wildcard sentinel
-// that applies) and field behavior violations a *[BehaviorError] (matching
-// [ErrBehaviorViolation]). With [WithStrict] the mask is checked as
-// ValidateStrict checks it: every path is enforced whatever
-// WithPathValidation says, and every refusal is a *[StrictError] (matching
-// [ErrInvalidUpdateMask], and its cause) naming the offending path, or the
-// mask field of [WithUpdateMaskFieldName] for a mask-level refusal. On any
-// error msg is left untouched.
+// A nil or invalid msg, or a current message of another type, is
+// [ErrMessageMismatch]. Path errors are *[fieldmask.ValidationError], behavior
+// errors *[BehaviorError]. [WithStrict] enforces every path regardless of the
+// path-validation option and wraps refusals as *[StrictError], matching
+// [ErrInvalidUpdateMask]. On error msg is untouched.
 func ApplyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, opts ...Option) (fieldmask.FieldMask, error) {
-	o := newOptions(opts...)
-	if !o.strict {
-		return applyMask(raw, msg, o)
-	}
-
-	o.pathValidation = PathValidationEnforce
-
-	effective, err := applyMask(raw, msg, o)
+	p, err := Prepare(raw, msg, opts...)
 	if err != nil {
-		return nil, strictError(err, o.updateMaskFieldName)
+		return nil, err
 	}
 
-	return effective, nil
+	return p.Mask(), nil
 }
 
 // applyMask is [ApplyMask] under o.
-func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (fieldmask.FieldMask, error) {
-	if msg == nil || !msg.ProtoReflect().IsValid() {
+func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options, pending *DeferredPlan) (fieldmask.FieldMask, error) {
+	if !validMessage(msg) {
 		return nil, ErrMessageMismatch
 	}
 
@@ -121,12 +84,22 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 		return nil, err
 	}
 
+	u.deferred = pending
+
 	paths := raw.GetPaths()
-	if raw == nil || (len(paths) == 0 && o.emptyMaskImplied) {
-		paths = impliedUpdateMask(msg, o).ToPaths()
+	if raw == nil {
+		u.orderMode = referenceImplied
+		paths = u.impliedSelection(root).ToPaths()
+		u.checkImplied(msg.ProtoReflect().Descriptor(), root)
 	}
 
-	if len(paths) == 0 {
+	if raw != nil && len(paths) == 0 {
+		if pending != nil {
+			if err = pending.capture(raw, msg, o); err != nil {
+				return nil, err
+			}
+		}
+
 		return fieldmask.FieldMask{}, nil // a provided empty update_mask is a no-op (AIP-134).
 	}
 
@@ -148,7 +121,7 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 
 	switch {
 	case len(paths) == 0:
-		return fieldmask.FieldMask{}, nil // every path was dropped: nothing to update.
+		work = fieldmask.FieldMask{} // no writes; implied protected input still needs its comparison
 	case len(paths) == 1 && paths[0] == maskpath.Wildcard:
 		work = u.replaceAll(md, root)
 	default:
@@ -160,24 +133,39 @@ func applyMask(raw *fieldmaskpb.FieldMask, msg proto.Message, o *options) (field
 		u.checkCovering(work, covered, md, root)
 	}
 
-	u.checkOneofSwitches(md, root, work, covered)
-
-	if err := u.maskRefusal(work, md); err != nil {
+	if err = u.maskRefusal(work, md); err != nil {
 		return nil, err
 	}
 
-	if len(u.violations) > 0 {
-		return nil, &BehaviorError{Violations: u.violations}
+	violations, err := u.orderedViolations(md)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(violations) > 0 {
+		return nil, &BehaviorError{Violations: violations}
+	}
+
+	if pending != nil {
+		pending.needsCurrent = u.needsCurrent || (len(work) > 0 && retainedIdentityNeedsCurrent(msg, o))
+		if err = pending.capture(raw, msg, o); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(work) == 0 {
-		return fieldmask.FieldMask{}, nil // every path was dropped: nothing to update.
+		return fieldmask.FieldMask{}, clearOutputOnly(msg, o) // no writes, but output-only input is still cleared
 	}
 
 	effective := work.Clone()
 	dropPolicyIdentifiers(effective, md, o)
 
 	preserveIdentifierFields(work, msg, o)
+
+	if !u.verify {
+		preserveUnverified(work, msg.ProtoReflect(), o)
+	}
+
 	maskwalk.Filter(work, msg, false)
 
 	if err := clearOutputOnlyKeeping(msg, work, o); err != nil {
@@ -309,4 +297,23 @@ func strictError(err error, maskField string) error {
 	}
 
 	return &StrictError{Cause: err, Violations: []FieldViolation{{Path: maskField, Reason: err.Error()}}}
+}
+
+// retainedIdentityNeedsCurrent accounts for normalization outside the write
+// mask: sanitizing a retained policy-only routing message restores its protected
+// descendants from storage. Scalar routing identifiers need no such work.
+func retainedIdentityNeedsCurrent(msg proto.Message, policy *options) bool {
+	m := msg.ProtoReflect()
+	for _, name := range policy.identityFields {
+		fd := m.Descriptor().Fields().ByName(protoreflect.Name(name))
+		if fd == nil || !m.Has(fd) || !isPolicyIdentity(fd, policy) {
+			continue
+		}
+
+		if md := maskpath.ValueMessage(fd); md != nil && holdsImmutable(md, map[protoreflect.FullName]bool{}, policy) {
+			return true
+		}
+	}
+
+	return false
 }

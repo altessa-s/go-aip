@@ -44,8 +44,8 @@ func DefaultCreateBehaviors() []annotations.FieldBehavior {
 
 // DefaultUpdateBehaviors lists the behaviors handled by [StripUpdate]:
 // OUTPUT_ONLY (cleared) and IMMUTABLE (compared with the stored value of
-// [WithCurrent]: cleared when unchanged, a violation when changed or when no
-// stored value is supplied). IDENTIFIER is deliberately absent: per AIP-203
+// [WithCurrent]: ignored when unchanged, a violation when changed; retained
+// for the caller to compare when no stored value is supplied). IDENTIFIER is deliberately absent: per AIP-203
 // the identifier addresses the resource on Update, so it must reach the
 // handler.
 func DefaultUpdateBehaviors() []annotations.FieldBehavior {
@@ -76,7 +76,7 @@ type options struct {
 	resolver  Resolver                    `optgen:"default=AnnotationResolver{}"`
 	// current is the stored resource an update payload is compared with: an
 	// IMMUTABLE or IDENTIFIER value that differs from it is a violation, an
-	// IMMUTABLE value equal to it is cleared. It must be a message of the
+	// IMMUTABLE value equal to it is retained for subsequent planning. It must be a message of the
 	// payload's type ([ErrCurrentMismatch] otherwise); nil means the stored
 	// value is unknown. Only update payloads have a current value.
 	current proto.Message `optgen:"allownull"`

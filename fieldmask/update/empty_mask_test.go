@@ -151,8 +151,8 @@ func TestApplyUpdateMask_NilMaskIsImplied(t *testing.T) {
 
 		req := &testpb.UpdateRequest{Id: "1", CreatedAt: new("client")}
 		require.NoError(t, update.Apply(fieldmask.FieldMask(nil), req))
-		assert.True(t, proto.Equal(&testpb.UpdateRequest{Id: "1", CreatedAt: new("client")}, req),
-			"an empty implied mask is a no-op")
+		assert.True(t, proto.Equal(&testpb.UpdateRequest{Id: "1"}, req),
+			"an effective no-op still clears output-only input")
 	})
 }
 
@@ -182,7 +182,7 @@ func TestApplyUpdateMask_AllPathsDroppedIsNoOp(t *testing.T) {
 	require.NoError(t, update.Apply(mask, req, update.WithCurrent(storedRequest())))
 	assert.NotNil(t, mask)
 	assert.True(t, mask.IsEmpty())
-	assert.True(t, proto.Equal(storedRequest(), req))
+	assert.True(t, proto.Equal(withoutOutputOnly(t, storedRequest()), req))
 
 	spec, err := update.NewSpec(&testpb.UpdateRequest{})
 	require.NoError(t, err)
@@ -233,9 +233,8 @@ func TestValidateStrictUpdateMask_MaskPresence(t *testing.T) {
 		got, err := update.ValidateStrict(nil, req, current)
 		require.NoError(t, err)
 
-		want, err := update.ValidateStrict(update.FromSetFields(req), req, current)
-		require.NoError(t, err)
-		assert.Equal(t, want.ToPaths(), got.ToPaths())
+		want := []string{"address.city", "address.street", "description", "name", "options.color", "priority", "shipping_address.city", "shipping_address.street", "status"}
+		assert.Equal(t, want, got.ToPaths())
 		assert.True(t, got.Contains("description"))
 	})
 
@@ -296,7 +295,12 @@ func TestUpdateEntryPoints_AgreeOnNoOp(t *testing.T) {
 			assert.Equal(t, tt.empty, mask.IsEmpty(), "Apply")
 
 			if tt.empty {
-				assert.True(t, proto.Equal(storedRequest(), req), "a no-op leaves the message untouched")
+				want := proto.Message(storedRequest())
+				if len(tt.paths) > 0 {
+					want = withoutOutputOnly(t, want)
+				}
+
+				assert.True(t, proto.Equal(want, req), "a no-op leaves the message untouched")
 			}
 		})
 	}

@@ -7,15 +7,14 @@ package update
 import (
 	"fmt"
 	"slices"
-	"strings"
 
-	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // ImpliedPaths returns the implied update mask of resource (AIP-134: an
@@ -35,6 +34,10 @@ import (
 // branch. Fields listed in skip (top-level or nested declared paths) and
 // server-managed fields (OUTPUT_ONLY, IDENTIFIER, IMMUTABLE) at any depth are
 // never included.
+//
+// A dynamic JSON root uses its populated object keys; a populated list or scalar
+// Value implies "*" (whole-root replacement). Empty objects/lists and an unset
+// Value imply no paths. Generated and dynamicpb representations behave alike.
 func ImpliedPaths(resource proto.Message, opts ...Option) []string {
 	s, err := NewSpec(resource, opts...)
 	if err != nil {
@@ -49,56 +52,7 @@ func impliedPaths(resource proto.Message, skip []string, policy *options) []stri
 		return nil
 	}
 
-	md := resource.ProtoReflect().Descriptor()
-
-	var out []string
-
-	setFields := maskpath.Collect(resource.ProtoReflect(), true, maskpath.SetFields{DeclarationOrder: true, Skip: skip}, policy.maxPathDepth)
-	for _, p := range setFields {
-		if leaf := leafOf(md, p, policy); leaf != "" && !slices.Contains(out, leaf) && !coversSkipped(leaf, skip) {
-			out = append(out, leaf)
-		}
-	}
-
-	return out
-}
-
-// coversSkipped reports whether the leaf path covers a skipped path: the
-// leaf itself, or a skip beneath it — a field inside a well-known type or a
-// collection, which leafOf collapses into the leaf that replaces it whole,
-// so the leaf would bring the skipped field back.
-func coversSkipped(leaf string, skip []string) bool {
-	return slices.ContainsFunc(skip, func(s string) bool {
-		return s == leaf || strings.HasPrefix(s, leaf+maskpath.Separator)
-	})
-}
-
-// leafOf returns the leaf path a populated-field path of md belongs to: the
-// path cut at its first repeated, map, scalar, enum or well-known-type field.
-// It returns "" for a path that ends at a plain message (its leaves are
-// listed on their own), runs through a server-managed field or names no
-// field. A path the depth limit cut ([WithMaxPathDepth]) is a leaf even at a
-// plain message: it stands for the subtree below it.
-func leafOf(md protoreflect.MessageDescriptor, path string, policy *options) string {
-	segs := strings.Split(path, maskpath.Separator)
-	for i, seg := range segs {
-		fd := md.Fields().ByName(protoreflect.Name(seg))
-		if fd == nil || policy.serverManaged(fd) != annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED {
-			return ""
-		}
-
-		if !descends(fd, policy) {
-			return strings.Join(segs[:i+1], maskpath.Separator)
-		}
-
-		md = fd.Message()
-	}
-
-	if policy.maxPathDepth > 0 && len(segs) >= policy.maxPathDepth {
-		return path
-	}
-
-	return ""
+	return maskmerge.ImpliedPaths(resource.ProtoReflect(), skip, policy.behaviors, policy.atomicMessage, policy.maxPathDepth, false)
 }
 
 // descends reports whether fd is a singular message field whose subfields

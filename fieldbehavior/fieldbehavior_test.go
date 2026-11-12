@@ -100,7 +100,7 @@ func TestStripCreate_ClearsOutputOnlyAndIdentifier(t *testing.T) {
 	assert.Empty(t, r.GetLabels()["k1"].GetUpdatedAt())
 }
 
-func TestStripUpdate_ClearsUnchangedImmutable(t *testing.T) {
+func TestStripUpdate_RetainsUnchangedImmutable(t *testing.T) {
 	t.Parallel()
 
 	r := fullResource()
@@ -109,8 +109,8 @@ func TestStripUpdate_ClearsUnchangedImmutable(t *testing.T) {
 	assert.Equal(t, "ID-001", r.GetId(), "IDENTIFIER kept on update: it addresses the resource (AIP-203)")
 	assert.Equal(t, "P-1", r.GetProfile().GetId(), "nested IDENTIFIER kept on update")
 	assert.Empty(t, r.GetCreateTime())
-	assert.Empty(t, r.GetTenantId(), "an unchanged IMMUTABLE value is cleared (ignored) on update")
-	assert.Empty(t, r.GetSlug(), "an unchanged REQUIRED+IMMUTABLE value is cleared on update")
+	assert.Equal(t, "T", r.GetTenantId(), "validated IMMUTABLE input survives later planning")
+	assert.Equal(t, "slug-1", r.GetSlug(), "validated REQUIRED+IMMUTABLE input survives later planning")
 	assert.Equal(t, "n", r.GetName(), "REQUIRED-only kept")
 	assert.Equal(t, "secret", r.GetPassword(), "INPUT_ONLY kept on update")
 }
@@ -210,7 +210,7 @@ func TestStrip_MultipleBehaviorsOnSameField(t *testing.T) {
 
 	r := fullResource()
 	require.NoError(t, fieldbehavior.StripUpdate(r, fieldbehavior.WithCurrent(fullResource())))
-	assert.Empty(t, r.GetSlug(), "REQUIRED+IMMUTABLE field matches IMMUTABLE in update set")
+	assert.Equal(t, "slug-1", r.GetSlug(), "REQUIRED+IMMUTABLE field is validated and retained")
 }
 
 func TestStrip_NestedOutputOnlyNotTraversed(t *testing.T) {

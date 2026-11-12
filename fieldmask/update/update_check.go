@@ -17,15 +17,16 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldbehavior"
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
-// Behavior sets skipped by the REQUIRED walks of an update. A replaced
-// singular message keeps the stored value of an IMMUTABLE field the request
-// leaves out, so only the fields a replacement writes are checked; the
-// elements of a replaced collection are new values, checked as on create.
+// Behavior sets skipped by the REQUIRED walks of an update. Singular
+// protected fields are checked separately against stored state and excluded
+// from the write mask. Collection elements are replaced whole, so their
+// REQUIRED fields are checked as written, as well as their protected values.
 var (
 	updateRequiredSkip = []annotations.FieldBehavior{
 		annotations.FieldBehavior_OUTPUT_ONLY, annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE,
@@ -58,12 +59,16 @@ type topBehavior func(fd protoreflect.FieldDescriptor) (b annotations.FieldBehav
 // equals the stored one, expands a replaced message that holds server-managed
 // fields to its other fields, and records a violation for every REQUIRED
 // field the update leaves empty and every IMMUTABLE or IDENTIFIER value it
-// would change or cannot verify.
+// would change. Unverified values are deferred outside the effective mask.
 type updateCheck struct {
-	policy *options
+	policy   *options
+	deferred *DeferredPlan
 	// verify reports that the stored resource is known: protected values are
 	// compared with it.
 	verify bool
+	// needsCurrent records any stored-dependent validation or normalization,
+	// independently of whether it emits a protected-field operation.
+	needsCurrent bool
 	// top, when set, overrides the behavior of top-level fields.
 	top topBehavior
 	// addressOnly, when set, reports the top-level fields that address the
@@ -71,7 +76,18 @@ type updateCheck struct {
 	// identity fields of the policy ([WithIdentityFields]) that carry no
 	// IDENTIFIER annotation.
 	addressOnly func(fd protoreflect.FieldDescriptor) bool
-	violations  []FieldViolation
+	// namedInput preserves explicit naming for routing checks after ignored paths
+	// are removed; it is never used to evaluate a merge or derive writes.
+	namedInput   fieldmask.FieldMask
+	violations   []FieldViolation
+	violationSet map[FieldViolation]struct{}
+	deferredSet  map[DeferredOperation]struct{}
+	// Retain the original selection and read-only resource pair for the reference
+	// walk. Only an evaluation with violations runs that walk.
+	violationOrder []fieldmask.FieldMask
+	orderRoot      msgPair
+	orderMode      referenceOrderMode
+	orderSkip      []string
 	// refusal is the first refusal of the mask itself (a path error, not a
 	// field behavior violation) the check made, nil otherwise.
 	refusal error
@@ -83,25 +99,34 @@ type updateCheck struct {
 	// values.
 	expandVisits, expandLeaves, expandNesting int
 	validationOnly                            bool
-	// atomicPaths caches [atomicProtectedPath] per atomic type.
-	atomicPaths map[protoreflect.FullName]protectedPath
 }
 
 // newUpdateCheck returns the check of an update of req whose stored value is
 // current (nil when unknown), and the root pair. A current message that is
 // invalid or of another type than req is [ErrMessageMismatch].
 func newUpdateCheck(req, current proto.Message, policy *options) (*updateCheck, msgPair, error) {
+	if !validMessage(req) {
+		return nil, msgPair{}, ErrMessageMismatch
+	}
+
 	u := &updateCheck{policy: policy}
 	root := msgPair{req: req.ProtoReflect()}
 
 	if current != nil {
-		if _, _, err := reflectPair(req, current); err != nil {
+		if _, err := reflectPair(req, current); err != nil {
+			return nil, msgPair{}, err
+		}
+
+		snapshot, err := cloneMessage(current)
+		if err != nil {
 			return nil, msgPair{}, err
 		}
 
 		u.verify = true
-		root.cur = current.ProtoReflect()
+		root.cur = snapshot.ProtoReflect()
 	}
+
+	u.orderRoot = root
 
 	return u, root, nil
 }
@@ -186,12 +211,25 @@ func (u *updateCheck) required(path string) func(v []FieldViolation, exceeded bo
 			return
 		}
 
-		u.violations = append(u.violations, v...)
+		for _, violation := range v {
+			u.fail(violation)
+		}
 	}
 }
 
 // fail records a violation.
-func (u *updateCheck) fail(v FieldViolation) { u.violations = append(u.violations, v) }
+func (u *updateCheck) fail(v FieldViolation) {
+	if _, exists := u.violationSet[v]; exists {
+		return
+	}
+
+	if u.violationSet == nil {
+		u.violationSet = make(map[FieldViolation]struct{})
+	}
+
+	u.violationSet[v] = struct{}{}
+	u.violations = append(u.violations, v)
+}
 
 // checkMask applies the update rules to msk, the sub-mask of message type md
 // whose addressed messages are pairs, under the mask path prefix. It mutates
@@ -199,6 +237,10 @@ func (u *updateCheck) fail(v FieldViolation) { u.violations = append(u.violation
 // and a replaced message holding server-managed fields becomes the sub-mask
 // of its other fields.
 func (u *updateCheck) checkMask(msk fieldmask.FieldMask, md protoreflect.MessageDescriptor, pairs []msgPair, prefix string) {
+	if maskpath.IsDynamicMessage(md) {
+		return
+	}
+
 	u.verifyUnnamedIdentifiers(msk, md, pairs, prefix)
 
 	fields := md.Fields()
@@ -220,9 +262,8 @@ func (u *updateCheck) checkMask(msk fieldmask.FieldMask, md protoreflect.Message
 			delete(msk, name)
 			continue
 		case b == annotations.FieldBehavior_IDENTIFIER || b == annotations.FieldBehavior_IMMUTABLE:
-			if u.unchanged(fd, nested, pairs, path, b) {
-				delete(msk, name)
-			}
+			u.omitProtected(fd, nested, pairs, path, b)
+			delete(msk, name)
 
 			continue
 		}
@@ -247,41 +288,29 @@ func (u *updateCheck) checkMask(msk fieldmask.FieldMask, md protoreflect.Message
 	}
 }
 
-// unchanged reports whether the IMMUTABLE or IDENTIFIER field fd (behavior
-// b), selected by the sub-mask nested, holds its stored value in every pair,
-// so the update ignores it (AIP-203). A changed value, or any value while the
-// stored resource is unknown, is recorded as a violation.
-func (u *updateCheck) unchanged(
+// omitProtected excludes a protected selection from the effective mask. With
+// stored state, evaluateSelection has already checked the complete merge effect;
+// this step makes no equality decision. Without it, retain a deferred comparison.
+func (u *updateCheck) omitProtected(
 	fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, pairs []msgPair, path string, b annotations.FieldBehavior,
-) bool {
+) {
 	if !u.verify {
-		u.fail(behavior.ProtectedViolation(path, b, false))
-		return false
+		u.deferProtected(fd, nested, pairs, path, b)
 	}
-
-	for _, p := range pairs {
-		if !sameSelection(fd, nested, p.req, p.cur) {
-			u.fail(behavior.ProtectedViolation(path, b, true))
-			return false
-		}
-	}
-
-	return true
 }
 
 // verifyUnnamedIdentifiers compares the populated IDENTIFIER fields of md
 // that msk does not name with the stored ones: the update keeps them to
 // address the resource, so they must not differ from it. Without a stored
-// resource they are accepted as the address.
+// resource they are accepted as the address. This is input consistency, not a
+// merge-effect decision: an unnamed routing value is never written or pruned by
+// this check. The original selection, including all implicit clears, is checked
+// separately against the complete resource before this walk.
 func (u *updateCheck) verifyUnnamedIdentifiers(msk fieldmask.FieldMask, md protoreflect.MessageDescriptor, pairs []msgPair, prefix string) {
-	if !u.verify {
-		return
-	}
-
 	fields := md.Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		if _, named := msk[string(fd.Name())]; named {
+		if _, named := msk[string(fd.Name())]; named || u.namedInput.Contains(behavior.JoinPath(prefix, string(fd.Name()))) {
 			continue
 		}
 
@@ -290,9 +319,13 @@ func (u *updateCheck) verifyUnnamedIdentifiers(msk fieldmask.FieldMask, md proto
 		}
 
 		for _, p := range pairs {
-			if p.req != nil && p.req.Has(fd) && !behavior.SameValue(p.req, p.cur, fd) {
-				u.fail(behavior.ProtectedViolation(behavior.JoinPath(prefix, string(fd.Name())), annotations.FieldBehavior_IDENTIFIER, true))
-				break
+			if p.req != nil && p.req.Has(fd) && !u.verify {
+				u.deferProtected(fd, nil, []msgPair{p}, behavior.JoinPath(prefix, string(fd.Name())), annotations.FieldBehavior_IDENTIFIER)
+				continue
+			}
+
+			if p.req != nil && p.req.Has(fd) && !behavior.SameInputValue(p.req, p.cur, fd, u.policy.behaviors) {
+				u.fail(behavior.ProtectedViolation(behavior.JoinPath(p.path, string(fd.Name())), annotations.FieldBehavior_IDENTIFIER))
 			}
 		}
 	}
@@ -321,14 +354,17 @@ func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protor
 	}
 
 	u.checkWrittenRequired(fd, pairs)
-	u.checkAtomicProtected(fd, pairs)
+
+	if !u.checkReplacement(fd, path) {
+		delete(msk, name)
+		return
+	}
 
 	if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
 		return
 	}
 
-	onPath := map[protoreflect.FullName]bool{fd.ContainingMessage().FullName(): true, fd.Message().FullName(): true}
-	if sub := u.expand(fd.Message(), childPairs(pairs, fd), path, onPath); len(sub) > 0 {
+	if sub := u.expand(fd.Message(), childPairs(pairs, fd), path); len(sub) > 0 {
 		msk[name] = sub
 	} else {
 		delete(msk, name)
@@ -341,187 +377,91 @@ func (u *updateCheck) isAtomic(md protoreflect.MessageDescriptor) bool {
 	return md != nil && u.policy.atomicMessage != nil && u.policy.atomicMessage(md) && !maskpath.IsDynamicMessage(md)
 }
 
-// atomicProtected is [atomicProtectedPath] of md, computed once per type for
-// the check.
-func (u *updateCheck) atomicProtected(md protoreflect.MessageDescriptor) (string, annotations.FieldBehavior) {
-	if p, ok := u.atomicPaths[md.FullName()]; ok {
-		return p.path, p.behavior
-	}
-
-	path, b := atomicProtectedPath(md, map[protoreflect.FullName]bool{}, u.policy)
-
-	if u.atomicPaths == nil {
-		u.atomicPaths = map[protoreflect.FullName]protectedPath{}
-	}
-
-	u.atomicPaths[md.FullName()] = protectedPath{path: path, behavior: b}
-
-	return path, b
-}
-
-// protectedPath is the first field an atomic type must keep
-// ([atomicProtectedPath]).
-type protectedPath struct {
-	path     string
-	behavior annotations.FieldBehavior
-}
-
-// checkAtomicProtected checks fd, a singular message of an atomic type
-// written whole in each pair, as a protected leaf: the merge copies the value
-// whole, so it cannot keep a stored IMMUTABLE or IDENTIFIER field below the
-// atomic boundary as an expansion keeps it in another message. When the type
-// holds such a field ([atomicProtectedPath]), every one of them — reached
-// through singular messages, a protected repeated or map field compared whole —
-// must equal the stored one, absence included: the first change is a
-// violation. Without the stored resource the replacement is one violation,
-// since it cannot keep values it does not know (AIP-203).
-func (u *updateCheck) checkAtomicProtected(fd protoreflect.FieldDescriptor, pairs []msgPair) {
-	if !isAtomicValue(fd, u.policy) {
-		return
-	}
-
-	first, b := u.atomicProtected(fd.Message())
-	if first == "" {
-		return
-	}
-
-	for _, p := range pairs {
-		path := behavior.JoinPath(p.path, string(fd.Name()))
-
-		if !u.verify {
-			u.fail(behavior.ProtectedViolation(behavior.JoinPath(path, first), b, false))
-			continue
-		}
-
-		if diff, b, ok := u.protectedDiff(fd.Message(), behavior.Child(p.req, fd), behavior.Child(p.cur, fd), path, 0); ok {
-			u.fail(behavior.ProtectedViolation(diff, b, true))
-		}
-	}
-}
-
-// protectedDiff returns the path and behavior of the first protected field
-// ([atomicProtectedPath]) of the message of type md whose request and stored
-// values r and c (nil when absent) differ, at path prefix. It follows the
-// values, only into sub-messages of a type that holds a protected field,
-// within the REQUIRED walk depth and the shared work budget; a refusal
-// stops it.
-func (u *updateCheck) protectedDiff(md protoreflect.MessageDescriptor, r, c protoreflect.Message, prefix string, depth int,
-) (string, annotations.FieldBehavior, bool) {
-	if depth > requiredMaxDepth {
-		u.refuse(fmt.Errorf("fieldmask: the request value %q nests more than %d messages: %w", prefix, requiredMaxDepth,
-			fieldbehavior.ErrMaxDepthExceeded))
-
-		return "", 0, false
-	}
-
-	if u.expandVisits++; !u.withinVisits(prefix) {
-		return "", 0, false
-	}
-
-	fields := md.Fields()
-	for i := range fields.Len() {
-		f := fields.Get(i)
-		path := behavior.JoinPath(prefix, string(f.Name()))
-
-		switch b := u.policy.serverManaged(f); b { //nolint:exhaustive // serverManaged returns only these or UNSPECIFIED.
-		case annotations.FieldBehavior_OUTPUT_ONLY:
-			continue
-		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
-			if !behavior.SameValue(r, c, f) {
-				return path, b, true
-			}
-
-			continue
-		}
-
-		if f.IsList() || f.IsMap() || f.Message() == nil || maskpath.IsDynamicMessage(f.Message()) {
-			continue
-		}
-
-		if sub, _ := u.atomicProtected(f.Message()); sub == "" {
-			continue // nothing below to keep
-		}
-
-		rc, cc := behavior.Child(r, f), behavior.Child(c, f)
-		if rc == nil && cc == nil {
-			continue
-		}
-
-		if diff, b, ok := u.protectedDiff(f.Message(), rc, cc, path, depth+1); ok || u.refusal != nil {
-			return diff, b, ok
-		}
-	}
-
-	return "", 0, false
-}
-
 // checkWrittenRequired records the REQUIRED fields left empty in the value of
 // fd each pair's request writes: the populated subtree of a singular message
 // (its IMMUTABLE fields excepted, which keep their stored value when absent)
 // and every element of a repeated or map field of messages.
 func (u *updateCheck) checkWrittenRequired(fd protoreflect.FieldDescriptor, pairs []msgPair) {
-	resolve := u.policy.behaviors
-
 	for _, p := range pairs {
 		if p.req == nil || !p.req.Has(fd) {
 			continue
 		}
 
 		path := behavior.JoinPath(p.path, string(fd.Name()))
-
-		switch {
-		case fd.IsList():
-			if fd.Kind() != protoreflect.MessageKind {
-				continue
-			}
-
-			list := p.req.Get(fd).List()
-			for i := range list.Len() {
-				elemPath := behavior.JoinPath(path, strconv.Itoa(i))
-				u.required(elemPath)(behavior.RequiredViolations(list.Get(i).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
-			}
-		case fd.IsMap():
-			if fd.MapValue().Kind() != protoreflect.MessageKind {
-				continue
-			}
-
-			mm := p.req.Get(fd).Map()
-			for _, k := range behavior.SortedMapKeys(mm) {
-				elemPath := behavior.JoinPath(path, behavior.QuoteSegment(k.String()))
-				u.required(elemPath)(behavior.RequiredViolations(mm.Get(k).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
-			}
-		case fd.Message() != nil:
-			skip := updateRequiredSkip
-			if u.isAtomic(fd.Message()) {
-				skip = elementRequiredSkip // an atomic value is written as sent, IMMUTABLE fields included
-			}
-
-			u.required(path)(behavior.ReplacedRequiredViolations(p.req.Get(fd).Message(), path, resolve, skip, elementRequiredSkip,
-				requiredMaxDepth, nil, u.isAtomic))
-		}
+		checkWrittenRequired(p.req, fd, path, u.policy.behaviors, u.isAtomic, u.required)
 	}
+}
+
+// checkWrittenRequired shares the unchanged REQUIRED traversal with the base
+// diagnostic walk. Each caller keeps its own recorder and atomic policy.
+func checkWrittenRequired(req protoreflect.Message, fd protoreflect.FieldDescriptor, path string, resolve behavior.Resolve,
+	atomic func(protoreflect.MessageDescriptor) bool, record func(string) func([]FieldViolation, bool),
+) {
+	switch {
+	case fd.IsList():
+		if fd.Kind() != protoreflect.MessageKind {
+			return
+		}
+
+		list := req.Get(fd).List()
+		for i := range list.Len() {
+			elemPath := behavior.JoinPath(path, strconv.Itoa(i))
+			record(elemPath)(behavior.RequiredViolations(list.Get(i).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
+		}
+	case fd.IsMap():
+		if fd.MapValue().Kind() != protoreflect.MessageKind {
+			return
+		}
+
+		mm := req.Get(fd).Map()
+		for _, k := range behavior.SortedMapKeys(mm) {
+			elemPath := behavior.JoinPath(path, behavior.QuoteSegment(k.String()))
+			record(elemPath)(behavior.RequiredViolations(mm.Get(k).Message(), elemPath, resolve, elementRequiredSkip, requiredMaxDepth))
+		}
+	case fd.Message() != nil:
+		skip := updateRequiredSkip
+		if atomic(fd.Message()) {
+			skip = elementRequiredSkip // an atomic value is written as sent, IMMUTABLE fields included
+		}
+
+		record(path)(behavior.ReplacedRequiredViolations(req.Get(fd).Message(), path, resolve, skip, elementRequiredSkip,
+			requiredMaxDepth, nil, atomic))
+	}
+}
+
+// checkImplied compares all supplied protected values, including identifiers
+// and branches omitted from the synthesized write mask. Its expansion is only
+// for validation; the implied mask still selects just the populated fields.
+func (u *updateCheck) checkImplied(md protoreflect.MessageDescriptor, root msgPair) {
+	if maskpath.IsDynamicMessage(md) {
+		return
+	}
+
+	u.validationOnly = true
+	u.expand(md, []msgPair{root}, "")
+	u.validationOnly = false
 }
 
 // expand returns the sub-mask that replaces a singular message of type md
 // (whose request and stored values are pairs, at the mask path prefix) while
 // keeping its server-managed values: every field but the OUTPUT_ONLY ones,
 // and a sub-message holding a server-managed field replaced the same way.
-// An IMMUTABLE or IDENTIFIER field the request leaves unset keeps its stored
-// value; one the request sets is compared with it — an equal value is
-// ignored, a different one, or an IMMUTABLE one while the stored resource is
-// unknown, is a violation; an IDENTIFIER set while it is unknown is kept as
-// the address.
+// IMMUTABLE and IDENTIFIER fields are compared, absence included, with current
+// state. Without it their paths are omitted and comparison is the caller's duty.
 //
 // A sub-message neither the request nor the stored resource holds is left
 // out: there is nothing to replace. A member of a real oneof is written only
 // when a request sets it or, to clear it, the stored resource holds it, so a
-// replacement switches no oneof by itself. Without a stored resource a sub-message
-// the request does not hold is expanded by its schema, except a message type
-// already on the path (onPath), which has no finite expansion and is left as
-// stored.
-func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair, prefix string, onPath map[protoreflect.FullName]bool) fieldmask.FieldMask {
+// replacement switches no oneof by itself. Without stored state, absent branches
+// are unresolved: Prepare retains the covering intent for completion instead of
+// emitting speculative paths that might exceed the final mask limits.
+func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair, prefix string) fieldmask.FieldMask {
 	if !u.expandWithin(prefix) {
 		return nil
+	}
+
+	if !u.verify && !u.validationOnly {
+		u.needsCurrent = true
 	}
 
 	if u.expandNesting == 0 {
@@ -551,41 +491,27 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 		}
 
 		if !u.policy.expandable(fd) || !hasProtectedDescendants(fd.Message(), map[protoreflect.FullName]bool{}, u.policy) {
-			// A comparison-only expansion writes nothing: an atomic value
-			// is compared only when the request supplies it.
-			if reqHas, _ := pairsHold(pairs, fd); !u.validationOnly || reqHas {
-				u.checkAtomicProtected(fd, pairs)
+			if u.expandLeaf(fd, pairs, path) {
+				out[name] = nil
 			}
 
-			if !u.emitLeaf(path) {
+			if u.refusal != nil {
 				return nil
 			}
-
-			out[name] = nil
 
 			continue
 		}
 
 		reqHas, curHas := pairsHold(pairs, fd)
 
-		child := fd.Message().FullName()
 		switch {
 		case u.validationOnly && !reqHas:
 			continue // only the protected values the request sets are compared
-		case (!reqHas && !curHas && u.verify) || (!reqHas && !curHas && onPath[child]):
+		case !reqHas && !curHas:
 			continue
 		}
 
-		// child may already be on the path (an ancestor of the same type the
-		// request or the stored resource holds): only an entry added here is
-		// removed, so the ancestor stays guarded for the siblings that follow.
-		wasOnPath := onPath[child]
-		onPath[child] = true
-		sub := u.expand(fd.Message(), childPairs(pairs, fd), path, onPath)
-
-		if !wasOnPath {
-			delete(onPath, child)
-		}
+		sub := u.expand(fd.Message(), childPairs(pairs, fd), path)
 
 		if len(sub) > 0 {
 			out[name] = sub
@@ -593,6 +519,21 @@ func (u *updateCheck) expand(md protoreflect.MessageDescriptor, pairs []msgPair,
 	}
 
 	return out
+}
+
+// expandLeaf checks a whole field of a covering replacement and reports
+// whether its path belongs in the expansion. An implied comparison-only walk
+// visits only request values; deferred replacements emit no path.
+func (u *updateCheck) expandLeaf(fd protoreflect.FieldDescriptor, pairs []msgPair, path string) bool {
+	if reqHas, _ := pairsHold(pairs, fd); u.validationOnly && !reqHas {
+		return false
+	}
+
+	if !u.checkReplacement(fd, path) {
+		return false
+	}
+
+	return u.emitLeaf(path)
 }
 
 // expandWithin counts a visit of [updateCheck.expand] to the message at
@@ -632,9 +573,10 @@ func (u *updateCheck) expandWithin(prefix string) bool {
 // whether it fits the limits of the effective mask, recording the refusal
 // otherwise: no deeper than [WithMaxPathDepth], and at most [WithMaxPaths]
 // leaves per top-level expansion. A validation-only expansion emits no path
-// and is held to neither.
+// and is held to neither. Stateless expansions are interim masks: their final
+// limits are checked with stored state; the traversal budget still applies.
 func (u *updateCheck) emitLeaf(path string) bool {
-	if u.validationOnly {
+	if u.validationOnly || !u.verify {
 		return true
 	}
 
@@ -693,28 +635,29 @@ func (u *updateCheck) writesOneofMember(fd protoreflect.FieldDescriptor, pairs [
 	return reqHas || (u.verify && curHas)
 }
 
-// checkSetProtected compares the IMMUTABLE or IDENTIFIER field fd (behavior
-// b) that a replacement or full update covers without naming it: unset in
-// every request it keeps the stored value; set, it must equal the stored
-// value. While the stored resource is unknown a set IMMUTABLE value is a
-// violation and a set IDENTIFIER is accepted as the address.
+// checkSetProtected records deferred fields covered by a replacement. Stateful
+// replacement effects have already been checked on the complete resource. The
+// validation-only implied walk additionally verifies supplied protected input
+// excluded by synthesis (identifiers and configured skips), selecting each such
+// value whole. Whole-value equality is exact for that input contract; this check
+// neither prunes the mask nor substitutes for original-selection evaluation.
 func (u *updateCheck) checkSetProtected(fd protoreflect.FieldDescriptor, pairs []msgPair, path string, b annotations.FieldBehavior) {
-	if reqHas, _ := pairsHold(pairs, fd); !reqHas {
+	if reqHas, _ := pairsHold(pairs, fd); u.validationOnly && !reqHas {
 		return
 	}
 
 	if !u.verify {
-		if b == annotations.FieldBehavior_IMMUTABLE {
-			u.fail(behavior.ProtectedViolation(path, b, false))
-		}
-
+		u.deferProtected(fd, nil, pairs, path, b)
 		return
 	}
 
+	if !u.validationOnly {
+		return // the complete original selection was evaluated before expansion
+	}
+
 	for _, p := range pairs {
-		if p.req != nil && p.req.Has(fd) && !behavior.SameValue(p.req, p.cur, fd) {
-			u.fail(behavior.ProtectedViolation(path, b, true))
-			return
+		if !behavior.SameInputValue(p.req, p.cur, fd, u.policy.behaviors) {
+			u.fail(behavior.ProtectedViolation(behavior.JoinPath(p.path, string(fd.Name())), b))
 		}
 	}
 }
@@ -725,9 +668,21 @@ func (u *updateCheck) checkSetProtected(fd protoreflect.FieldDescriptor, pairs [
 // replacement does not write a top-level field the update skips or governs
 // as OUTPUT_ONLY, IDENTIFIER or IMMUTABLE — by annotation or by the policy
 // ([WithImmutableFields], [WithIdentityFields]) — nor anything below it: an
-// unset one keeps its stored value and a set one is compared, so its REQUIRED
+// selected value must match the stored one, so its REQUIRED
 // fields, and those below it, are not checked.
 func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair) fieldmask.FieldMask {
+	u.orderMode = referenceReplacement
+	selection := u.replacementSelection(md)
+	u.evaluateSelection(selection, root)
+
+	if maskpath.IsDynamicMessage(md) {
+		return selection
+	}
+
+	if u.refusal != nil {
+		return nil
+	}
+
 	// A top-level field the replacement does not write is skipped before the
 	// walk descends into it: its value, however deep, is compared by expand
 	// below, never checked for REQUIRED fields it does not write.
@@ -742,7 +697,7 @@ func (u *updateCheck) replaceAll(md protoreflect.MessageDescriptor, root msgPair
 		u.fail(violation)
 	}
 
-	return u.expand(md, []msgPair{root}, "", map[protoreflect.FullName]bool{md.FullName(): true})
+	return u.expand(md, []msgPair{root}, "")
 }
 
 // notWritten reports whether a replacement leaves the top-level field fd to
@@ -771,14 +726,24 @@ func (u *updateCheck) checkElements(fd protoreflect.FieldDescriptor, nested fiel
 		return // scalar elements: nothing to check
 	}
 
+	// Stored elements can be selected even when the request has no list.
+	// Wildcard exclusions also depend on which keyed operations survive.
+	if !u.verify {
+		u.needsCurrent = true
+	}
+
 	// named is the selection as sent; nested is cleaned below.
 	named := maps.Clone(nested)
 
-	// An element named whole is a new value, checked as on create whatever
-	// its type: an atomic or dynamic one too, which no sub-path may enter.
+	// A whole element replacement checks REQUIRED fields as written and
+	// protected descendants against stored state, or defers without it.
 	for _, key := range slices.Sorted(maps.Keys(named)) {
 		if named[key] == nil && (fd.IsMap() || key == maskpath.Wildcard) {
 			u.checkWholeElements(fd, key, named, pairs)
+
+			if !u.checkElementReplacement(fd, elementPath(path, key)) {
+				delete(nested, key)
+			}
 		}
 	}
 
@@ -823,6 +788,17 @@ func (u *updateCheck) pinWildcard(fd protoreflect.FieldDescriptor, nested fieldm
 		_, kept := nested[key]
 		return key != maskpath.Wildcard && !kept
 	}) {
+		return
+	}
+
+	if !u.verify {
+		// A removed key may return after completion. Keep its exclusion and
+		// this wildcard together in the captured raw mask; a temporary pin
+		// can exceed limits or be impossible to represent at all.
+		u.needsCurrent = true
+
+		delete(nested, maskpath.Wildcard)
+
 		return
 	}
 
@@ -926,10 +902,24 @@ func (u *updateCheck) refuse(err error) {
 // ([MergePaths] checks the same limits).
 func (u *updateCheck) maskRefusal(work fieldmask.FieldMask, md protoreflect.MessageDescriptor) error {
 	if u.refusal != nil {
+		if count, ok := u.refusal.(*maskmerge.ElementCountError); ok {
+			return &elementCountError{Path: count.Path, Reason: count.Reason}
+		}
+
 		return u.refusal
 	}
 
-	return u.policy.validateMaskLimits(declaredPaths(work, md))
+	err := u.policy.validateMaskLimits(declaredPaths(work, md))
+	if err != nil && !u.verify && u.needsCurrent {
+		// This is an interim mask. Retain the operation in the original
+		// snapshot, return no unsafe partial writes, and check final limits
+		// through the stateful path during completion. Raw limits and the
+		// traversal budget have already been enforced independently.
+		clear(work)
+		return nil
+	}
+
+	return err
 }
 
 // checkWholeElements records the REQUIRED fields left empty in the elements
@@ -969,7 +959,7 @@ func elementPairs(fd protoreflect.FieldDescriptor, key string, nested fieldmask.
 				// from nothing (MergePaths allows an empty source): the
 				// fields the sub-path names are cleared in each of them, so
 				// each is checked with no request element.
-				for i := range listLen(stored) {
+				for i := range maskmerge.ListLen(stored) {
 					out = append(out, msgPair{cur: stored.Get(i).Message(), path: behavior.JoinPath(path, strconv.Itoa(i))})
 				}
 
@@ -1068,48 +1058,17 @@ func pairsHold(pairs []msgPair, fd protoreflect.FieldDescriptor) (reqHas, curHas
 	return reqHas, curHas
 }
 
-// sameSelection reports whether the part of field fd that the sub-mask nested
-// selects (the whole field when nested is nil) is equal in r and c, either of
-// which may be nil (holding nothing).
-func sameSelection(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, r, c protoreflect.Message) bool {
-	if nested == nil {
-		return behavior.SameValue(r, c, fd)
-	}
-
-	tmpl := r
-	if tmpl == nil {
-		tmpl = c
-	}
-
-	if tmpl == nil {
-		return true
-	}
-
-	selection := fieldmask.FieldMask{string(fd.Name()): nested}
-
-	return proto.Equal(selectField(tmpl, fd, r, selection), selectField(tmpl, fd, c, selection))
-}
-
-// selectField returns a new message of tmpl's type holding a copy of field fd
-// of m (nothing when m is nil), filtered by selection. Only the field is
-// copied, never the rest of m.
-func selectField(tmpl protoreflect.Message, fd protoreflect.FieldDescriptor, m protoreflect.Message, selection fieldmask.FieldMask) proto.Message {
-	holder := tmpl.Type().New()
-	if m != nil && m.Has(fd) {
-		holder.Set(fd, m.Get(fd)) // shared until the clone below
-	}
-
-	msg := proto.Clone(holder.Interface())
-	maskwalk.Filter(selection, msg, false)
-
-	return msg
+// keepInputSelection retains the original keyed exclusions when ignoring output.
+func keepInputSelection(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, policy *options) bool {
+	return maskmerge.KeepInputSelection(fd, nested, policy.behaviors)
 }
 
 // clearOutputOnly clears every OUTPUT_ONLY value of msg at any depth,
 // collection elements included: AIP-203 requires a service to clear them from
 // a request. It runs after the request was filtered, so it only clears: the
 // AIP-202 format checks of [fieldbehavior.Strip] are off (an update mask
-// check reports no format violation), and nothing else can fail.
+// check reports no format violation). Representation conversion can still fail;
+// callers must keep the request private until sanitization succeeds.
 func clearOutputOnly(msg proto.Message, policy *options) error {
 	return fieldbehavior.Strip(msg,
 		fieldbehavior.WithBehaviors(annotations.FieldBehavior_OUTPUT_ONLY),
@@ -1118,101 +1077,123 @@ func clearOutputOnly(msg proto.Message, policy *options) error {
 		fieldbehavior.WithMaxDepth(math.MaxInt))
 }
 
-// clearOutputOnlyKeeping is [clearOutputOnly] of msg, the request the mask
-// msk writes, that leaves the compared protected values bit-exact: an atomic
-// value written whole is copied whole by the merge, and its IMMUTABLE and
-// IDENTIFIER fields were compared equal to the stored ones, OUTPUT_ONLY
-// descendants included ([updateCheck.checkAtomicProtected]), so they are kept
-// as compared — server-managed values in them come from the stored value
-// they equal — instead of being stripped into a different value. The
-// elements of a collection written whole are new values and stay stripped.
+// clearOutputOnlyKeeping sanitizes the request while preserving protected
+// descendants of whole replacements. With current state, these values come
+// from stored, including ignored OUTPUT_ONLY descendants. Stateless normalization
+// only clears ignored input; it must never restore client OUTPUT_ONLY values.
 func clearOutputOnlyKeeping(msg proto.Message, msk fieldmask.FieldMask, policy *options) error {
-	var kept []keptValue
+	var (
+		kept    []keptValue
+		current protoreflect.Message
+	)
 
-	collectKept(msk, msg.ProtoReflect(), policy, &kept)
+	if policy.current != nil {
+		snapshot, err := cloneMessage(policy.current)
+		if err != nil {
+			return err
+		}
+
+		current = snapshot.ProtoReflect()
+	}
 
 	if err := clearOutputOnly(msg, policy); err != nil {
 		return err
 	}
 
+	// Strip publishes replacement children. Resolve restoration parents only
+	// after it finishes, so every target belongs to the request's current tree.
+	if current != nil {
+		if err := collectKept(msk, msg.ProtoReflect(), current, policy, &kept); err != nil {
+			return err
+		}
+	}
+
 	for _, k := range kept {
-		k.parent.Set(k.fd, k.value)
+		if err := maskmerge.SetValue(k.parent, k.fd, k.value); err != nil {
+			return conversionError(err)
+		}
 	}
 
 	return nil
 }
 
-// keptValue is a protected field value of an atomic value written whole, to
-// restore after the OUTPUT_ONLY values are cleared.
+// keptValue is a protected field to restore after clearing OUTPUT_ONLY input.
 type keptValue struct {
 	parent protoreflect.Message
 	fd     protoreflect.FieldDescriptor
 	value  protoreflect.Value
 }
 
-// collectKept snapshots, in m under the mask msk, the protected fields of
-// every atomic value msk names whole ([atomicProtectedPath]): through
-// singular messages, the elements a "*" or key sub-path updates in place, and
-// map entries, as the merge reaches them.
-func collectKept(msk fieldmask.FieldMask, m protoreflect.Message, policy *options, kept *[]keptValue) {
+// collectKept follows the actual merge targets, including whole collections
+// and elements named by a key or wildcard.
+func collectKept(msk fieldmask.FieldMask, m, current protoreflect.Message, policy *options, kept *[]keptValue) error {
 	if m == nil || !m.IsValid() || maskpath.IsDynamicMessage(m.Descriptor()) {
-		return
+		return nil
 	}
 
 	fields := m.Descriptor().Fields()
 
 	for name, nested := range msk {
 		fd := fields.ByName(protoreflect.Name(name))
-		if fd == nil || !m.Has(fd) {
+		if fd == nil || !m.Has(fd) || maskpath.ValueMessage(fd) == nil {
 			continue
 		}
 
-		switch {
-		case nested == nil:
-			if isAtomicValue(fd, policy) {
-				if path, _ := atomicProtectedPath(fd.Message(), map[protoreflect.FullName]bool{}, policy); path != "" {
-					snapshotProtected(m.Get(fd).Message(), policy, kept)
-				}
+		if fd.IsList() || fd.IsMap() {
+			if err := collectKeptElements(fd, nested, []msgPair{{req: m, cur: current}}, policy, kept); err != nil {
+				return err
 			}
-		case fd.IsList():
-			if sub := nested[maskpath.Wildcard]; sub != nil && fd.Message() != nil {
-				list := m.Get(fd).List()
-				for i := range list.Len() {
-					collectKept(sub, list.Get(i).Message(), policy, kept)
-				}
+
+			continue
+		}
+
+		child, stored := behavior.Child(m, fd), behavior.Child(current, fd)
+		if nested == nil {
+			if err := snapshotProtected(child, stored, policy, kept); err != nil {
+				return err
 			}
-		case fd.IsMap():
-			collectKeptEntries(fd, m.Get(fd).Map(), nested, policy, kept)
-		case fd.Message() != nil:
-			collectKept(nested, m.Get(fd).Message(), policy, kept)
+		} else if err := collectKept(nested, child, stored, policy, kept); err != nil {
+			return err
 		}
 	}
+
+	return nil
 }
 
-// collectKeptEntries is [collectKept] for the entries of mm, the map field fd
-// whose sub-mask is nested: an entry is reached through its key, else "*".
-func collectKeptEntries(fd protoreflect.FieldDescriptor, mm protoreflect.Map, nested fieldmask.FieldMask, policy *options, kept *[]keptValue) {
-	if fd.MapValue().Message() == nil {
-		return
+// collectKeptElements visits exactly the elements a collection mask writes.
+func collectKeptElements(fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, pairs []msgPair, policy *options, kept *[]keptValue) error {
+	if nested == nil {
+		for _, pair := range replacementPairs(fd, pairs) {
+			if err := snapshotProtected(pair.req, pair.cur, policy, kept); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
-	mm.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
-		sub, named := maskwalk.KeyMask(nested, k.String())
-		if !named {
-			sub = nested[maskpath.Wildcard]
+	for key, sub := range nested {
+		for _, pair := range elementPairs(fd, key, nested, pairs) {
+			if sub == nil {
+				if err := snapshotProtected(pair.req, pair.cur, policy, kept); err != nil {
+					return err
+				}
+			} else if err := collectKept(sub, pair.req, pair.cur, policy, kept); err != nil {
+				return err
+			}
 		}
+	}
 
-		if sub != nil {
-			collectKept(sub, v.Message(), policy, kept)
-		}
-
-		return true
-	})
+	return nil
 }
 
-// snapshotProtected records a deep copy of every protected field of m, an
-// atomic value, reached through singular messages that hold one.
-func snapshotProtected(m protoreflect.Message, policy *options, kept *[]keptValue) {
+// snapshotProtected retains validated values through singular messages and
+// collection elements, stopping at each protected value copied whole.
+func snapshotProtected(m, current protoreflect.Message, policy *options, kept *[]keptValue) error {
+	if m == nil || !m.IsValid() || maskpath.IsDynamicMessage(m.Descriptor()) {
+		return nil
+	}
+
 	fields := m.Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
@@ -1220,25 +1201,41 @@ func snapshotProtected(m protoreflect.Message, policy *options, kept *[]keptValu
 			continue
 		}
 
-		switch serverManagedBehavior(fd, policy) { //nolint:exhaustive // serverManagedBehavior returns only these or UNSPECIFIED.
+		switch serverManagedBehavior(fd, policy) { //nolint:exhaustive // Only these or UNSPECIFIED.
 		case annotations.FieldBehavior_OUTPUT_ONLY:
 			continue
 		case annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE:
+			if current == nil || !current.Has(fd) {
+				continue
+			}
+
 			holder := m.Type().New()
-			holder.Set(fd, m.Get(fd))
-			*kept = append(*kept, keptValue{parent: m, fd: fd, value: proto.Clone(holder.Interface()).ProtoReflect().Get(fd)})
+			if err := maskmerge.SetValue(holder, fd, current.Get(fd)); err != nil {
+				return conversionError(err)
+			}
+
+			*kept = append(*kept, keptValue{parent: m, fd: fd, value: holder.Get(fd)})
 
 			continue
 		}
 
-		if fd.IsList() || fd.IsMap() || fd.Message() == nil || maskpath.IsDynamicMessage(fd.Message()) {
+		md := maskpath.ValueMessage(fd)
+		if md == nil || maskpath.IsDynamicMessage(md) || !holdsImmutable(md, map[protoreflect.FullName]bool{}, policy) {
 			continue
 		}
 
-		if path, _ := atomicProtectedPath(fd.Message(), map[protoreflect.FullName]bool{}, policy); path != "" {
-			snapshotProtected(m.Get(fd).Message(), policy, kept)
+		if fd.IsList() || fd.IsMap() {
+			for _, pair := range replacementPairs(fd, []msgPair{{req: m, cur: current}}) {
+				if err := snapshotProtected(pair.req, pair.cur, policy, kept); err != nil {
+					return err
+				}
+			}
+		} else if err := snapshotProtected(behavior.Child(m, fd), behavior.Child(current, fd), policy, kept); err != nil {
+			return err
 		}
 	}
+
+	return nil
 }
 
 // replaceMask makes msk hold exactly the entries of src.

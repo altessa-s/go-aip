@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
@@ -15,9 +16,10 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
 // Plan is the resolved update mask of one request.
@@ -25,24 +27,35 @@ type Plan struct {
 	// Paths are the declared mutable paths merged from the request, as
 	// [MergePaths] takes them: a field path replaces the field, a nested path
 	// one leaf, a map key path one entry, and a sub-path through a map key or
-	// "*" the fields of the elements it addresses. Empty for a no-op.
+	// "*" the fields of the elements it addresses. May be empty before stored-state
+	// validation and deferred replacements have been completed.
 	Paths []string
 	// set lists the secrets the request populates; named lists the secrets
 	// the mask names explicitly.
 	set, named []string
+	// secrets holds Patch's validated input until the request can be published.
+	secrets map[string]string
 }
 
-// Empty reports that the update changes nothing.
+// Empty reports that the plan contains no writes or secret operations. Without
+// stored-state validation it is interim and does not permit skipping completion
+// of a [Prepare] plan. Only a successfully completed empty plan is a no-op.
 func (p Plan) Empty() bool {
 	return len(p.Paths) == 0 && len(p.set) == 0 && len(p.named) == 0
 }
 
 // Secret returns the service input of the write-only field name: value when
 // the request sets it, an empty string (clear) when the mask names it unset,
-// and nil (keep the stored value) otherwise.
+// and nil (keep the stored value) otherwise. Plans passed to [Patch.Save] retain
+// selected string values privately, since Run publishes the request only after
+// Save succeeds; for those fields the retained value takes precedence over value.
 func (p Plan) Secret(name string, value *string) *string {
 	switch {
 	case slices.Contains(p.set, name):
+		if captured, ok := p.secrets[name]; ok {
+			return new(captured)
+		}
+
 		return value
 	case slices.Contains(p.named, name):
 		return new("")
@@ -108,10 +121,10 @@ func (p Plan) Secret(name string, value *string) *string {
 //     IDENTIFIER: a path naming one, and in the implied and "*" modes or a
 //     replaced message every one the resource sets, is compared with
 //     [WithCurrent]: an equal value is dropped, a changed one is refused
-//     ([ErrProtectedField]). Without [WithCurrent] it is refused, except a set
-//     IDENTIFIER the mask does not name, which is kept as the address. One
-//     the resource leaves unset in the implied and "*" modes or a replaced
-//     message keeps its stored value. An element updated in place through a
+//     ([ErrProtectedField]). Without [WithCurrent] the value is retained and
+//     its path omitted. A [Prepare] plan supplied with [WithDeferredPlan] or
+//     [WithPlanContext] retains that comparison for WithCurrent or [Patch]. An omitted value in an implied
+//     mask keeps its stored value; a replacement compares absence too. An element updated in place through a
 //     sub-path is compared with its stored element the same way.
 //   - REQUIRED: a path naming a REQUIRED field the resource leaves absent or
 //     falsy is refused ([ErrBehaviorViolation]), and so is a REQUIRED field
@@ -119,11 +132,12 @@ func (p Plan) Secret(name string, value *string) *string {
 //     (recursing only into its populated sub-messages), every element of a
 //     replaced collection or map entry, and resource itself under "*".
 //
-// A collection or map entry replaced whole holds new values, so their
-// IMMUTABLE and IDENTIFIER values are not compared, and their OUTPUT_ONLY
-// values are cleared from the request before the merge ([Patch] does; a
-// direct [MergePaths] caller clears them first, with [fieldbehavior.Strip]
-// for OUTPUT_ONLY, say).
+// A collection or atomic value with protected descendants is deferred without
+// current state: its whole path is omitted, since a replacement cannot exclude
+// those descendants. With current state protected descendants are compared,
+// including removed elements, by list index or map key. OUTPUT_ONLY input must
+// be cleared before merging ([Patch] does; direct callers can use
+// [fieldbehavior.Strip] for OUTPUT_ONLY).
 //
 // In every mode a path setting a oneof member whose sibling is, or holds, an
 // IMMUTABLE or IDENTIFIER field (or a top-level identity, immutable or secret
@@ -147,23 +161,90 @@ func (p Plan) Secret(name string, value *string) *string {
 // [WithMaxPathDepth]) are checked before anything else; a mask over one is
 // refused with a cause matching [ErrLimitExceeded].
 //
-// Every refusal is a [coreerrs.FieldError] whose Err chain holds a
+// A plan from [Prepare], supplied with [WithDeferredPlan] or [WithPlanContext],
+// is planned from its snapshot and completed against [WithCurrent]. It restores the original
+// mask intent even if mask now holds only the normalized effective paths.
+// With a bound plan, Spec.Plan and Patch.Run behave as on the client's original
+// request and mask, after the boundary's OUTPUT_ONLY sanitization. In addition,
+// an update is refused if the boundary's policy refuses it against the stored
+// resource or if what would be written changes a value the boundary protects.
+// The boundary is evaluated against the supplied stored resource on every call,
+// even if Prepare received WithCurrent. Refusals retain the base Plan error shape.
+// Only OUTPUT_ONLY values and wholly OUTPUT_ONLY mask paths are removed from
+// the captured input, preserving keyed exclusions and explicit empty-mask no-ops.
+// Mask errors retain the original client index and spelling, including when
+// preserving a keyed exclusion expands a wildcard into concrete paths. Raw-mask
+// limits are checked before this sanitization; expanded paths also obey the
+// existing limits, with sanitization expansion failures naming their raw path.
+// The Spec alone determines paths, secrets and atomic-message handling, exactly
+// as in a one-stage call on that input; its planned request is published unchanged.
+// The final boundary guard includes secrets supplied outside the mask and their
+// oneof side effects, using the boundary's own protected-value equality.
+// Without current state, the plan remains interim and must be completed.
+// Direct ApplyMask/Complete filtering is unchanged. Policy-only routing identities
+// retain their documented rules: the Spec refuses explicit identity paths;
+// implied and wildcard updates do not compare or write them.
+// Protected-message comparison ignores OUTPUT_ONLY descendants, so a preceding
+// [fieldbehavior.StripUpdate] cannot cause a false change. Successful stateful
+// planning restores stored protected values inside planned whole replacements
+// to resource before merging. Every failure leaves resource unchanged, including
+// boundary refusals with a bound plan. The sanitized request is published only
+// after planning and the final boundary guard succeed.
+// Patch also preserves these values when sanitizing its merge input.
+//
+// Mask refusals carry a [coreerrs.FieldError] whose Err chain holds a
 // *[MaskPathError]: Field is the spec's update-mask field followed by
 // ".paths[i]" for the offending path i of the mask ("updateMask.paths[2]",
 // the AIP-193 field violation of that path), or the bare update-mask field
-// when the refusal comes from the implied or "*" mask. A nil resource, one
-// of another type, or a [WithCurrent] message of another type is
-// [ErrMessageMismatch].
+// when the refusal comes from the implied or "*" mask, or exceeds the path count.
+// A nil resource, one of another descriptor, or a [WithCurrent] message of
+// another descriptor is [ErrMessageMismatch]. Plan reports one violation from
+// the same ordered list as [ApplyMask]: the base mask/expansion traversal first,
+// then newly diagnosed fields in declaration order (see [BehaviorError]).
+// Secret oneof checks follow ordinary mask refusals.
+// [Patch.Run] wraps a changed protected
+// value with a resource-field error. Neither entry point returns an aggregate
+// [BehaviorError] or [StrictError].
 func (s *Spec) Plan(resource proto.Message, mask *fieldmaskpb.FieldMask, opts ...Option) (Plan, error) {
-	if s == nil || resource == nil || !resource.ProtoReflect().IsValid() || resource.ProtoReflect().Descriptor() != s.desc {
+	if s == nil || !validMessage(resource) || resource.ProtoReflect().Descriptor() != s.desc {
 		return Plan{}, ErrMessageMismatch
 	}
 
+	o := newOptions(opts...)
+
+	pending, err := o.planFor(resource)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	if pending != nil {
+		return s.planDeferred(resource, o, pending)
+	}
+
+	work, err := cloneMessage(resource)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	plan, err := s.planResource(work, mask, o)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	if err := publishMessage(resource, work); err != nil {
+		return Plan{}, err
+	}
+
+	return plan, nil
+}
+
+// planResource restores protected values only in a private request.
+func (s *Spec) planResource(resource proto.Message, mask *fieldmaskpb.FieldMask, o *options) (Plan, error) {
 	if v := s.opts.limits().CheckMask(mask.GetPaths()); v != nil {
 		return Plan{}, s.fieldError(limitFieldError(v))
 	}
 
-	u, root, err := newUpdateCheck(resource, newOptions(opts...).current, s.opts)
+	u, root, err := newUpdateCheck(resource, o.current, s.opts)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -179,14 +260,25 @@ func (s *Spec) Plan(resource proto.Message, mask *fieldmaskpb.FieldMask, opts ..
 		paths = mask.GetPaths()
 	}
 
-	p, explicit, err := s.plan(u, root, paths, mask == nil)
+	p, err := s.plan(u, root, paths, mask == nil)
 	if err != nil {
 		return Plan{}, s.fieldError(err)
 	}
-	// A secret the request sets or the mask names is written too: it must
-	// not switch a oneof away from a guarded member either.
-	if err = s.checkOneofSwitches(slices.Concat(p.set, p.named), root.cur, explicit); err != nil {
-		return Plan{}, s.fieldError(err)
+
+	if root.cur != nil {
+		// A prior StripUpdate may have cleared ignored descendants. Restore
+		// the compared stored values before a direct caller merges paths.
+		var kept []keptValue
+
+		if err := collectKept(fieldmask.FromPaths(p.Paths...), root.req, root.cur, s.opts, &kept); err != nil {
+			return Plan{}, err
+		}
+
+		for _, k := range kept {
+			if err := maskmerge.SetValue(k.parent, k.fd, k.value); err != nil {
+				return Plan{}, conversionError(err)
+			}
+		}
 	}
 
 	return p, nil
@@ -200,10 +292,9 @@ type maskPath struct {
 	segs  []string
 }
 
-// plan resolves the mask of [Spec.Plan] before the oneof check of the
-// secrets it sets or clears; implied selects the implied mask. It returns
-// the explicit paths too, which locate later refusals in the mask.
-func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) (Plan, []maskPath, error) {
+// plan resolves the mask of [Spec.Plan] and collects all behavior violations,
+// including the oneof consequences of secrets. implied selects the implied mask.
+func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) (Plan, error) {
 	var p Plan
 
 	for _, fd := range s.order {
@@ -220,16 +311,15 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 
 	switch all, err := selectsAll(paths); {
 	case implied:
-		tree = fieldmask.FromPaths(impliedPaths(root.req.Interface(), slices.Concat(s.skip, s.opts.impliedSkipFields), s.opts)...)
-		u.checkMask(tree, s.desc, []msgPair{root}, "")
-		// The implied mask covers the protected fields resource sets: the
-		// expansion of the root compares them and is otherwise discarded, so
-		// its leaves are no paths of the plan.
-		u.validationOnly = true
-		u.expand(s.desc, []msgPair{root}, "", map[protoreflect.FullName]bool{s.desc.FullName(): true})
-		u.validationOnly = false
+		// The base checked the writable implied tree first, then compared
+		// supplied protected fields in a declaration-order expansion.
+		u.orderMode = referenceSpecImplied
+		u.orderSkip = slices.Concat(s.skip, s.opts.impliedSkipFields)
+		tree = u.impliedSelection(root)
+		u.checkImplied(s.desc, root)
+		u.checkCovering(tree, nil, s.desc, root)
 	case err != nil:
-		return Plan{}, nil, err
+		return Plan{}, err
 	case all:
 		tree = u.replaceAll(s.desc, root)
 	default:
@@ -238,7 +328,7 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 		for i, raw := range paths {
 			mp, err := s.addExplicitPath(tree, &p, i, raw)
 			if err != nil {
-				return Plan{}, nil, err
+				return Plan{}, err
 			}
 
 			explicit = append(explicit, mp)
@@ -249,33 +339,28 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 	}
 
 	if err := u.maskRefusal(tree, s.desc); err != nil {
-		return Plan{}, nil, planRefusalError(err, explicit)
+		return Plan{}, planRefusalError(err, explicit)
 	}
 
-	if len(u.violations) > 0 {
-		return Plan{}, nil, planViolationError(u.violations[0], explicit)
-	}
-
-	if root.cur != nil {
-		for _, m := range append([]fieldmask.FieldMask{tree}, covered...) {
-			if err := checkElementCounts(root.cur, root.req, m, s.desc, ""); err != nil {
-				return Plan{}, nil, planPathError(ErrElementCountMismatch, err.Path, explicit, err.Reason)
-			}
+	// As at the base, secret oneof checks follow ordinary mask refusals.
+	if len(u.violations) == 0 {
+		if err := s.checkOneofSwitches(slices.Concat(p.set, p.named), root.cur, explicit, u); err != nil {
+			return Plan{}, err
 		}
+	}
+
+	violations, err := u.orderedViolations(s.desc)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	if len(violations) > 0 {
+		return Plan{}, planViolationError(violations[0], explicit)
 	}
 
 	p.Paths = declaredPaths(tree, s.desc)
 
-	// A covered path is checked as if sent alone: the oneof switches it
-	// would make are refused too, though only the covering path is planned.
-	g := s.oneofGuard()
-	for _, m := range append([]fieldmask.FieldMask{tree}, covered...) {
-		if sw := g.checkMask(m, s.desc, root.req, root.cur, root.cur != nil, true, ""); sw != nil {
-			return Plan{}, nil, locate(sw.maskPathError(), sw.path, explicit)
-		}
-	}
-
-	return p, explicit, nil
+	return p, nil
 }
 
 // coveredExplicit returns the single-path masks of the explicit paths that
@@ -431,8 +516,16 @@ func declaredPaths(tree fieldmask.FieldMask, md protoreflect.MessageDescriptor) 
 func dynamicPaths(msk fieldmask.FieldMask, prefix string) []string {
 	var out []string
 
-	for _, key := range slices.Sorted(maps.Keys(msk)) {
-		path := behavior.JoinPath(prefix, behavior.QuoteSegment(key))
+	keys := slices.SortedFunc(maps.Keys(msk), func(a, b string) int {
+		if order := strings.Compare(maskpath.JSONKey(a), maskpath.JSONKey(b)); order != 0 {
+			return order
+		}
+
+		return strings.Compare(a, b) // distinguish a wildcard from a literal key
+	})
+
+	for _, key := range keys {
+		path := behavior.JoinPath(prefix, maskpath.PathSegment(key))
 		if sub := msk[key]; sub != nil {
 			out = append(out, dynamicPaths(sub, path)...)
 		} else {

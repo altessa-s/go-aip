@@ -16,9 +16,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
 // FieldViolation describes a single field-behavior constraint that was violated
@@ -34,8 +35,12 @@ type FieldViolation = behavior.Violation
 
 // BehaviorError is returned by [Apply] when the
 // update breaks a google.api.field_behavior rule (AIP-203): a REQUIRED field
-// left empty, or an IMMUTABLE or IDENTIFIER value changed or not verifiable.
+// left empty, or an IMMUTABLE or IDENTIFIER value changed from stored state.
 // Inspect Violations for per-field details. It maps to INVALID_ARGUMENT.
+// Violations retain the base traversal order: explicit masks visit sorted mask
+// branches, replacements visit declaration order, and covered paths follow the
+// main selection. Newly diagnosed fields follow in declaration order, with list
+// indexes ascending and map keys sorted. All entry points share this ordering.
 //
 // Distinct from [fieldbehavior.BehaviorViolationError], which reports the
 // payload checks of the fieldbehavior package; both carry [FieldViolation]
@@ -65,138 +70,87 @@ func (e *BehaviorError) Error() string {
 	return buf.String()
 }
 
-// Apply applies the field mask of an update request (AIP-134) to its
-// resource msg, enforcing the field behaviors of AIP-203. Pass the stored
-// resource with [WithCurrent]: only then can an unchanged IMMUTABLE or
-// IDENTIFIER value be told from a change. The steps:
+// Apply applies an update mask to msg under AIP-134 and AIP-203, and writes
+// back the effective mask to a non-nil msk. Equal IMMUTABLE and IDENTIFIER values
+// are ignored with [WithCurrent]; changes, including clearing a selected value,
+// are *[BehaviorError] violations naming the field. OUTPUT_ONLY paths are dropped
+// and their input values cleared without an error. REQUIRED fields selected by
+// the mask, or in a written replacement, must be non-empty.
 //
-//  1. "*" alone is a full replacement: it becomes the mask of every field but
-//     the OUTPUT_ONLY ones (see the replacement rule below), and the
-//     REQUIRED fields of msg are checked as for a replaced message. "*" with
-//     other paths is a *fieldmask.ValidationError.
-//  2. Every path is resolved against msg's schema, so a segment may use any
-//     spelling of its field ([fieldmask.FieldMask.Resolve]: declared, JSON or the
-//     snake_case form protojson decodes a JSON path to); the cleaned mask
-//     spells it by its declared name. With [WithPathValidation] set to
-//     [PathValidationEnforce], a path absent from the schema is rejected
-//     (fail-fast); [PathValidationWarn] reports it and continues, and the
-//     path then matches no field: it is left out of the cleaned mask, so it
-//     covers no other path and names no map key. Indexed list paths ("aliases.0.id",
-//     "list_data.0") and, with [WithStrictDynamicPaths] in the update policy,
-//     paths below a google.protobuf.Struct key or into a Value or ListValue
-//     ("attrs.color.hue") are always rejected. Every path is checked on its
-//     own: one that another path of msk covers once both are resolved (a
-//     parent spelled by its JSON name, "backupOwner" with
-//     "backup_owner.org") is checked in step 3 as if sent alone, though only
-//     the covering path is applied.
-//  3. The field behaviors are applied to the mask, at any depth:
-//     - OUTPUT_ONLY: the path is dropped from the mask, never an error.
-//     - IMMUTABLE and IDENTIFIER: with [WithCurrent], a path whose value
-//     equals the stored one is dropped (ignored); a changed value is a
-//     violation. Without it the stored value is unknown and every such path
-//     is a violation, so a change is never applied or lost silently.
-//     - REQUIRED: a path naming a REQUIRED field whose value is absent or
-//     falsy (empty string or bytes, zero, false, zero enum, empty list or
-//     map, unset message) is a violation; a REQUIRED field absent from the
-//     mask may be omitted from msg.
-//     - The populated IDENTIFIER fields the mask does not name address the
-//     resource; with [WithCurrent] one that differs from the stored value is
-//     a violation.
-//     - A path setting a member of a real oneof whose other member is, or
-//     holds, an IMMUTABLE or IDENTIFIER field (or is a top-level field of
-//     [WithIdentityFields] or [WithImmutableFields]) is a violation when the
-//     stored resource holds that member, or, without [WithCurrent], whatever
-//     it holds: setting one member clears the others ([Spec.Plan] refuses it
-//     the same way). This holds for every mask, implied and "*" included, and
-//     for element sub-paths ("items.k.free"); a collection replaced whole
-//     holds new elements and is not checked. Only a switch the merge makes
-//     is refused: a member the request leaves unset is cleared, which
-//     switches nothing, and a "*" sub-path of a map reaches the request
-//     entries no key names, not every stored entry.
-//  4. On any violation msk and msg are left untouched and
-//     *BehaviorError is returned. When no path is left the update
-//     is a no-op (see below). Otherwise the set IDENTIFIER
-//     fields of the masked branches are added to the mask so they survive
-//     the filter, fields NOT in the mask are cleared, a field IN the mask
-//     that msg leaves unset stays unset (the update clears it: a message or
-//     an optional field gets no presence, a default is never written), and
-//     every OUTPUT_ONLY value left in msg (inside a collection replaced
-//     whole, say) is cleared.
+// Without [WithCurrent], IMMUTABLE and IDENTIFIER values are retained for the
+// caller to compare with the stored resource, and their paths are omitted from
+// the effective mask. Use [Prepare] for two-stage updates: its plan retains
+// explicit clear intent and completes through [Spec.Plan] or [Patch.Run].
+// Use [ApplyMask] when the effective mask must be returned, especially
+// for an omitted mask: Apply cannot assign a synthesized mask back to a nil map.
 //
-// The mask policy of the options governs the top-level fields as it
-// governs [Spec.Plan]: a field named by [WithImmutableFields] is
-// IMMUTABLE, and a field named by [WithIdentityFields] (id and etag by
-// default) is IDENTIFIER when the mask names it — an unchanged value is
-// ignored, a changed one, or any one without [WithCurrent], is a violation.
-// Unnamed, such an identity field addresses the resource: it is kept in msg
-// and added to the mask like an IDENTIFIER, but not compared with the stored
-// value (a stale etag is the service's concurrency check, AIP-154). An
-// OUTPUT_ONLY annotation dominates both lists.
+// A nil msk implies populated leaves; empty mutable messages contribute no
+// path. A non-nil empty mask is a no-op that leaves msg untouched; "*" alone is a full replacement. "*"
+// with other paths is invalid. Without stored state, a mask emptied by dropping
+// paths is interim: completion may restore deferred writes, so always complete a
+// [Prepare] plan. OUTPUT_ONLY input is cleared even when no paths remain. Never store the filtered request as the
+// resource; merge only the effective paths into the stored resource.
 //
-// Naming a singular message field whole (no sub-path) replaces it. The
-// REQUIRED fields of the populated value are checked, recursing only into
-// populated sub-messages. When the message holds a server-managed field —
-// OUTPUT_ONLY, IDENTIFIER or IMMUTABLE, directly or in a singular sub-message
-// at any depth — the entry is expanded to the message's other fields so the
-// stored server-managed values survive the replacement: OUTPUT_ONLY fields
-// are left out, an IMMUTABLE or IDENTIFIER field msg leaves unset is left out
-// (it keeps its stored value) and one msg sets is compared as above (an unset
-// IDENTIFIER without [WithCurrent] is kept as the address). A sub-message that
-// neither msg nor the stored resource holds is left out; without
-// [WithCurrent], a recursive sub-message msg does not hold is left as stored.
+// A singular message named whole is expanded when it contains protected fields,
+// so its stored protected values survive. With current state, protected values
+// covered by that replacement or by "*" must match, absence included. Whole
+// collections and atomic values with protected descendants are deferred without
+// current state: their covering paths are dropped, and their values are kept
+// for comparison. [Prepare] retains that intent for completion. With current
+// state, collection descendants are compared by index for lists and key for maps,
+// including removed elements. Element sub-paths follow the same protection rules.
 //
-// A repeated or map field named whole, or one of its elements named whole
-// ("labels.k", "aliases.*"), is replaced as a whole: its elements are new
-// values. Their REQUIRED fields are checked as on create, their OUTPUT_ONLY
-// values are cleared, and their IMMUTABLE and IDENTIFIER values are the first
-// values of new elements, neither compared nor rejected. A sub-path into the
-// elements — through a map key ("labels.k.display_name") or the "*" wildcard
-// ("aliases.*.display_name") — updates each element it addresses in place, so
-// the rules above apply per element: a list element is compared with the
-// stored element of the same index, a map entry with the stored entry of the
-// same key. Each element such a sub-path addresses keeps its set IDENTIFIER
-// fields, as a singular sub-message does. A "*" naming the elements whole
-// ("delegates.*") covers every key path beside it ("delegates.k.org"),
-// which is checked as if sent alone, as [Spec.Plan] reads it. A "*" sub-path
-// of a map ("delegates.*.email") addresses the entries no key path names;
-// when the check drops such a key path (an unchanged IMMUTABLE value, say),
-// the "*" is replaced by the keys of the entries it addresses, so the cleaned
-// mask never selects the entry that was left out.
+// The private filtering mask keeps routing identifiers and unverified protected
+// input, without adding those paths to msk. Other fields outside the effective
+// mask are cleared. A field selected but absent from msg remains absent, so a
+// later merge clears it. [DropIdentifiers] is no longer needed after Apply.
 //
-// msk keeps the presence of the update_mask (AIP-134), as
-// [fieldmask.FromProtoFieldMask] builds it:
-//   - A nil msk is an omitted update_mask: it applies the implied mask,
-//     [FromSetFields] of msg under the options, as if passed
-//     instead. msk cannot report it; build that mask yourself to see
-//     what was applied.
-//   - A non-nil empty msk is an update_mask sent with no paths: a no-op.
-//     msg and msk are left untouched and no field behavior is
-//     checked; only a [WithCurrent] message that is invalid or of another
-//     type is still [ErrMessageMismatch], as for [Spec.Plan].
-//   - "*" alone is a full replacement (step 1).
+// [WithIdentityFields] and [WithImmutableFields] govern top-level fields like
+// the corresponding annotations; OUTPUT_ONLY dominates. A policy-only identity
+// field not named in the mask is kept for routing or concurrency checks and is
+// not compared. A populated annotated IDENTIFIER in a visited message must match
+// current state even when unnamed. Oneof switches that could erase protected
+// members remain guarded, conservatively without current state.
 //
-// A mask whose every path is dropped (OUTPUT_ONLY paths, unchanged IMMUTABLE
-// or IDENTIFIER values) updates nothing either: once its checks pass, the
-// msk is emptied and msg is left untouched. So, mirroring
-// [Plan.Empty], [fieldmask.FieldMask.IsEmpty] on a non-nil msk after a
-// successful call reports that the update changes nothing; msg then holds the
-// request as sent and must not be stored as the resource.
+// Paths resolve to declared field names. Invalid paths follow [WithPathValidation];
+// list indexes, atomic descent and strict dynamic-path violations are always
+// rejected. Every path is checked before resolved covering paths collapse, but
+// paths already collapsed by construction of msk cannot be recovered; use
+// [ApplyMask] for raw requests. Limits apply to raw and expanded paths. Without
+// current state, stored-dependent expansion and wildcard exclusions remain
+// unresolved; [Prepare] retains them for completion and final limit checks.
 //
-// Returns *fieldmask.ValidationError for a rejected path, *BehaviorError for
-// field behavior violations, and [ErrMessageMismatch] when the [WithCurrent]
-// message is invalid or not of msg's type.
-//
-// This ensures the service can distinguish:
-//   - "don't update this field" (field not in mask)
-//   - "clear this field" (field in mask, absent from msg)
-//   - "update this field" (field in mask, set to value)
-//
-// On success it mutates msk: paths are respelled by declared names,
-// dropped entries are removed, expanded entries replaced and IDENTIFIER
-// leaves of msg added, so the cleaned msk reflects what was actually applied.
-// Callers that want to reuse the original mask should pass [fieldmask.FieldMask.Clone]
-// of it.
+// Path errors are *[fieldmask.ValidationError], behavior errors *[BehaviorError],
+// and an invalid msg or mismatched current resource is [ErrMessageMismatch].
+// A nil msg is a no-op. On error
+// msk and msg are unchanged. Clone msk first if the original is needed later.
 func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
+	if msg == nil {
+		return nil
+	}
+
+	work, err := cloneMessage(msg)
+	if err != nil {
+		return err
+	}
+
+	selection := msk.Clone()
+	if err := apply(selection, work, opts...); err != nil {
+		return err
+	}
+
+	if err := publishMessage(msg, work); err != nil {
+		return err
+	}
+
+	if msk != nil {
+		replaceMask(msk, selection)
+	}
+
+	return nil
+}
+
+func apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 	o := newOptions(opts...)
 	policy := o
 
@@ -211,7 +165,9 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 
 	switch {
 	case msk == nil:
-		return Apply(impliedUpdateMask(msg, o), msg, opts...)
+		u.orderMode = referenceImplied
+		msk = u.impliedSelection(root)
+		u.checkImplied(msg.ProtoReflect().Descriptor(), root)
 	case len(msk) == 0:
 		return nil // a provided empty update_mask is a no-op (AIP-134).
 	}
@@ -238,37 +194,35 @@ func Apply(msk fieldmask.FieldMask, msg proto.Message, opts ...Option) error {
 		u.checkCovering(work, covered, descriptor, root)
 	}
 
-	u.checkOneofSwitches(descriptor, root, work, covered)
-
-	if err := u.maskRefusal(work, descriptor); err != nil {
+	if err = u.maskRefusal(work, descriptor); err != nil {
 		return err
 	}
 
-	if len(u.violations) > 0 {
-		return &BehaviorError{Violations: u.violations}
+	violations, err := u.orderedViolations(descriptor)
+	if err != nil {
+		return err
+	}
+
+	if len(violations) > 0 {
+		return &BehaviorError{Violations: violations}
 	}
 
 	replaceMask(msk, work)
 
 	if len(work) == 0 {
-		return nil // every path was dropped: nothing to update.
+		return clearOutputOnly(msg, policy) // no writes, but output-only input is still cleared
 	}
 
-	preserveIdentifierFields(msk, msg, policy)
-	maskwalk.Filter(msk, msg, false)
+	keep := work.Clone()
+	preserveIdentifierFields(keep, msg, policy)
 
-	return clearOutputOnlyKeeping(msg, msk, policy)
-}
-
-// impliedUpdateMask returns the implied mask of an omitted update_mask,
-// [FromSetFields] of msg under policy, never nil so that applying
-// it cannot recurse into the omitted case again.
-func impliedUpdateMask(msg proto.Message, policy *options) fieldmask.FieldMask {
-	if implied := fromSetFields(msg, policy); implied != nil {
-		return implied
+	if !u.verify {
+		preserveUnverified(keep, msg.ProtoReflect(), policy)
 	}
 
-	return fieldmask.FieldMask{}
+	maskwalk.Filter(keep, msg, false)
+
+	return clearOutputOnlyKeeping(msg, keep, policy)
 }
 
 // resolveUpdatePaths returns the mask of paths spelled by declared names
@@ -360,8 +314,8 @@ func coverPaths(paths [][]string) (fieldmask.FieldMask, []fieldmask.FieldMask) {
 
 // coveredMasks returns the masks of the paths that work, the mask built from
 // them, covers ([isCovered]), one per distinct path, in one pass: a path
-// repeated in the mask is checked once, so the covered checks cost at most
-// one check per distinct path, each bounded by the subtree it addresses.
+// repeated in the mask is checked once. The complete merge effect is evaluated
+// once per call; covered input checks share the call's traversal budget.
 func coveredMasks(work fieldmask.FieldMask, paths [][]string) []fieldmask.FieldMask {
 	var (
 		covered []fieldmask.FieldMask
@@ -435,30 +389,27 @@ func isCovered(msk fieldmask.FieldMask, parts []string) bool {
 	return false
 }
 
-// checkOneofSwitches records a violation for the first oneof switch the
-// merge of work, or of one of covered, update masks of message type md, would
-// make away from a member the update must not clear ([policyOneofGuard],
-// [oneofGuard.checkMask]): setting one member clears the others, so writing
-// the mask would delete such a stored value without naming it (see
-// [Spec.Plan]). A member the request leaves unset is cleared, not set, and
-// switches nothing.
-func (u *updateCheck) checkOneofSwitches(md protoreflect.MessageDescriptor, root msgPair, work fieldmask.FieldMask, covered []fieldmask.FieldMask) {
-	g := policyOneofGuard(u.policy)
-
-	for _, m := range append([]fieldmask.FieldMask{work}, covered...) {
-		if sw := g.checkMask(m, md, root.req, root.cur, root.cur != nil, true, ""); sw != nil {
-			u.fail(sw.violation(u.policy))
-			return
-		}
-	}
-}
-
 // checkCovering applies the update rules to work, the mask of an update's
 // paths of message type md, and then to each of covered, the single-path
-// masks of the paths work covers ([coverPaths]): a covered path is checked
-// as if sent alone ("profile.id" under "profile" names an IDENTIFIER), but
-// only work is applied. A violation both report is recorded once.
+// masks of the paths work covers ([coverPaths]). The protected-change verdict
+// comes from the complete selection once: covered paths cannot add writes
+// to its effect. Their input contracts (including element counts and REQUIRED
+// fields) are still checked individually without cloning either resource.
+// A violation both report is recorded once.
 func (u *updateCheck) checkCovering(work fieldmask.FieldMask, covered []fieldmask.FieldMask, md protoreflect.MessageDescriptor, root msgPair) {
+	if u.orderMode == referenceExplicit && u.violationOrder == nil {
+		u.violationOrder = append(u.violationOrder, work.Clone())
+		for _, tree := range covered {
+			u.violationOrder = append(u.violationOrder, tree.Clone())
+		}
+	}
+
+	u.evaluateSelection(work, root)
+
+	if u.refusal != nil {
+		return
+	}
+
 	u.checkMask(work, md, []msgPair{root}, "")
 
 	if len(covered) == 0 {
@@ -466,16 +417,23 @@ func (u *updateCheck) checkCovering(work fieldmask.FieldMask, covered []fieldmas
 	}
 
 	for _, m := range covered {
+		u.inputSelection(m, md)
+
+		if u.refusal != nil {
+			return
+		}
+
+		if u.verify {
+			if err := maskmerge.CheckElementCounts(root.cur, root.req, m, md, ""); err != nil {
+				u.refuse(err)
+				return
+			}
+		} else {
+			u.needsCurrent = u.needsCurrent || selectionNeedsStored(m, md)
+		}
+
 		u.checkMask(m, md, []msgPair{root}, "")
 	}
-
-	seen := make(map[FieldViolation]bool, len(u.violations))
-	u.violations = slices.DeleteFunc(u.violations, func(v FieldViolation) bool {
-		dup := seen[v]
-		seen[v] = true
-
-		return dup
-	})
 }
 
 // resolveLenient returns msk with every path md's schema accepts spelled by
@@ -537,7 +495,7 @@ func preserveIdentifiers(msk fieldmask.FieldMask, prf protoreflect.Message, ids 
 	// Recurse into the branches already in the mask so identifiers within
 	// explicitly-updated subtrees are also preserved. Branches into
 	// server-managed fields are gone by now: OUTPUT_ONLY ones were removed,
-	// the others rejected.
+	// the others compared or deferred.
 	fields := prf.Descriptor().Fields()
 
 	for name, nested := range msk {
@@ -721,6 +679,11 @@ func hasProtectedDescendants(md protoreflect.MessageDescriptor, visited map[prot
 			return true
 		}
 
+		if (fd.IsList() || fd.IsMap()) && maskpath.ValueMessage(fd) != nil &&
+			holdsImmutable(maskpath.ValueMessage(fd), map[protoreflect.FullName]bool{}, policy) {
+			return true
+		}
+
 		if policy.expandable(fd) && !visited[fd.Message().FullName()] && hasProtectedDescendants(fd.Message(), visited, policy) {
 			return true
 		}
@@ -767,11 +730,9 @@ func isProtectedAtomicType(md protoreflect.MessageDescriptor, policy *options) b
 
 // atomicProtectedPath returns the path below a value of md, written whole,
 // of the first field that value must keep, with its behavior, or "" when there
-// is none: an IMMUTABLE or IDENTIFIER field of md or of a singular
-// sub-message at any depth, a repeated or map field included (compared
-// whole). OUTPUT_ONLY fields and the elements of other collections, which a
-// replacement writes as new values, are not descended. visited breaks
-// recursion on self-referential schemas.
+// is none: an IMMUTABLE or IDENTIFIER field of md or any nested message,
+// including collection elements. OUTPUT_ONLY fields are not descended.
+// visited breaks recursion on self-referential schemas.
 func atomicProtectedPath(md protoreflect.MessageDescriptor, visited map[protoreflect.FullName]bool, policy *options) (string, annotations.FieldBehavior) {
 	visited[md.FullName()] = true
 
@@ -786,11 +747,12 @@ func atomicProtectedPath(md protoreflect.MessageDescriptor, visited map[protoref
 			return string(fd.Name()), b
 		}
 
-		if fd.IsList() || fd.IsMap() || fd.Message() == nil || maskpath.IsDynamicMessage(fd.Message()) || visited[fd.Message().FullName()] {
+		child := maskpath.ValueMessage(fd)
+		if child == nil || maskpath.IsDynamicMessage(child) || visited[child.FullName()] {
 			continue
 		}
 
-		if sub, b := atomicProtectedPath(fd.Message(), visited, policy); sub != "" {
+		if sub, b := atomicProtectedPath(child, visited, policy); sub != "" {
 			return behavior.JoinPath(string(fd.Name()), sub), b
 		}
 	}

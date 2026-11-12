@@ -17,6 +17,11 @@ const (
 	// stored as a regular key: a protobuf field name cannot hold "*".
 	Wildcard = "*"
 
+	// LiteralStar retains a quoted JSON key in a string-keyed mask tree.
+	// The invalid UTF-8 byte cannot collide with a valid protobuf/JSON key.
+	// It is internal only: PathSegment always renders it as the valid `*` path.
+	LiteralStar = "\xff*"
+
 	// ReasonWildcardNotAlone is the reason of "*" combined with other paths.
 	ReasonWildcardNotAlone = `"*" must be the only path`
 
@@ -55,12 +60,21 @@ func Split(path string) []string {
 
 	segs, err := Parse(path)
 	if err != nil {
+		if path == LiteralStar {
+			// FromPaths keeps malformed input for later rejection. A raw
+			// token must not become the valid quoted key when serialized.
+			return []string{"`" + path + "`"}
+		}
+
 		return []string{path}
 	}
 
 	parts := make([]string, len(segs))
 	for i, s := range segs {
 		parts[i] = s.Text
+		if s.Quoted && s.Text == Wildcard {
+			parts[i] = LiteralStar
+		}
 	}
 
 	return parts

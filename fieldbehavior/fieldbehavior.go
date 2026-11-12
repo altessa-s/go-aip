@@ -5,6 +5,8 @@
 package fieldbehavior
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldinfo"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
 )
 
 // Strip walks msg and handles every populated field whose
@@ -29,41 +32,42 @@ import (
 //     a service must clear an output-only value from a request and must not
 //     return an error for it.
 //   - IMMUTABLE is compared with the stored value [WithCurrent] supplies: an
-//     equal value is cleared (the update ignores it), a different one is a
+//     equal value is retained for subsequent planning, a different one is a
 //     violation (INVALID_ARGUMENT). Without [WithCurrent] the stored value is
-//     unknown, so a populated IMMUTABLE field is a violation: Strip never
-//     silently discards a change it cannot verify.
+//     unknown, so the value is kept for the caller to compare.
 //   - Every other behavior (IDENTIFIER, INPUT_ONLY, ...) is cleared, or
 //     reported instead under [WithStrict].
 //
-// With [WithCurrent], msg is an update of current: every populated IDENTIFIER
-// or IMMUTABLE field, in the set or not, is compared with current at the same
-// path, and a different value is a violation. A path whose parent message
-// current does not hold has no stored value, so any value there differs.
+// With [WithCurrent], msg is an update of current: the implied selection is
+// merged into a private copy of current, and every changed IDENTIFIER or
+// IMMUTABLE value is a violation, whether or not it is in the configured set.
+// This includes protected siblings cleared by a oneof switch and protected
+// descendants removed by a collection replacement. Validated values are kept
+// so a later planner can compare them even inside an atomic replacement.
 //
 // Strip traverses singular sub-messages, repeated message elements, and map
-// values. When a field itself matches, its subtree is handled as a whole and
-// not descended. The elements of repeated and map fields have no stored
-// counterpart: an update replaces a collection as a whole, so its elements
-// are new values. IMMUTABLE and IDENTIFIER values inside them are therefore
-// neither compared nor reported as unverified, and IMMUTABLE ones are kept;
-// OUTPUT_ONLY and the other behaviors are handled as above.
+// values. Cleared or rejected fields are not descended. Retained protected
+// values are descended to clear OUTPUT_ONLY input, preserving their other
+// protected descendants. Collection elements are paired by list index or map key
+// when current state is supplied. Equal IMMUTABLE element values are retained;
+// other configured behaviors, including OUTPUT_ONLY, are handled as above.
 //
 // Under [WithFieldFormats] (on by default) the same walk also reports every
 // string value it keeps that does not match the AIP-202 format of its field
 // (google.api.field_info), with Behavior FIELD_BEHAVIOR_UNSPECIFIED; a field
 // Strip clears or rejects is not checked.
 //
-// Strip checks before it mutates: when it returns *BehaviorViolationError
-// (matching [ErrBehaviorViolation]) msg is left untouched, otherwise every
-// clear has been applied. It returns [ErrMaxDepthExceeded] when [WithMaxDepth]
+// Strip checks and clears a private copy before publishing changes. Every
+// error leaves msg untouched. Behavior violations match [ErrBehaviorViolation];
+// a representation conversion failure matches [ErrCurrentMismatch] and retains
+// its underlying cause. It returns [ErrMaxDepthExceeded] when [WithMaxDepth]
 // is exceeded.
 //
 // Message types whose descriptor tree carries no relevant annotation are
 // skipped without walking values, so [ErrMaxDepthExceeded] is only reported
 // for subtrees that could actually match.
 func Strip(msg proto.Message, opts ...Option) error {
-	if msg == nil {
+	if nilcheck.IsNil(msg) {
 		return nil
 	}
 
@@ -102,8 +106,37 @@ func Strip(msg proto.Message, opts ...Option) error {
 	s.segs = make(pathStack, 0, pathStackCapacity)
 
 	var violations []BehaviorViolation
-	if err := s.walk(prf, current, 0, false, &violations); err != nil {
+	if err := s.walk(prf, 0, &violations); err != nil {
 		return err
+	}
+
+	if s.verify {
+		var exceeded bool
+
+		visit := func(_ string, depth int) bool {
+			if depth > o.maxDepth {
+				exceeded = true
+				return false
+			}
+
+			return !exceeded
+		}
+		selection := maskmerge.ImpliedSelection(prf, s.resolve, maskmerge.DefaultAtomicMessage, o.maxDepth)
+
+		changes, err := maskmerge.ProtectedChanges(prf, current, selection, s.resolve, "", visit)
+		if err != nil {
+			if errors.Is(err, maskmerge.ErrElementCountMismatch) {
+				return err
+			}
+
+			return fmt.Errorf("%w: converting message: %w", ErrCurrentMismatch, err)
+		}
+
+		violations = append(violations, changes...)
+
+		if exceeded {
+			return ErrMaxDepthExceeded
+		}
 	}
 
 	if len(violations) > 0 {
@@ -115,7 +148,20 @@ func Strip(msg proto.Message, opts ...Option) error {
 		return nil
 	}
 
-	return s.walk(prf, current, 0, false, nil)
+	work := prf.New()
+	if err := maskmerge.ReplaceMessage(work, prf); err != nil {
+		return fmt.Errorf("%w: converting message: %w", ErrCurrentMismatch, err)
+	}
+
+	if err := s.walk(work, 0, nil); err != nil {
+		return err
+	}
+
+	if err := maskmerge.ReplaceMessage(prf, work); err != nil {
+		return fmt.Errorf("%w: converting message: %w", ErrCurrentMismatch, err)
+	}
+
+	return nil
 }
 
 // StripCreate clears fields marked OUTPUT_ONLY or IDENTIFIER. Use it on the
@@ -129,20 +175,28 @@ func StripCreate(msg proto.Message, opts ...Option) error {
 	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultCreateBehaviors()...)}, opts)...)
 }
 
-// StripUpdate sanitizes the resource of an Update request whose populated
-// fields are the update (an update without a field mask, or a full
-// replacement): OUTPUT_ONLY fields are cleared at every depth, and IMMUTABLE
-// fields are compared with the stored resource passed with [WithCurrent]: an
-// unchanged value is cleared, a changed one is a violation (AIP-203). Without
-// [WithCurrent] a populated IMMUTABLE field is a violation, because the
-// change cannot be ruled out. IDENTIFIER fields are kept: they address the
-// resource being updated; with [WithCurrent] a populated IDENTIFIER that
-// differs from the stored one is a violation too.
+// StripUpdate sanitizes an Update resource whose populated fields are the
+// update. OUTPUT_ONLY values are cleared. With [WithCurrent], a populated
+// IMMUTABLE or IDENTIFIER value is compared by the same merge-effect evaluator
+// as fieldmask/update. Equal protected values are retained for subsequent
+// planning; a requested change, including a oneof sibling clear, is a violation.
+// IDENTIFIER values remain available for routing. Collection elements are compared
+// by list index or map key; equal immutable element values remain in the message.
 //
-// An update driven by a field mask needs no StripUpdate:
-// [github.com/altessa-s/go-aip/fieldmask/update.Apply] with its
-// WithCurrent option applies the same rules to the fields the mask selects
-// and ignores the others.
+// Without [WithCurrent], IMMUTABLE and IDENTIFIER values are retained and the
+// caller must compare them with stored state. Use [WithCurrent], or the masked
+// update APIs [github.com/altessa-s/go-aip/fieldmask/update.Spec.Plan] with
+// WithCurrent and [github.com/altessa-s/go-aip/fieldmask/update.Patch]. StripUpdate
+// has no mask: AIP-134's omitted mask implies populated fields. An unpopulated
+// field is outside the selection, but a selected oneof sibling or whole collection
+// can still clear it. Those APIs compare retained
+// populated protected values using the implied mask. Protected-message equality
+// ignores OUTPUT_ONLY descendants under the shared resolver; they remain cleared
+// in the request and retain their stored values when protected fields are merged.
+// Every validated protected value is retained, including descendants of mutable
+// messages that a later planner may treat as atomic replacements.
+// For masked two-stage updates, use [github.com/altessa-s/go-aip/fieldmask/update.Prepare] to retain clear intent.
+// Do not replace the stored resource with a stripped request.
 func StripUpdate(msg proto.Message, opts ...Option) error {
 	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultUpdateBehaviors()...)}, opts)...)
 }
@@ -186,14 +240,12 @@ func (s *stripper) subtreeRelevant(md protoreflect.MessageDescriptor) bool {
 	return behavior.SubtreeHasAny(md, s.relevant...) || (s.formats != nil && s.formats.HasFormats(md))
 }
 
-// walk visits every field of prf. cur is the stored counterpart of prf (nil
-// when it has none or no current value was supplied) and inCollection reports
-// that prf lies inside a repeated or map element. With violations non-nil the
-// walk only checks and records; with violations nil it applies the clears.
+// walk sanitizes populated fields. With violations non-nil it checks formats
+// and records clears; with violations nil it applies them. Protected-update
+// decisions are made separately by the shared merge evaluator before mutation.
 func (s *stripper) walk(
-	prf, cur protoreflect.Message,
+	prf protoreflect.Message,
 	depth int,
-	inCollection bool,
 	violations *[]BehaviorViolation,
 ) error {
 	if depth > s.opts.maxDepth {
@@ -213,7 +265,7 @@ func (s *stripper) walk(
 		}
 
 		s.segs.pushField(fd)
-		err := s.visit(prf, cur, fd, depth, inCollection, checkFormats, violations)
+		err := s.visit(prf, fd, depth, checkFormats, violations)
 		s.segs.pop()
 
 		if err != nil {
@@ -234,14 +286,15 @@ const (
 )
 
 func (s *stripper) visit(
-	prf, cur protoreflect.Message,
+	prf protoreflect.Message,
 	fd protoreflect.FieldDescriptor,
 	depth int,
-	inCollection bool,
 	checkFormats bool,
 	violations *[]BehaviorViolation,
 ) error {
-	act, violation := s.decide(s.resolve(fd), prf, cur, fd, inCollection, violations != nil)
+	got := s.resolve(fd)
+
+	act, violation := s.decide(got, violations != nil)
 	switch act {
 	case actionClear:
 		if violations == nil {
@@ -264,7 +317,7 @@ func (s *stripper) visit(
 		*violations = appendFormatViolations(*violations, s.formats.CheckField(prf, fd, s.segs.String()))
 	}
 
-	return s.recurse(prf, cur, fd, depth+1, inCollection, violations)
+	return s.recurse(prf, fd, depth+1, violations)
 }
 
 // isStringValue reports whether fd holds string values, the only values a
@@ -277,40 +330,20 @@ func isStringValue(fd protoreflect.FieldDescriptor) bool {
 	return fd.Kind() == protoreflect.StringKind
 }
 
-// decide returns the action for the populated field fd of prf, whose
-// annotations are got, and, when record is set, the violation an actionReject
-// records.
-func (s *stripper) decide(
-	got []annotations.FieldBehavior,
-	prf, cur protoreflect.Message,
-	fd protoreflect.FieldDescriptor,
-	inCollection bool,
-	record bool,
-) (action, BehaviorViolation) {
-	// A stored IDENTIFIER or IMMUTABLE value outside collections must not
-	// change, whether or not the set names the behavior.
-	if s.verify && !inCollection {
-		if b := protectedBehavior(got); b != annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED && !behavior.SameValue(prf, cur, fd) {
-			return actionReject, s.protectedViolation(b, true, record)
-		}
+// decide returns the sanitization action for a populated field with annotations
+// got and, when record is set, the strict-mode violation an actionReject records.
+func (s *stripper) decide(got []annotations.FieldBehavior, record bool) (action, BehaviorViolation) {
+	// Protected input is evidence for later planning, including when a caller
+	// makes any containing message atomic. Validation never destroys it.
+	if s.verify && protectedBehavior(got) != annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED {
+		return actionDescend, BehaviorViolation{}
 	}
 
 	switch match := behavior.FirstMatch(got, s.opts.behaviors); match {
-	case annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED:
+	case annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED, annotations.FieldBehavior_IMMUTABLE:
 		return actionDescend, BehaviorViolation{}
 	case annotations.FieldBehavior_OUTPUT_ONLY:
 		return actionClear, BehaviorViolation{}
-	case annotations.FieldBehavior_IMMUTABLE:
-		switch {
-		case inCollection:
-			// A new element's value: kept, its subtree still sanitized.
-			return actionDescend, BehaviorViolation{}
-		case s.verify:
-			// Unchanged: a different value was rejected above.
-			return actionClear, BehaviorViolation{}
-		default:
-			return actionReject, s.protectedViolation(match, false, record)
-		}
 	default:
 		if s.opts.strict {
 			if !record {
@@ -322,16 +355,6 @@ func (s *stripper) decide(
 
 		return actionClear, BehaviorViolation{}
 	}
-}
-
-// protectedViolation builds the violation of a changed (or unverifiable)
-// protected value at the current path; nothing when record is unset.
-func (s *stripper) protectedViolation(b annotations.FieldBehavior, verified, record bool) BehaviorViolation {
-	if !record {
-		return BehaviorViolation{}
-	}
-
-	return behavior.ProtectedViolation(s.segs.String(), b, verified)
 }
 
 // strictReason explains a field [WithStrict] reports instead of clearing.
@@ -348,10 +371,9 @@ func protectedBehavior(got []annotations.FieldBehavior) annotations.FieldBehavio
 }
 
 func (s *stripper) recurse(
-	prf, cur protoreflect.Message,
+	prf protoreflect.Message,
 	fd protoreflect.FieldDescriptor,
 	depth int,
-	inCollection bool,
 	violations *[]BehaviorViolation,
 ) error {
 	// Skip subtrees whose descriptor tree carries no relevant annotation:
@@ -365,61 +387,47 @@ func (s *stripper) recurse(
 
 	switch {
 	case fd.IsList():
-		if fd.Kind() != protoreflect.MessageKind {
-			return nil
+		if fd.Kind() == protoreflect.MessageKind {
+			return s.recurseList(prf, fd, depth, violations)
 		}
-
-		list := s.fieldValue(prf, fd, violations).List()
-
-		for i := range list.Len() {
-			s.segs.pushIndex(i)
-			err := s.walk(list.Get(i).Message(), nil, depth, true, violations)
-			s.segs.pop()
-
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-
 	case fd.IsMap():
-		if fd.MapValue().Kind() != protoreflect.MessageKind {
-			return nil
+		if fd.MapValue().Kind() == protoreflect.MessageKind {
+			return s.recurseMap(prf, fd, depth, violations)
 		}
+	case fd.Kind() == protoreflect.MessageKind:
+		return s.walk(s.fieldValue(prf, fd, violations).Message(), depth, violations)
+	}
 
-		mm := s.fieldValue(prf, fd, violations).Map()
-		if violations == nil {
-			// Applying: the check pass already reported in key order and
-			// clearing inside a value never adds or removes entries, so the
-			// entries are visited unordered.
-			var err error
+	return nil
+}
 
-			mm.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
-				s.segs.pushKey(k)
-				err = s.walk(v.Message(), nil, depth, true, nil)
-				s.segs.pop()
+// recurseList sanitizes populated elements; protection is checked by the merge evaluator.
+func (s *stripper) recurseList(prf protoreflect.Message, fd protoreflect.FieldDescriptor, depth int, violations *[]BehaviorViolation) error {
+	list := s.fieldValue(prf, fd, violations).List()
+	for i := range list.Len() {
+		s.segs.pushIndex(i)
+		err := s.walk(list.Get(i).Message(), depth, violations)
+		s.segs.pop()
 
-				return err == nil
-			})
-
+		if err != nil {
 			return err
 		}
+	}
 
-		for _, k := range behavior.SortedMapKeys(mm) {
-			s.segs.pushKey(k)
-			err := s.walk(mm.Get(k).Message(), nil, depth, true, violations)
-			s.segs.pop()
+	return nil
+}
 
-			if err != nil {
-				return err
-			}
+// recurseMap sanitizes populated entries in stable diagnostic order.
+func (s *stripper) recurseMap(prf protoreflect.Message, fd protoreflect.FieldDescriptor, depth int, violations *[]BehaviorViolation) error {
+	mm := s.fieldValue(prf, fd, violations).Map()
+	for _, k := range behavior.SortedMapKeys(mm) {
+		s.segs.pushKey(k)
+		err := s.walk(mm.Get(k).Message(), depth, violations)
+		s.segs.pop()
+
+		if err != nil {
+			return err
 		}
-
-		return nil
-
-	case fd.Kind() == protoreflect.MessageKind:
-		return s.walk(s.fieldValue(prf, fd, violations).Message(), behavior.Child(cur, fd), depth, inCollection, violations)
 	}
 
 	return nil

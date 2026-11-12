@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // ExpandMessagePaths returns a copy of msk in which every leaf path that

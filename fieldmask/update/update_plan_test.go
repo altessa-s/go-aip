@@ -191,8 +191,9 @@ func TestPlanImpliedMask(t *testing.T) {
 	require.False(t, plan.Empty())
 
 	// Without the stored resource a set immutable value cannot be verified.
-	_, err = spec.Plan(in, nil)
-	require.ErrorIs(t, err, update.ErrProtectedField)
+	plan, err = spec.Plan(in, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"name", "filters.keywords", "status.note"}, plan.Paths)
 
 	// A changed one is refused.
 	stored := planResource(md, map[string]string{"code": "c", "status.origin": "other", "channel": "ch"})
@@ -212,8 +213,8 @@ func TestPlanWildcardKeepsServerManagedFields(t *testing.T) {
 
 	plan, err := spec.Plan(dynamicpb.NewMessage(md), maskOf([]string{"*"}))
 	require.NoError(t, err)
-	// status holds server-managed fields: "*" replaces its other leaves only.
-	require.Equal(t, []string{"name", "filters", "status.note", "status.inner.x", "tags"}, plan.Paths)
+	// Absent status is unresolved until the stored resource is available.
+	require.Equal(t, []string{"name", "filters", "tags"}, plan.Paths)
 	require.Nil(t, plan.Secret("secret", new("s")), `"*" never changes a secret`)
 }
 
@@ -233,7 +234,10 @@ func TestPlanExplicitPaths(t *testing.T) {
 	// Output-only paths are ignored and a message holding server-managed
 	// fields is replaced through its other fields (AIP-203).
 	accepted := map[string][]string{
-		"status":              {"status.note", "status.inner.x"},
+		"channel":             nil,
+		"code":                nil,
+		"status.origin":       nil,
+		"status":              {"status.note"},
 		"status.inner":        {"status.inner.x"},
 		"status.checked":      nil,
 		"status.inner.server": nil,
@@ -249,9 +253,6 @@ func TestPlanExplicitPaths(t *testing.T) {
 		path   string
 		reason string
 	}{
-		{"status.origin", `path "status.origin" cannot be updated`},
-		{"code", `path "code" cannot be updated`},
-		{"channel", `path "channel" cannot be updated`},
 		{"id", `path "id" cannot be updated`},
 		{"nope", `unknown path "nope"`},
 		{"secret.x", `unknown path "secret.x"`},
@@ -497,7 +498,7 @@ func TestPlanWildcardExpandsRecursiveProtectedMessages(t *testing.T) {
 
 	plan, err := spec.Plan(dynamicpb.NewMessage(md), maskOf([]string{"*"}))
 	require.NoError(t, err)
-	require.Equal(t, []string{"node.value", "a.b.v"}, plan.Paths)
+	require.Empty(t, plan.Paths)
 
 	// A value held by the request is expanded down to its last level.
 	in := dynamicpb.NewMessage(md)
@@ -506,7 +507,7 @@ func TestPlanWildcardExpandsRecursiveProtectedMessages(t *testing.T) {
 
 	plan, err = spec.Plan(in, maskOf([]string{"*"}))
 	require.NoError(t, err)
-	require.Equal(t, []string{"node.child.value", "node.value", "a.b.v"}, plan.Paths)
+	require.Equal(t, []string{"node.child.value", "node.value"}, plan.Paths)
 
 	// Explicit leaves of the recursive messages stay updatable.
 	plan, err = spec.Plan(dynamicpb.NewMessage(md), maskOf([]string{"node.value", "node.child.value", "a.b.v"}))
@@ -530,7 +531,7 @@ func TestPlanOneofSwitchesOverOutputOnlyMembers(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			plan, err := spec.Plan(plain, maskOf(paths))
+			plan, err := spec.Plan(proto.Clone(plain), maskOf(paths))
 			require.NoError(t, err)
 			require.Equal(t, []string{"plain"}, plan.Paths)
 		})
@@ -565,11 +566,9 @@ func TestImmutableSecretsAreNeverUpdated(t *testing.T) {
 	require.Nil(t, plan.Secret("token", new("t")))
 
 	for _, path := range []string{"credential", "token"} {
-		_, err := spec.Plan(in, maskOf([]string{path}))
-
-		var fe *coreerrs.FieldError
-		require.ErrorAs(t, err, &fe)
-		require.Equal(t, `path "`+path+`" cannot be updated`, fe.Reason)
+		plan, err := spec.Plan(in, maskOf([]string{path}))
+		require.NoError(t, err)
+		require.True(t, plan.Empty())
 	}
 }
 

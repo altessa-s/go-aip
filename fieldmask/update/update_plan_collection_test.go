@@ -186,7 +186,7 @@ func TestPlanCollectionPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			plan, err := spec.Plan(req, maskOf(tt.paths), update.WithCurrent(stored))
+			plan, err := spec.Plan(proto.Clone(req), maskOf(tt.paths), update.WithCurrent(stored))
 			require.NoError(t, err)
 			require.Equal(t, tt.want, plan.Paths)
 		})
@@ -276,9 +276,9 @@ func TestPlanCollectionBehaviors(t *testing.T) {
 		{name: "changed immutable in an entry", paths: []string{"display_name", "delegates.k.org"}, mutate: func(a *pb.Account) { a.Delegates["k"].Org = "x" },
 			field: "delegates.k.org", index: 1, cause: update.ErrProtectedField},
 		{name: "changed immutable through a map wildcard", paths: []string{"delegates.*.org"}, mutate: func(a *pb.Account) { a.Delegates["k"].Org = "x" },
-			field: "delegates.*.org", index: 0, cause: update.ErrProtectedField},
+			field: "delegates.k.org", index: 0, cause: update.ErrProtectedField},
 		{name: "changed immutable through a list wildcard", paths: []string{"members.*.org"}, mutate: func(a *pb.Account) { a.Members[0].Org = "x" },
-			field: "members.*.org", index: 0, cause: update.ErrProtectedField},
+			field: "members.0.org", index: 0, cause: update.ErrProtectedField},
 		{name: "replaced entry without a required field", paths: []string{"delegates.k"}, mutate: func(a *pb.Account) { a.Delegates["k"].Email = "" },
 			field: "delegates.k.email", index: 0, cause: update.ErrBehaviorViolation},
 		{name: "list wildcard with fewer elements than stored", paths: []string{"members.*.note"},
@@ -299,6 +299,7 @@ func TestPlanCollectionBehaviors(t *testing.T) {
 			require.Equal(t, tt.index, mp.Index)
 			require.Equal(t, tt.paths[tt.index], mp.Path)
 			require.Equal(t, tt.field, mp.Field)
+
 			require.Equal(t, update.DefaultUpdateMaskField+".paths["+strconv.Itoa(tt.index)+"]", fe.Field)
 		})
 	}
@@ -366,12 +367,11 @@ func TestPlanCollectionOneofSwitches(t *testing.T) {
 	spec, err := update.NewSpec(dynamicpb.NewMessage(md))
 	require.NoError(t, err)
 
-	req := collectionRoot(md, map[string]map[string]string{"a": {"free": "f"}}, []map[string]string{{"free": "f"}}, nil)
-
 	for _, path := range []string{"items.a.free", "items.*.free", "list.*.free"} {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
+			req := collectionRoot(md, map[string]map[string]string{"a": {"free": "f"}}, []map[string]string{{"free": "f"}}, nil)
 			pinned := collectionRoot(md, map[string]map[string]string{"a": {"pinned": "p"}}, []map[string]string{{"pinned": "p"}}, nil)
 			_, err := spec.Plan(req, maskOf([]string{path}), update.WithCurrent(pinned))
 			require.ErrorIs(t, err, update.ErrProtectedField)
@@ -379,7 +379,14 @@ func TestPlanCollectionOneofSwitches(t *testing.T) {
 			fe, mp := maskPathError(t, err)
 			require.Equal(t, update.DefaultUpdateMaskField+".paths[0]", fe.Field)
 			require.Equal(t, path, mp.Path)
-			require.Contains(t, fe.Reason, `would clear "pinned" of its oneof`)
+
+			changed := "items.a.pinned"
+			if path == "list.*.free" {
+				changed = "list.0.pinned"
+			}
+
+			require.Equal(t, changed, mp.Field)
+			require.Equal(t, `path "`+changed+`" cannot be changed`, fe.Reason)
 
 			free := collectionRoot(md, map[string]map[string]string{"a": {"note": "n"}}, []map[string]string{{"note": "n"}}, nil)
 			_, err = spec.Plan(req, maskOf([]string{path}), update.WithCurrent(free))

@@ -125,10 +125,8 @@ func TestSameValueAndChild(t *testing.T) {
 func TestProtectedViolationAndSortedMapKeys(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, behavior.ReasonImmutableChanged, behavior.ProtectedViolation("a", annotations.FieldBehavior_IMMUTABLE, true).Reason)
-	assert.Equal(t, behavior.ReasonImmutableUnverified, behavior.ProtectedViolation("a", annotations.FieldBehavior_IMMUTABLE, false).Reason)
-	assert.Equal(t, behavior.ReasonIdentifierChanged, behavior.ProtectedViolation("a", annotations.FieldBehavior_IDENTIFIER, true).Reason)
-	assert.Equal(t, behavior.ReasonIdentifierUnverified, behavior.ProtectedViolation("a", annotations.FieldBehavior_IDENTIFIER, false).Reason)
+	assert.Equal(t, behavior.ReasonImmutableChanged, behavior.ProtectedViolation("a", annotations.FieldBehavior_IMMUTABLE).Reason)
+	assert.Equal(t, behavior.ReasonIdentifierChanged, behavior.ProtectedViolation("a", annotations.FieldBehavior_IDENTIFIER).Reason)
 
 	a := &testpb.Account{Attributes: map[string]string{"b": "", "a": "", "c": ""}}
 	m := a.ProtoReflect()

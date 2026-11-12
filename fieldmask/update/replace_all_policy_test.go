@@ -57,19 +57,30 @@ func TestReplaceAllKeepsPolicyProtectedRequired(t *testing.T) {
 
 			opts := append([]update.Option{update.WithCurrent(storedAccount())}, tc.opts...)
 
+			check := func(err error) {
+				t.Helper()
+
+				if tc.name == "default identity etag" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, update.ErrBehaviorViolation)
+				}
+			}
 			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, proto.Clone(req), opts...)
-			require.NoError(t, err)
-
-			require.NoError(t, update.Apply(fieldmask.FromPaths("*"), proto.Clone(req), opts...))
-
+			check(err)
+			check(update.Apply(fieldmask.FromPaths("*"), proto.Clone(req), opts...))
 			_, err = update.ValidateStrict(fieldmask.FromPaths("*"), req, opts...)
-			require.NoError(t, err)
+			check(err)
 
 			spec, err := update.NewSpec(&pb.Account{}, tc.opts...)
 			require.NoError(t, err)
 
 			_, err = spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"*"}}, update.WithCurrent(storedAccount()))
-			require.NoError(t, err)
+			if tc.name == "default identity etag" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, update.ErrProtectedField)
+			}
 		})
 	}
 

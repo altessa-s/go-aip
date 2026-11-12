@@ -30,8 +30,8 @@ func withOwner(owner *pb.Owner) *pb.Account {
 // TestAtomicReplacementKeepsProtectedValues pins the exact case of a singular
 // message of an atomic type (Owner, under WithAtomicMessage) named whole:
 // the merge copies it whole, so its IMMUTABLE org must equal the stored one.
-// A changed or cleared org is refused, and without the stored resource any
-// replacement is, by ApplyMask, Apply, ValidateStrict, Spec.Plan and
+// A changed or cleared org is refused, and without the stored resource the
+// replacement is deferred, by ApplyMask, Apply, ValidateStrict, Spec.Plan and
 // Patch.Run, whether owner is named, replaced by "*" or reached through a
 // replaced parent; an equal org is accepted.
 func TestAtomicReplacementKeepsProtectedValues(t *testing.T) {
@@ -50,7 +50,7 @@ func TestAtomicReplacementKeepsProtectedValues(t *testing.T) {
 		{name: "changed", path: "owner", req: withOwner(&pb.Owner{Email: "e@example.com", Org: "changed"}), current: stored, field: "owner.org"},
 		{name: "cleared", path: "owner", req: withOwner(&pb.Owner{Email: "e@example.com"}), current: stored, field: "owner.org"},
 		{name: "unchanged", path: "owner", req: withOwner(&pb.Owner{Email: "new@example.com", Org: "original"}), current: stored},
-		{name: "without the stored resource", path: "owner", req: withOwner(&pb.Owner{Email: "e@example.com", Org: "original"}), field: "owner.org"},
+		{name: "without the stored resource", path: "owner", req: withOwner(&pb.Owner{Email: "e@example.com", Org: "original"})},
 		{name: "full replacement", path: "*", req: withOwner(&pb.Owner{Email: "e@example.com", Org: "changed"}), current: stored, field: "owner.org"},
 		{name: "full replacement unchanged", path: "*", req: proto.Clone(stored).(*pb.Account), current: stored},
 		{
@@ -61,6 +61,10 @@ func TestAtomicReplacementKeepsProtectedValues(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			if tc.current != nil {
+				checkDeferredEquivalence(t, maskOf([]string{tc.path}), tc.req, tc.current, atomic)
+			}
 
 			opts := []update.Option{atomic}
 			if tc.current != nil {
@@ -125,22 +129,15 @@ func TestAtomicReplacementRequiredImmutable(t *testing.T) {
 	}
 }
 
-// TestAtomicKeyedElementIsNewValue pins the documented choice for a keyed
-// element of an atomic type named whole ("delegates.k" with Owner atomic):
-// it is a new value, as any element named whole, since MergePaths replaces
-// the stored entry with the request's, so its IMMUTABLE org is not compared
-// and the merged entry is the request's.
-func TestAtomicKeyedElementIsNewValue(t *testing.T) {
+// TestAtomicKeyedElementComparesProtected verifies that a whole keyed
+// element compares its protected descendants before replacing the value.
+func TestAtomicKeyedElementComparesProtected(t *testing.T) {
 	t.Parallel()
 
 	atomic := atomicNames("fieldbehaviortest.v1.Owner")
 	stored := &pb.Account{Delegates: map[string]*pb.Owner{"k": {Email: "e@example.com", Org: "original"}}}
 	req := &pb.Account{Delegates: map[string]*pb.Owner{"k": {Email: "e@example.com", Org: "changed"}}}
 
-	got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"delegates.k"}}, proto.Clone(req), atomic, update.WithCurrent(stored))
-	require.NoError(t, err)
-
-	merged := proto.Clone(stored)
-	require.NoError(t, update.MergePaths(merged, req, got.ToPaths(), atomic))
-	requireProtoEqual(t, req, merged)
+	_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"delegates.k"}}, proto.Clone(req), atomic, update.WithCurrent(stored))
+	require.ErrorIs(t, err, update.ErrBehaviorViolation)
 }

@@ -10,9 +10,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
@@ -29,6 +29,8 @@ const (
 
 // FieldMask represents a hierarchical field mask as a nested map structure.
 // Keys are field names; nil values indicate leaf fields (keep/prune the entire subtree).
+// A quoted literal JSON "*" key uses an internal key distinct from the wildcard.
+// Use [FromPaths] and [FieldMask.ToPaths] to construct and serialize JSON paths.
 // All methods are safe for nil or empty receivers and produce deterministic output.
 type FieldMask map[string]FieldMask
 
@@ -221,8 +223,10 @@ func (msk FieldMask) Clone() FieldMask {
 
 // IsEmpty returns true if the field mask contains no fields, whether it is
 // nil (an omitted update_mask, see [FromProtoFieldMask]) or non-nil and
-// empty. After a successful [github.com/altessa-s/go-aip/fieldmask/update.Apply] on a non-nil mask it
-// reports that the update changes nothing, as [github.com/altessa-s/go-aip/fieldmask/update.Plan.Empty] does.
+// empty. A provided empty update mask is a no-op. An empty interim effective
+// mask from the update package may still have deferred validation or writes;
+// always complete its Prepare plan against stored state before skipping a write.
+// Only a successfully completed empty mask establishes that no merge is needed.
 func (msk FieldMask) IsEmpty() bool {
 	return len(msk) == 0
 }
@@ -352,7 +356,7 @@ func (msk FieldMask) resolve(md protoreflect.MessageDescriptor, policy *options)
 // path round-trips through [FromPaths].
 func (msk FieldMask) buildPaths(prefix string, paths *[]string) {
 	for field, nested := range msk {
-		currentPath := behavior.JoinPath(prefix, behavior.QuoteSegment(field))
+		currentPath := behavior.JoinPath(prefix, maskpath.PathSegment(field))
 
 		if nested == nil {
 			// Leaf node, add the full path

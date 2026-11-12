@@ -35,8 +35,6 @@ fieldbehavior                        # AIP-203 field behavior enforcement
 fieldinfo                            # AIP-202 field formats (google.api.field_info)
 fieldmask                            # AIP-134 and AIP-161 field masks and update planning
 fieldmask/extract                    # update_mask and read_mask extraction from requests
-fieldmask/internal/maskpath          # Field mask path grammar, schema walk and limits
-fieldmask/internal/maskwalk          # Field mask filter and prune walk
 fieldmask/update                     # AIP-134/154/163/203 update masks, plans and patches
 fieldpolicy                          # Shared field access, allow-lists and storage mapping
 filter                               # AIP-160 filter AST, policy and errors
@@ -51,6 +49,9 @@ integration/docker                   # Live database integration tests, test-onl
 internal/behavior                    # Field behavior annotations
 internal/literalvalue                # Literal value conversions
 internal/lru                         # LRU cache of the parsers
+internal/maskmerge                   # Shared protobuf update merge and protected-value comparison
+internal/maskpath                    # Field mask path grammar, schema walk and limits
+internal/maskwalk                    # Field mask filter and prune walk
 internal/proto                       # Protobuf test fixtures
 internal/telemetry                   # Parse metrics shared by the parsers
 internal/testhelpers                 # Shared test helpers

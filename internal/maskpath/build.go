@@ -6,7 +6,6 @@ package maskpath
 
 import (
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/altessa-s/go-aip/internal/behavior"
 )
@@ -61,19 +60,20 @@ func IsDynamicMessage(md protoreflect.MessageDescriptor) bool {
 }
 
 // buildStructPaths enumerates paths for a google.protobuf.Struct: one per
-// top-level key, quoted as the path grammar requires ([behavior.QuoteSegment])
+// top-level key, quoted as the path grammar requires ([QuoteJSONKey])
 // so it round-trips through fieldmask.FromPaths. A nested Struct value is not
 // descended, so the paths are stable and valid with and without
 // fieldmask.WithStrictDynamicPaths. room is the number of segments the paths may
 // still add to prefix (see [buildPathsRecursive]).
-func buildStructPaths(s *structpb.Struct, prefix string, paths *[]string, room int) {
+func buildStructPaths(s protoreflect.Message, prefix string, paths *[]string, room int) {
 	if room < 1 {
 		return
 	}
 
-	for key := range s.GetFields() {
-		*paths = append(*paths, behavior.JoinPath(prefix, behavior.QuoteSegment(key)))
-	}
+	s.Get(s.Descriptor().Fields().ByName("fields")).Map().Range(func(key protoreflect.MapKey, _ protoreflect.Value) bool {
+		*paths = append(*paths, behavior.JoinPath(prefix, QuoteJSONKey(key.String())))
+		return true
+	})
 }
 
 // buildPathsRecursive builds paths for a message. If onlySetFields is true, only set fields are included.
@@ -81,11 +81,26 @@ func buildStructPaths(s *structpb.Struct, prefix string, paths *[]string, room i
 // there, so a recursive message or a deep value yields paths of at most that many segments, the deepest
 // one covering what lies below it.
 func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]string, onlySetFields bool, room int) {
+	PathBuilder{Dynamic: buildDynamicPaths}.Build(msg, prefix, paths, onlySetFields, room)
+}
+
+// PathBuilder enumerates message paths with caller-supplied dynamic-message
+// handling. The update reference walk supplies the a8b17ba handling so that
+// sharing the traversal does not change its generated-message-only semantics.
+type PathBuilder struct {
+	// Dynamic appends paths for a dynamic message and reports whether it
+	// handled msg. It is required and is used at every recursion depth.
+	Dynamic func(msg protoreflect.Message, prefix string, paths *[]string, room int) bool
+}
+
+// Build appends paths under prefix, optionally including only set fields.
+// room bounds the number of additional segments, including map keys.
+func (b PathBuilder) Build(msg protoreflect.Message, prefix string, paths *[]string, onlySetFields bool, room int) {
 	if !msg.IsValid() || room < 1 {
 		return
 	}
 
-	if buildDynamicPaths(msg, prefix, paths, room) {
+	if b.Dynamic(msg, prefix, paths, room) {
 		return
 	}
 
@@ -103,9 +118,9 @@ func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]strin
 		switch {
 		case fd.Kind() == protoreflect.MessageKind && !fd.IsMap() && !fd.IsList():
 			// Nested message
-			buildPathsRecursive(v.Message(), path, paths, onlySetFields, room-1)
+			b.Build(v.Message(), path, paths, onlySetFields, room-1)
 		case fd.IsMap():
-			buildMapPaths(fd, v.Map(), path, paths, onlySetFields, room-1)
+			b.buildMapPaths(fd, v.Map(), path, paths, onlySetFields, room-1)
 		}
 		// A repeated field is a leaf: a path never addresses an element by
 		// index (AIP-161), and an update replaces the list as a whole.
@@ -117,10 +132,10 @@ func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]strin
 // buildDynamicPaths enumerates the paths of a google.protobuf.Struct,
 // ListValue or Value message and reports whether msg was one of them.
 func buildDynamicPaths(msg protoreflect.Message, prefix string, paths *[]string, room int) bool {
-	switch m := msg.Interface().(type) {
-	case *structpb.Struct:
-		buildStructPaths(m, prefix, paths, room)
-	case *structpb.ListValue, *structpb.Value:
+	switch msg.Descriptor().FullName() {
+	case StructFullName:
+		buildStructPaths(msg, prefix, paths, room)
+	case ListValueFullName, ValueFullName:
 		// A leaf: valid with and without WithStrictDynamicPaths.
 	default:
 		return false
@@ -132,7 +147,7 @@ func buildDynamicPaths(msg protoreflect.Message, prefix string, paths *[]string,
 // buildMapPaths adds a path per map key and recurses into message values.
 // With onlySetFields a key is included whenever it exists — a message value
 // even without set fields — except a nil message value, which is skipped.
-func buildMapPaths(fd protoreflect.FieldDescriptor, m protoreflect.Map, path string, paths *[]string, onlySetFields bool, room int) {
+func (b PathBuilder) buildMapPaths(fd protoreflect.FieldDescriptor, m protoreflect.Map, path string, paths *[]string, onlySetFields bool, room int) {
 	if room < 1 {
 		return
 	}
@@ -149,7 +164,7 @@ func buildMapPaths(fd protoreflect.FieldDescriptor, m protoreflect.Map, path str
 
 		*paths = append(*paths, keyPath)
 		if valueIsMessage {
-			buildPathsRecursive(mapVal.Message(), keyPath, paths, onlySetFields, room-1)
+			b.Build(mapVal.Message(), keyPath, paths, onlySetFields, room-1)
 		}
 
 		return true

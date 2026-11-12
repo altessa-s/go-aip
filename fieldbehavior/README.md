@@ -10,11 +10,14 @@ rejects the fields whose behavior makes them invalid for the current request kin
 request, on an Update whose populated fields are the update, and on a server response, so server-managed identifiers, timestamps and secrets never
 cross the wire in the wrong direction. The [guide](../docs/fieldbehavior.md#aip-203-conformance) maps every AIP-203 rule to its function.
 
+All stripping entry points publish changes only after successful validation and conversion. On any error, the message is unchanged.
+Representation conversion errors match `ErrCurrentMismatch` and preserve the protobuf cause.
+
 ## Contract
 
 `StripCreate` clears OUTPUT_ONLY and IDENTIFIER fields. `StripUpdate` clears OUTPUT_ONLY fields and compares IMMUTABLE ones with the stored resource
-passed with `WithCurrent`: an unchanged value is cleared (ignored), a changed one is a violation, and without `WithCurrent` every populated IMMUTABLE
-value is a violation, so a change is never lost silently. It keeps IDENTIFIER fields so the handler can locate the resource; with `WithCurrent` a
+passed with `WithCurrent`: an unchanged value is retained for subsequent planning, a changed one is a violation. Without `WithCurrent`, IMMUTABLE values are
+retained for the caller to compare with stored state. It keeps IDENTIFIER fields so the handler can locate the resource; with `WithCurrent` a
 changed identifier is a violation. `StripResponse` clears INPUT_ONLY. `ValidateRequired` reports REQUIRED fields that are absent or set to an empty
 value (empty string or bytes, zero, false, zero enum, empty list or map, unset message), recursing only into populated messages. The
 Default*Behaviors functions return owned slices; `Strip` with `WithBehaviors` selects a custom set, and an explicitly empty set disables stripping.
@@ -28,13 +31,18 @@ ErrBehaviorViolation.
 Input walks also validate field formats (AIP-202, `google.api.field_info`) in the same pass: `Strip`, `StripCreate`, `StripUpdate` and
 `ValidateRequired` report every kept string value that does not match the format of its field (`UUID4`, `IPV4`, `IPV6`, `IPV4_OR_IPV6`; a repeated
 element indexed, a map value keyed) as a violation with Behavior `FIELD_BEHAVIOR_UNSPECIFIED`, `Format` the format name (the AIP-202 enum name or the
-custom format name, empty for every other violation) and Reason `value <reason> (<format>)`. A field the walk clears (OUTPUT_ONLY, an unchanged
-IMMUTABLE) or rejects is not format-checked. `StripResponse` does not check formats (a response is not input). `WithFieldFormats(false)` turns the
+custom format name, empty for every other violation) and Reason `value <reason> (<format>)`. A field the walk clears (such as OUTPUT_ONLY) or rejects is not format-checked. Retained protected input is format-checked. `StripResponse` does not check formats (a response is not input). `WithFieldFormats(false)` turns the
 check off; `WithFormatChecker` supplies a `fieldinfo.Checker` with custom formats, such as an email format AIP-202 does not define. Normalizing values
 is a separate, explicit step: `fieldinfo.Normalize`. A `Strip` with an empty behavior set stays a no-op and checks no formats.
 
-The elements of repeated and map fields are new values in an update: their IMMUTABLE and IDENTIFIER values are neither compared nor reported, and
-IMMUTABLE ones are kept.
+With current state, stripping uses the same merge-effect evaluator as `fieldmask/update`: it applies the implied selection to a private stored
+resource and compares protected values, ignoring OUTPUT_ONLY descendants. This includes oneof sibling clears and collection element removals.
+All validated protected values remain in the request, including inside mutable messages that a later planner may replace atomically.
+`StripUpdate` has no mask: by AIP-134 the omitted mask implies populated fields, so an unpopulated field is not selected directly. Selected oneof siblings and whole collections can still clear protected values. Retained populated protected values are compared by `Spec.Plan` with `WithCurrent` or `Patch.Run` using that implied mask. For masked
+two-stage updates, use `update.Prepare` and carry its plan in the context; the plan retains clear intent. Never replace a stored resource with the
+stripped request. Protected-message equality ignores OUTPUT_ONLY descendants under the same resolver, so stripping these ignored inputs cannot
+make an unchanged IMMUTABLE or IDENTIFIER message appear changed. Stateful update sanitization keeps the stored protected value when a whole
+replacement is merged.
 
 `Resolver.Resolve` supplies behavior metadata. AnnotationResolver reads google.api.field_behavior and returns owned values, decoding each field
 descriptor once into a bounded, process-wide LRU (4096 descriptors); ResolverFunc adapts a function. `WithResolver` accepts the same dependency as
@@ -90,7 +98,8 @@ func (s *server) ReplaceBucket(ctx context.Context, req *pb.ReplaceBucketRequest
     if err := fieldbehavior.StripUpdate(req.GetBucket(), fieldbehavior.WithCurrent(stored)); err != nil {
         return nil, err
     }
-    return s.repo.Replace(ctx, req.GetBucket())
+    // Persist only validated mutable fields, preserving stored protected values.
+    return s.repo.UpdateMutable(ctx, stored, req.GetBucket())
 }
 
 func (s *server) GetBucket(ctx context.Context, req *pb.GetBucketRequest) (*pb.Bucket, error) {

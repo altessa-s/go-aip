@@ -107,7 +107,7 @@ func TestAtomicProtectedValueKeepsOutputOnly(t *testing.T) {
 	stored := parse(`settings { ` + protected + ` note: "old" }`)
 	req := parse(`settings { ` + protected + ` note: "new" }`)
 
-	want := req
+	want := proto.Clone(req)
 	atomic := atomicNames("protectedoo.Settings")
 
 	msg := proto.Clone(req)
@@ -124,6 +124,18 @@ func TestAtomicProtectedValueKeepsOutputOnly(t *testing.T) {
 
 	merged = proto.Clone(stored)
 	require.NoError(t, update.MergePaths(merged, msg, []string{"settings"}, atomic))
+	requireProtoEqual(t, want, merged)
+
+	msg = proto.Clone(req)
+	pending, err := update.Prepare(&fieldmaskpb.FieldMask{Paths: []string{"settings"}}, msg, atomic)
+	require.NoError(t, err)
+
+	got, err = pending.Complete(stored)
+	require.NoError(t, err)
+	require.Equal(t, []string{"settings"}, got.ToPaths())
+
+	merged = proto.Clone(stored)
+	require.NoError(t, update.MergePaths(merged, msg, got.ToPaths(), atomic))
 	requireProtoEqual(t, want, merged)
 
 	spec, err := update.NewSpec(dynamicpb.NewMessage(md), atomic)

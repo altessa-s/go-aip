@@ -44,7 +44,8 @@ func TestReplacementChecksNewElementsAsOnCreate(t *testing.T) {
 	}
 
 	required := func(path string) []FieldViolation {
-		return []FieldViolation{{Path: path, Behavior: annotations.FieldBehavior_REQUIRED, Reason: reasonRequired}}
+		return []FieldViolation{{Path: path, Behavior: annotations.FieldBehavior_REQUIRED, Reason: reasonRequired},
+			{Path: path, Behavior: annotations.FieldBehavior_IMMUTABLE, Reason: "immutable field cannot be changed from its stored value"}}
 	}
 
 	parentReq := &pb.Account{Parent: withEmptyOrg(storedAccount())}
@@ -57,20 +58,11 @@ func TestReplacementChecksNewElementsAsOnCreate(t *testing.T) {
 			opts: []update.Option{requiredImmutableOrg}, violations: required("members.0.org")},
 		{name: "singular parent", paths: []string{"parent"}, req: parentReq, current: parentCur,
 			opts: []update.Option{requiredImmutableOrg}, violations: required("parent.members.0.org")},
-		{name: "IMMUTABLE of a replaced message still skipped", paths: []string{"parent"},
+		{name: "clearing IMMUTABLE through a replaced message is refused", paths: []string{"parent"},
 			req: &pb.Account{Parent: func() *pb.Account { a := storedAccount(); a.Owner.Org = ""; return a }()}, current: parentCur,
 			opts: []update.Option{requiredImmutableOrg},
-			want: []string{
-				"parent.attributes", "parent.card", "parent.delegates", "parent.display_name", "parent.emails", "parent.enabled", "parent.etag",
-				"parent.key", "parent.members", "parent.owner.email", "parent.owner.note", "parent.quota", "parent.state",
-			},
-			wantMsg: &pb.Account{Parent: func() *pb.Account {
-				a := storedAccount()
-				a.Owner = &pb.Owner{Email: a.GetOwner().GetEmail()}
-				a.UpdateTime, a.Region = "", ""
-
-				return a
-			}()}},
+			violations: []FieldViolation{{Path: "parent.owner.org", Behavior: annotations.FieldBehavior_IMMUTABLE,
+				Reason: "immutable field cannot be changed from its stored value"}}},
 	})
 
 	t.Run("Apply, ValidateStrict and Spec.Plan", func(t *testing.T) {

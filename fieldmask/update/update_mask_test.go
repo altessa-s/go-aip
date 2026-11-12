@@ -208,7 +208,7 @@ func TestApplyUpdateMask_RequiredFieldSetInMask(t *testing.T) {
 	assert.Equal(t, "new desc", msg.GetDescription())
 }
 
-// RFC edge case 10: IMMUTABLE field in mask (BLOCKED).
+// RFC edge case 10: IMMUTABLE field in mask is deferred without current state.
 // update_mask: ["code"], request: {code: "new_code"}
 func TestApplyUpdateMask_ImmutableField(t *testing.T) {
 	code := "new_code"
@@ -219,15 +219,9 @@ func TestApplyUpdateMask_ImmutableField(t *testing.T) {
 
 	mask := fieldmask.FromPaths("code")
 	err := update.Apply(mask, msg)
-	require.Error(t, err)
-
-	var behaviorErr *update.BehaviorError
-
-	require.ErrorIs(t, err, update.ErrBehaviorViolation)
-	require.ErrorAs(t, err, &behaviorErr)
-	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "code", behaviorErr.Violations[0].Path)
-	assert.Contains(t, behaviorErr.Violations[0].Reason, "immutable")
+	require.NoError(t, err)
+	require.Empty(t, mask)
+	assert.Equal(t, code, msg.GetCode())
 }
 
 // RFC edge case 11: OUTPUT_ONLY field in mask (silently ignored).
@@ -322,7 +316,7 @@ func TestApplyUpdateMask_MultipleViolations(t *testing.T) {
 
 	// name is REQUIRED (not set), code is IMMUTABLE
 	mask := fieldmask.FromPaths("name", "code")
-	err := update.Apply(mask, msg)
+	err := update.Apply(mask, msg, update.WithCurrent(&testpb.UpdateRequest{}))
 	require.Error(t, err)
 
 	var behaviorErr *update.BehaviorError
@@ -400,19 +394,14 @@ func TestApplyUpdateMask_PriorityDefault(t *testing.T) {
 }
 
 func TestApplyUpdateMask_ImmutableFieldNotSet(t *testing.T) {
-	// IMMUTABLE field in mask but not set → should also be an error.
+	// An unset protected value remains available for a later comparison.
 	msg := &testpb.UpdateRequest{Id: "1"}
 
 	mask := fieldmask.FromPaths("code")
 	err := update.Apply(mask, msg)
-	require.Error(t, err)
-
-	var behaviorErr *update.BehaviorError
-
-	require.ErrorIs(t, err, update.ErrBehaviorViolation)
-	require.ErrorAs(t, err, &behaviorErr)
-	require.Len(t, behaviorErr.Violations, 1)
-	assert.Contains(t, behaviorErr.Violations[0].Reason, "immutable")
+	require.NoError(t, err)
+	require.Empty(t, mask)
+	assert.Equal(t, "", msg.GetCode())
 }
 
 func TestApplyUpdateMask_OutputOnlyRemovedFromMask(t *testing.T) {
@@ -426,9 +415,9 @@ func TestApplyUpdateMask_OutputOnlyRemovedFromMask(t *testing.T) {
 	require.NoError(t, err)
 
 	// created_at was the only path and is dropped, so the update changes
-	// nothing: the mask comes back empty and msg is left as sent.
+	// nothing: the mask comes back empty and OUTPUT_ONLY input is cleared.
 	assert.True(t, mask.IsEmpty())
-	assert.Equal(t, ts, msg.GetCreatedAt())
+	assert.Empty(t, msg.GetCreatedAt())
 }
 
 func TestApplyUpdateMask_MessageNotMutatedOnError(t *testing.T) {
@@ -444,7 +433,7 @@ func TestApplyUpdateMask_MessageNotMutatedOnError(t *testing.T) {
 
 	// code is IMMUTABLE → error
 	mask := fieldmask.FromPaths("name", "description", "code")
-	err := update.Apply(mask, msg)
+	err := update.Apply(mask, msg, update.WithCurrent(&testpb.UpdateRequest{Code: new("stored")}))
 	require.Error(t, err)
 
 	// Message should be unchanged.
@@ -584,7 +573,7 @@ func TestApplyUpdateMask_WithPathValidation_EnforcedByDefault(t *testing.T) {
 	require.Equal(t, "hello", msg.GetDescription())
 }
 
-// AIP-203 IDENTIFIER: field in mask is rejected like IMMUTABLE.
+// AIP-203 IDENTIFIER: defer comparison without current state.
 // update_mask: ["resource_name"], request: {resource_name: "items/123"}
 func TestApplyUpdateMask_IdentifierFieldInMask(t *testing.T) {
 	resourceName := "items/123"
@@ -595,15 +584,9 @@ func TestApplyUpdateMask_IdentifierFieldInMask(t *testing.T) {
 
 	mask := fieldmask.FromPaths("resource_name")
 	err := update.Apply(mask, msg)
-	require.Error(t, err)
-
-	var behaviorErr *update.BehaviorError
-
-	require.ErrorIs(t, err, update.ErrBehaviorViolation)
-	require.ErrorAs(t, err, &behaviorErr)
-	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Path)
-	assert.Contains(t, behaviorErr.Violations[0].Reason, "identifier")
+	require.NoError(t, err)
+	require.Empty(t, mask)
+	assert.Equal(t, resourceName, msg.GetResourceName())
 }
 
 // AIP-203 IDENTIFIER not in mask: identifier is set to route the update,
@@ -625,21 +608,13 @@ func TestApplyUpdateMask_IdentifierNotInMask(t *testing.T) {
 	assert.Equal(t, "John", msg.GetName())
 }
 
-// IDENTIFIER in mask but not set in the request still violates: matching
-// IMMUTABLE semantics so callers can't smuggle identifier mutation through
-// an empty value.
+// An absent IDENTIFIER is excluded from the effective mask too.
 func TestApplyUpdateMask_IdentifierFieldInMaskNotSet(t *testing.T) {
 	msg := &testpb.UpdateRequest{Id: "1"}
 
 	mask := fieldmask.FromPaths("resource_name")
 	err := update.Apply(mask, msg)
-	require.Error(t, err)
-
-	var behaviorErr *update.BehaviorError
-
-	require.ErrorIs(t, err, update.ErrBehaviorViolation)
-	require.ErrorAs(t, err, &behaviorErr)
-	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Path)
-	assert.Contains(t, behaviorErr.Violations[0].Reason, "identifier")
+	require.NoError(t, err)
+	require.Empty(t, mask)
+	assert.Equal(t, "", msg.GetResourceName())
 }

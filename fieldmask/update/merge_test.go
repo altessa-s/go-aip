@@ -238,7 +238,7 @@ func TestMergeIndependentDescriptorsMismatch(t *testing.T) {
 	require.Equal(t, "n", c.Get(a.Descriptor().Fields().ByName("name")).String())
 }
 
-func TestMergeGeneratedAndDynamicMismatch(t *testing.T) {
+func TestMergeGeneratedAndDynamicRepresentations(t *testing.T) {
 	t.Parallel()
 
 	md := (&pb.Resource{}).ProtoReflect().Descriptor()
@@ -263,13 +263,20 @@ func TestMergeGeneratedAndDynamicMismatch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			dst := generated()
-			require.ErrorIs(t, merge(dst, dynamic(), mask...), update.ErrMessageMismatch, "dynamic into generated")
-			require.True(t, proto.Equal(generated(), dst), "dst must be unchanged, got %v", dst)
+			dynamicGenerated := func() *pb.Resource {
+				return &pb.Resource{Name: "dyn", Profile: &pb.Profile{DisplayName: "p"},
+					Aliases: []*pb.Profile{{Id: "a"}}, Labels: map[string]*pb.Profile{"k": {Id: "l"}}}
+			}
+			dst, want := generated(), generated()
+			require.NoError(t, merge(want, dynamicGenerated(), mask...))
+			require.NoError(t, merge(dst, dynamic(), mask...), "dynamic into generated")
+			require.True(t, proto.Equal(want, dst), "got %v, want %v", dst, want)
 
 			ddst := dynamic()
-			require.ErrorIs(t, merge(ddst, generated(), mask...), update.ErrMessageMismatch, "generated into dynamic")
-			require.True(t, proto.Equal(dynamic(), ddst), "dst must be unchanged, got %v", ddst)
+			want = dynamicGenerated()
+			require.NoError(t, merge(want, generated(), mask...))
+			require.NoError(t, merge(ddst, generated(), mask...), "generated into dynamic")
+			require.True(t, proto.Equal(want, ddst), "got %v, want %v", ddst, want)
 		})
 	}
 

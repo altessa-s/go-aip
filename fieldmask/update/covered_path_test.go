@@ -50,8 +50,8 @@ func TestPlan_CoveredPathChecked(t *testing.T) {
 		cause   error
 		current *pb.Resource
 	}{
-		{name: "identifier under its message", paths: []string{"profile", "profile.id"}, index: 1, cause: update.ErrProtectedField},
-		{name: "identifier first", paths: []string{"profile.id", "profile"}, index: 0, cause: update.ErrProtectedField},
+		{name: "identifier under its message", paths: []string{"profile", "profile.id"}, index: 1, cause: update.ErrProtectedField, current: &pb.Resource{Profile: &pb.Profile{Id: "other"}}},
+		{name: "identifier first", paths: []string{"profile.id", "profile"}, index: 0, cause: update.ErrProtectedField, current: &pb.Resource{Profile: &pb.Profile{Id: "other"}}},
 		{name: "changed identifier", paths: []string{"profile", "profile.id"}, index: 1, cause: update.ErrProtectedField,
 			current: &pb.Resource{Profile: &pb.Profile{Id: "other"}}},
 		{name: "unknown path under a scalar", paths: []string{"description", "description.no_such"}, index: 1, cause: fieldmask.ErrInvalidPath},
@@ -117,10 +117,10 @@ func TestApply_CoveredPathChecked(t *testing.T) {
 	t.Run("parent alone", func(t *testing.T) {
 		t.Parallel()
 
-		require.NoError(t, update.Apply(fieldmask.FromPaths("backupOwner"), proto.Clone(req), update.WithCurrent(current)))
+		require.ErrorIs(t, update.Apply(fieldmask.FromPaths("backupOwner"), proto.Clone(req), update.WithCurrent(current)), update.ErrBehaviorViolation)
 
 		_, err := update.ValidateStrict(fieldmask.FromPaths("backupOwner"), req, update.WithCurrent(current))
-		require.NoError(t, err)
+		require.ErrorIs(t, err, update.ErrBehaviorViolation)
 	})
 
 	t.Run("covered atomic sub-path", func(t *testing.T) {
@@ -166,8 +166,8 @@ func TestCoveredPath_ErrorMessages(t *testing.T) {
 // collapsed (["profile", "profile.id"] holds profile alone) stays safe under
 // Apply and ValidateStrict: the covering parent is replaced through its other
 // fields, so the IDENTIFIER keeps its stored value or the request's address,
-// a changed one is refused, an IMMUTABLE value set without the stored
-// resource is refused, and OUTPUT_ONLY values are cleared.
+// a changed one is refused with current state, unverified protected values
+// are retained, and OUTPUT_ONLY values are cleared.
 func TestApply_CollapsedParentEnforcesSubtree(t *testing.T) {
 	t.Parallel()
 
@@ -210,13 +210,13 @@ func TestApply_CollapsedParentEnforcesSubtree(t *testing.T) {
 		require.Equal(t, want, se.Violations)
 	})
 
-	t.Run("immutable without the stored resource refused", func(t *testing.T) {
+	t.Run("immutable without the stored resource retained", func(t *testing.T) {
 		t.Parallel()
 
 		msg := &pb.Account{BackupOwner: &pb.Owner{Email: "e", Org: "o"}}
 		err := update.Apply(collapsed(t, "backup_owner", "backup_owner.org"), msg)
-		require.Equal(t, []FieldViolation{{Path: "backup_owner.org", Behavior: annotations.FieldBehavior_IMMUTABLE,
-			Reason: "immutable field cannot be modified"}}, behaviorViolations(t, err))
+		require.NoError(t, err)
+		require.Equal(t, "o", msg.GetBackupOwner().GetOrg())
 	})
 }
 
@@ -264,14 +264,13 @@ func TestPlan_CoveredPathCountsAndOneofs(t *testing.T) {
 
 			mp, ok := errors.AsType[*update.MaskPathError](err)
 			require.True(t, ok)
-			require.Equal(t, len(paths)-1, mp.Index)
+			require.Equal(t, 0, mp.Index)
 
 			_, err = update.ApplyMask(&fieldmaskpb.FieldMask{Paths: paths}, proto.Clone(req), update.WithCurrent(stored))
 			require.ErrorIs(t, err, update.ErrBehaviorViolation, "%v", paths)
 		}
 
-		plan, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"items.k"}}, update.WithCurrent(stored))
-		require.NoError(t, err)
-		require.Equal(t, []string{"items.k"}, plan.Paths)
+		_, err = spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"items.k"}}, update.WithCurrent(stored))
+		require.ErrorIs(t, err, update.ErrProtectedField)
 	})
 }

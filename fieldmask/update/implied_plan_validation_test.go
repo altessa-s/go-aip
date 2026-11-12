@@ -36,7 +36,7 @@ func TestImpliedPlanComparisonBounds(t *testing.T) {
 	}
 
 	_, err = spec.Plan(&pb.Resource{Description: "d", TenantId: "t"}, nil)
-	require.ErrorIs(t, err, update.ErrProtectedField, "a set IMMUTABLE value without the stored resource")
+	require.NoError(t, err, "a set IMMUTABLE value without current state is deferred")
 
 	md := branchingDescriptor(t, branchingLevels)
 	branching, err := update.NewSpec(dynamicpb.NewMessage(md))

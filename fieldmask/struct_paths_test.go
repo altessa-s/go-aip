@@ -148,10 +148,9 @@ func TestStructPathsResolveAlikeInEveryEntryPoint(t *testing.T) {
 	}
 }
 
-// TestStructLiteralWildcardKeyRejected pins that the literal key "*" of
-// dynamic JSON is refused by every entry point reading raw paths, as for a map: a
-// FieldMask tree cannot tell it from the wildcard.
-func TestStructLiteralWildcardKeyRejected(t *testing.T) {
+// TestStructLiteralWildcardKey pins that quoted JSON keys survive resolution
+// and mask serialization without becoming a wildcard.
+func TestStructLiteralWildcardKey(t *testing.T) {
 	t.Parallel()
 
 	md := (&testpb.UpdateRequest{}).ProtoReflect().Descriptor()
@@ -160,12 +159,13 @@ func TestStructLiteralWildcardKeyRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, raw := range []string{"extra_data.`*`", "extra_data.color.`*`", "value_data.`*`"} {
-		require.Empty(t, fieldmask.ResolvePath(md, raw), raw)
-		require.Empty(t, update.ResolvePath(md, raw), raw)
-		requireAcceptedOrInvalid(t, false, update.MergePaths(structRequest(), structRequest(), []string{raw}), "MergePaths "+raw)
+		require.Equal(t, raw, fieldmask.ResolvePath(md, raw), raw)
+		require.Equal(t, raw, update.ResolvePath(md, raw), raw)
+		require.NoError(t, update.MergePaths(structRequest(), structRequest(), []string{raw}), raw)
 
 		_, err = spec.Plan(structRequest(), &fieldmaskpb.FieldMask{Paths: []string{"description", raw}})
-		requirePlanPathError(t, err, 1, raw)
+		require.NoError(t, err, raw)
+		require.Equal(t, []string{raw}, fieldmask.FromPaths(raw).ToPaths())
 	}
 }
 

@@ -208,7 +208,7 @@ func atomicBranchingDescriptor(t testing.TB, levels int) protoreflect.MessageDes
 
 // TestAtomicProtectedDiscoveryBounded pins the exact case of an atomic value
 // over a schema branching at each of 24 levels down to an IMMUTABLE field:
-// without the stored resource "*" is refused with one violation, found by a
+// without the stored resource "*" defers the covering path, found by a
 // schema walk that visits each type once, within a small allocation bound.
 //
 // Not parallel: it reads the process-wide allocation counter, which parallel
@@ -227,6 +227,6 @@ func TestAtomicProtectedDiscoveryBounded(t *testing.T) { //nolint:paralleltest /
 
 	runtime.ReadMemStats(&after)
 
-	require.Len(t, behaviorViolations(t, err), 1)
+	require.NoError(t, err)
 	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4<<20), "allocated %d bytes", after.TotalAlloc-before.TotalAlloc)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
@@ -49,7 +50,7 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 		{
 			name:    "keyed map",
 			paths:   []string{"labels.k.display_name"},
-			want:    []string{"labels.k.display_name", "labels.k.id"},
+			want:    []string{"labels.k.display_name"},
 			dropped: []string{"labels.k.display_name"},
 			check: func(t *testing.T, res *pb.Resource) {
 				t.Helper()
@@ -61,7 +62,7 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 		{
 			name:    "quoted map key",
 			paths:   []string{"labels.`a.b`.display_name"},
-			want:    []string{"labels.`a.b`.display_name", "labels.`a.b`.id"},
+			want:    []string{"labels.`a.b`.display_name"},
 			dropped: []string{"labels.`a.b`.display_name"},
 			check: func(t *testing.T, res *pb.Resource) {
 				t.Helper()
@@ -71,7 +72,7 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 		{
 			name:    "map wildcard",
 			paths:   []string{"labels.*.display_name"},
-			want:    []string{"labels.*.display_name", "labels.*.id"},
+			want:    []string{"labels.*.display_name"},
 			dropped: []string{"labels.*.display_name"},
 			check: func(t *testing.T, res *pb.Resource) {
 				t.Helper()
@@ -82,7 +83,7 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 		{
 			name:    "keyed and wildcard map",
 			paths:   []string{"labels.k.updated_at", "labels.k.display_name", "labels.*.display_name"},
-			want:    []string{"labels.*.display_name", "labels.*.id", "labels.k.display_name", "labels.k.id"},
+			want:    []string{"labels.*.display_name", "labels.k.display_name"},
 			dropped: []string{"labels.*.display_name", "labels.k.display_name"},
 			check: func(t *testing.T, res *pb.Resource) {
 				t.Helper()
@@ -93,7 +94,7 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 		{
 			name:    "repeated wildcard",
 			paths:   []string{"aliases.*.display_name"},
-			want:    []string{"aliases.*.display_name", "aliases.*.id"},
+			want:    []string{"aliases.*.display_name"},
 			dropped: []string{"aliases.*.display_name"},
 			check: func(t *testing.T, res *pb.Resource) {
 				t.Helper()
@@ -117,8 +118,8 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 		{
 			name:    "whole list wildcard",
 			paths:   []string{"aliases.*"},
-			want:    []string{"aliases.*"},
-			dropped: []string{"aliases.*"},
+			want:    []string{"aliases"},
+			dropped: []string{"aliases"},
 		},
 	}
 	for _, tt := range tests {
@@ -127,7 +128,7 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 
 			res := newRes()
 			mask := fieldmask.FromPaths(tt.paths...)
-			require.NoError(t, update.Apply(mask, res))
+			require.NoError(t, update.Apply(mask, res, update.WithCurrent(proto.Clone(res))))
 			require.ElementsMatch(t, tt.want, mask.ToPaths())
 
 			if tt.check != nil {
@@ -147,16 +148,17 @@ func TestApplyUpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
 			Labels:  map[string]*pb.Profile{"k": {DisplayName: "y"}},
 		}
 		mask := fieldmask.FromPaths("aliases.*.display_name", "labels.k.display_name")
-		require.NoError(t, update.Apply(mask, res))
+		require.NoError(t, update.Apply(mask, res, update.WithCurrent(proto.Clone(res))))
 		require.ElementsMatch(t, []string{"aliases.*.display_name", "labels.k.display_name"}, mask.ToPaths())
 	})
 
-	t.Run("named element identifier still rejected", func(t *testing.T) {
+	t.Run("named element identifier deferred", func(t *testing.T) {
 		t.Parallel()
 
 		res := newRes()
 		err := update.Apply(fieldmask.FromPaths("labels.k.display_name", "labels.k.id"), res)
-		require.Equal(t, []string{"labels.k.id"}, violationPaths(t, err))
+		require.NoError(t, err)
+		require.Equal(t, "l1", res.GetLabels()["k"].GetId())
 	})
 }
 
@@ -179,31 +181,31 @@ func TestApplyUpdateMask_NestedCollectionElementIdentifierPreserved(t *testing.T
 		{
 			name:  "map element",
 			paths: []string{"elems.k.name"},
-			want:  []string{"elems.k.name", "elems.k.eid"},
+			want:  []string{"elems.k.name"},
 			kept:  map[string]string{"elems.k.eid": "e", "elems.k.ref": "", "elems.k.name": "n"},
 		},
 		{
 			name:  "singular message in map element",
 			paths: []string{"elems.k.inner.note"},
-			want:  []string{"elems.k.inner.note", "elems.k.inner.id", "elems.k.eid"},
+			want:  []string{"elems.k.inner.note"},
 			kept:  map[string]string{"elems.k.eid": "e", "elems.k.inner.id": "i", "elems.k.inner.stamp": ""},
 		},
 		{
 			name:  "map in map element",
 			paths: []string{"elems.k.subs.x.note"},
-			want:  []string{"elems.k.subs.x.note", "elems.k.subs.x.id", "elems.k.eid"},
+			want:  []string{"elems.k.subs.x.note"},
 			kept:  map[string]string{"elems.k.eid": "e", "elems.k.subs.x.id": "i"},
 		},
 		{
 			name:  "list in list element",
 			paths: []string{"list.*.items.*.note"},
-			want:  []string{"list.*.items.*.note", "list.*.items.*.id", "list.*.eid"},
+			want:  []string{"list.*.items.*.note"},
 			kept:  map[string]string{"list.0.eid": "e", "list.0.ref": "", "list.0.items.0.id": "i", "list.0.items.0.note": "n"},
 		},
 		{
 			name:  "int map key",
 			paths: []string{"nums.7.name"},
-			want:  []string{"nums.7.name", "nums.7.eid"},
+			want:  []string{"nums.7.name"},
 			kept:  map[string]string{"nums.7.eid": "e", "nums.7.ref": ""},
 		},
 		{
@@ -214,13 +216,13 @@ func TestApplyUpdateMask_NestedCollectionElementIdentifierPreserved(t *testing.T
 		{
 			name:  "element without identifier, message below it",
 			paths: []string{"wraps.*.inner.note"},
-			want:  []string{"wraps.*.inner.note", "wraps.*.inner.id"},
+			want:  []string{"wraps.*.inner.note"},
 			kept:  map[string]string{"wraps.0.inner.id": "i", "wraps.0.label": ""},
 		},
 		{
 			name:  "element without identifier, list below it",
 			paths: []string{"wraps.*.items.*.note"},
-			want:  []string{"wraps.*.items.*.note", "wraps.*.items.*.id"},
+			want:  []string{"wraps.*.items.*.note"},
 			kept:  map[string]string{"wraps.0.items.0.id": "i"},
 		},
 		{
@@ -232,7 +234,7 @@ func TestApplyUpdateMask_NestedCollectionElementIdentifierPreserved(t *testing.T
 		{
 			name:  "collection in element named whole",
 			paths: []string{"elems.k.subs"},
-			want:  []string{"elems.k.subs", "elems.k.eid"},
+			want:  []string{"elems.k.subs"},
 			kept:  map[string]string{"elems.k.eid": "e", "elems.k.subs.x.id": "i", "elems.k.subs.x.stamp": ""},
 		},
 	}
@@ -242,7 +244,7 @@ func TestApplyUpdateMask_NestedCollectionElementIdentifierPreserved(t *testing.T
 
 			res := newElementResource(t, md)
 			mask := fieldmask.FromPaths(tt.paths...)
-			require.NoError(t, update.Apply(mask, res))
+			require.NoError(t, update.Apply(mask, res, update.WithCurrent(proto.Clone(res))))
 			require.ElementsMatch(t, tt.want, mask.ToPaths())
 
 			for path, want := range tt.kept {

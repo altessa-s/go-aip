@@ -6,6 +6,7 @@ package update_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -42,13 +43,13 @@ func TestApplyUpdateMask_ParentOfIdentifier(t *testing.T) {
 		changed bool
 	}{
 		{name: "populated parent", msg: &pb.Resource{Profile: &pb.Profile{Id: "replacement", DisplayName: "Ann"}},
-			want: []string{"profile.display_name", "profile.id", "profile.secret"}},
+			want: []string{"profile.display_name", "profile.secret"}},
 		{name: "parent without identifier", msg: &pb.Resource{Profile: &pb.Profile{DisplayName: "Ann"}},
 			want: []string{"profile.display_name", "profile.secret"}},
 		{name: "absent parent", msg: &pb.Resource{}, want: []string{"profile.display_name", "profile.secret"}},
 		{name: "unchanged identifier", msg: &pb.Resource{Profile: &pb.Profile{Id: "p-1", DisplayName: "Ann"}},
 			current: &pb.Resource{Profile: &pb.Profile{Id: "p-1", UpdatedAt: "ts"}},
-			want:    []string{"profile.display_name", "profile.id", "profile.secret"}},
+			want:    []string{"profile.display_name", "profile.secret"}},
 		{name: "changed identifier", msg: &pb.Resource{Profile: &pb.Profile{Id: "p-2", DisplayName: "Ann"}},
 			current: &pb.Resource{Profile: &pb.Profile{Id: "p-1"}}, changed: true},
 	}
@@ -159,9 +160,9 @@ func outerDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 // holding an IMMUTABLE descendant — also one that is REQUIRED too — at any
 // depth of singular sub-messages, on a recursive message type (the walk
 // terminates): the entry expands to the message's other fields, an IMMUTABLE
-// field the request leaves unset keeps its stored value, and one it sets is a
-// violation without WithCurrent, ignored when equal to the stored value and a
-// violation when changed. Repeated fields are replaced as a whole; a message
+// field is retained for caller comparison without WithCurrent, ignored when
+// equal to the stored value and a violation when changed. Repeated fields
+// containing protected descendants are deferred without current state; a message
 // without protected descendants is named whole.
 func TestApplyUpdateMask_ParentOfImmutable(t *testing.T) {
 	t.Parallel()
@@ -175,10 +176,10 @@ func TestApplyUpdateMask_ParentOfImmutable(t *testing.T) {
 		paths     []string
 		wantPaths []string
 	}{
-		{name: "direct parent", paths: []string{"inner"}, wantPaths: []string{"inner.leaves", "inner.note"}},
-		{name: "grandparent", paths: []string{"wrap"}, wantPaths: []string{"wrap.inner.leaves", "wrap.inner.note"}},
-		{name: "parent named under a sub-mask", paths: []string{"wrap.inner"}, wantPaths: []string{"wrap.inner.leaves", "wrap.inner.note"}},
-		{name: "recursive child", paths: []string{"inner.child"}, wantPaths: []string{"inner.child.leaves", "inner.child.note"}},
+		{name: "direct parent", paths: []string{"inner"}, wantPaths: []string{"inner.note"}},
+		{name: "grandparent", paths: []string{"wrap"}, wantPaths: []string{}},
+		{name: "parent named under a sub-mask", paths: []string{"wrap.inner"}, wantPaths: []string{"wrap.inner.note"}},
+		{name: "recursive child", paths: []string{"inner.child"}, wantPaths: []string{"inner.child.note"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -201,24 +202,22 @@ func TestApplyUpdateMask_ParentOfImmutable(t *testing.T) {
 		return m
 	}
 
-	err := update.Apply(fieldmask.FromPaths("inner"), newReq("c1"))
-	behaviorErr, ok := errors.AsType[*update.BehaviorError](err)
-	require.True(t, ok, "a set IMMUTABLE value without WithCurrent: want *UpdateMaskBehaviorError, got %v", err)
-	require.Equal(t, "inner.code", behaviorErr.Violations[0].Path)
-	require.Equal(t, annotations.FieldBehavior_IMMUTABLE, behaviorErr.Violations[0].Behavior)
+	req := newReq("c1")
+	require.NoError(t, update.Apply(fieldmask.FromPaths("inner"), req))
+	require.Equal(t, "c1", req.Get(innerFD).Message().Get(innerMD.Fields().ByName("code")).String())
 
 	mask := fieldmask.FromPaths("inner")
 	require.NoError(t, update.Apply(mask, newReq("c1"), update.WithCurrent(newReq("c1"))))
 	require.Equal(t, []string{"inner.leaves", "inner.note"}, mask.ToPaths(), "an unchanged IMMUTABLE value is ignored")
 
-	err = update.Apply(fieldmask.FromPaths("inner"), newReq("c2"), update.WithCurrent(newReq("c1")))
-	behaviorErr, ok = errors.AsType[*update.BehaviorError](err)
+	err := update.Apply(fieldmask.FromPaths("inner"), newReq("c2"), update.WithCurrent(newReq("c1")))
+	behaviorErr, ok := errors.AsType[*update.BehaviorError](err)
 	require.True(t, ok, "a changed IMMUTABLE value: want *UpdateMaskBehaviorError, got %v", err)
 	require.Equal(t, "inner.code", behaviorErr.Violations[0].Path)
 
 	for _, paths := range [][]string{{"plain"}, {"inner.note"}, {"inner.leaves"}, {"wrap.inner.note"}} {
 		mask := fieldmask.FromPaths(paths...)
-		require.NoError(t, update.Apply(mask, dynamicpb.NewMessage(md)), "paths %v", paths)
+		require.NoError(t, update.Apply(mask, dynamicpb.NewMessage(md), update.WithCurrent(dynamicpb.NewMessage(md))), "paths %v", paths)
 		require.Equal(t, paths, mask.ToPaths())
 	}
 }
@@ -290,8 +289,8 @@ func multiDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 // several behaviors is judged by presence with a fixed precedence —
 // OUTPUT_ONLY, then IDENTIFIER, then IMMUTABLE, then REQUIRED — rather than by
 // its first annotation: a REQUIRED field that is also IMMUTABLE or IDENTIFIER
-// cannot be modified by naming it, set or not, and the violation reports the
-// protecting behavior. Top-level and nested paths behave alike.
+// is omitted from the effective mask without current state, set or not.
+// Top-level and nested paths behave alike.
 func TestApplyUpdateMask_MultiBehaviorPrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -325,12 +324,26 @@ func TestApplyUpdateMask_MultiBehaviorPrecedence(t *testing.T) {
 	}
 	for _, tt := range tests {
 		for _, set := range []bool{true, false} {
-			err := update.Apply(fieldmask.FromPaths(tt.path), newMsg(set))
+			mask := fieldmask.FromPaths(tt.path)
+			require.NoError(t, update.Apply(mask, newMsg(set)))
+			require.Empty(t, mask, "%s (set=%v)", tt.path, set)
+
+			current := newMsg(set)
+			target := current.ProtoReflect()
+
+			name, nested := strings.CutPrefix(tt.path, "sub.")
+			if nested {
+				target = target.Get(md.Fields().ByName("sub")).Message()
+			}
+
+			target.Set(md.Fields().ByName(protoreflect.Name(name)), protoreflect.ValueOfString("stored"))
+
+			err := update.Apply(fieldmask.FromPaths(tt.path), newMsg(set), update.WithCurrent(current))
 			behaviorErr, ok := errors.AsType[*update.BehaviorError](err)
-			require.True(t, ok, "%s (set=%v): want *UpdateMaskBehaviorError, got %v", tt.path, set, err)
-			require.Len(t, behaviorErr.Violations, 1, tt.path)
+			require.True(t, ok, "%s (set=%v): %v", tt.path, set, err)
+			require.Len(t, behaviorErr.Violations, 1)
 			require.Equal(t, tt.path, behaviorErr.Violations[0].Path)
-			require.Equal(t, tt.want, behaviorErr.Violations[0].Behavior, "%s (set=%v)", tt.path, set)
+			require.Equal(t, tt.want, behaviorErr.Violations[0].Behavior)
 		}
 	}
 
@@ -395,7 +408,7 @@ func TestApplyUpdateMask_OutputOnlyOnlyBranchDropped(t *testing.T) {
 	require.NoError(t, update.Apply(mask, msg))
 	require.Empty(t, mask.ToPaths())
 	require.False(t, mask.Contains("profile"), "no empty branch is left behind")
-	require.True(t, proto.Equal(&pb.Resource{Profile: &pb.Profile{Id: "p1", UpdatedAt: "ts"}}, msg), "an update of nothing leaves msg untouched")
+	require.True(t, proto.Equal(&pb.Resource{Profile: &pb.Profile{Id: "p1"}}, msg), "an effective no-op still clears output-only input")
 }
 
 // wholeSubDescriptor builds:
@@ -493,7 +506,13 @@ func TestApplyUpdateMask_WholeMessageOutputOnlyDescendants(t *testing.T) {
 	} {
 		mask := fieldmask.FromPaths("sub")
 		require.NoError(t, update.Apply(mask, req), name)
-		require.Equal(t, []string{"sub.deep.v", "sub.note"}, mask.ToPaths(), name)
+
+		want := []string{"sub.deep.v", "sub.note"}
+		if name == "absent" {
+			want = []string{"sub.note"} // absent descendants await stored-state expansion
+		}
+
+		require.Equal(t, want, mask.ToPaths(), name)
 	}
 
 	// Applied to the stored resource, the expanded replacement keeps the

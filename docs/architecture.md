@@ -17,7 +17,7 @@ The package list and the AIP coverage are in the [README](../README.md); the con
 | Test support             | `*test` packages, `internal/testhelpers`, `internal/proto`, modules `integration/crossbackend` and `integration/docker`                            | Conformance suites, expectation tables, fixtures, the cross-backend checks and the live suites; never imported by production code                                       |
 
 The `internal/` packages of the root module (`behavior`, `literalvalue`, `lru`, `telemetry`, `typename`, `filter/internal/regexcache`,
-`fieldmask/internal/maskpath`, `fieldmask/internal/maskwalk`) are shared building blocks of the layers above and import no exported go-aip
+`maskpath`, `maskwalk`, `maskmerge`) are shared building blocks of the layers above and import no exported go-aip
 package except `metrics`. The `backend/mongo/internal` packages (`bsonbound`, `bsonraw`, `bsonstruct`, `indexes`, `keyset`) belong to the
 MongoDB backend and import the core packages it does.
 

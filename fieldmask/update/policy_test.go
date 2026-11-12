@@ -179,9 +179,9 @@ func TestUpdateEntryPointsBehaviorPolicy(t *testing.T) {
 		return nil
 	}))
 	_, err := update.ValidateStrict(fieldmask.FieldMask{"name": nil}, m, resolver)
-	require.Error(t, err)
+	require.NoError(t, err)
 	err = update.Apply((fieldmask.FieldMask{"name": nil}), m, resolver)
-	require.Error(t, err)
+	require.NoError(t, err)
 	_, err = update.ValidateStrict(fieldmask.FieldMask{"name": nil}, nil, update.WithUpdateMaskFieldName("patch"))
 
 	var strict *update.StrictError
@@ -192,7 +192,7 @@ func TestUpdateEntryPointsBehaviorPolicy(t *testing.T) {
 // TestStrictWildcardAtomicPolicy pins that "*" names an atomic message whole,
 // compared with the stored resource: Status holds an IMMUTABLE origin, which
 // a whole replacement cannot keep, so it is accepted when equal to the
-// stored value and refused without the stored resource.
+// stored value and deferred without the stored resource.
 func TestStrictWildcardAtomicPolicy(t *testing.T) {
 	t.Parallel()
 	m := planResource(planDescriptor(t), nil)
@@ -203,7 +203,7 @@ func TestStrictWildcardAtomicPolicy(t *testing.T) {
 	require.Nil(t, mask["status"])
 
 	_, err = update.ValidateStrict(fieldmask.FieldMask{"*": nil}, m, atomic)
-	require.ErrorIs(t, err, update.ErrBehaviorViolation)
+	require.NoError(t, err)
 }
 
 func TestAtomicUpdateRejectsPartialMutation(t *testing.T) {
@@ -230,7 +230,7 @@ func TestDropIdentifiersUsesUpdatePolicy(t *testing.T) {
 	}))
 	mask := fieldmask.FromPaths("code")
 	require.NoError(t, update.Apply(mask, m, resolver))
-	require.Contains(t, mask, "name")
+	require.NotContains(t, mask, "name")
 	update.DropIdentifiers(mask, m, resolver)
 	require.NotContains(t, mask, "name")
 	require.Contains(t, mask, "code")
@@ -248,7 +248,7 @@ func TestPlanAtomicProtectedMessage(t *testing.T) {
 		require.NoError(t, err, path)
 
 		_, err = spec.Plan(m, maskOf([]string{path}))
-		require.ErrorIs(t, err, update.ErrProtectedField, path)
+		require.NoError(t, err, path)
 	}
 }
 

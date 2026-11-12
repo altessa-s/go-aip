@@ -64,7 +64,7 @@ func TestUpdateEntryPoints_MaskPolicyParity(t *testing.T) {
 		{name: "changed policy-immutable path", paths: []string{"description"}, current: true,
 			mutate: func(r *testpb.UpdateRequest) { r.Description = new("new") }, wantErr: true},
 		{name: "unchanged policy-immutable path", paths: []string{"description", "status"}, current: true},
-		{name: "policy-immutable path without the stored resource", paths: []string{"description"}, wantErr: true},
+		{name: "policy-immutable path without the stored resource", paths: []string{"description"}},
 		{name: "changed identity path", paths: []string{"id"}, current: true,
 			mutate: func(r *testpb.UpdateRequest) { r.Id = "2" }, wantErr: true},
 		{name: "changed identity field the mask does not name", paths: []string{"status"}, current: true,
@@ -72,7 +72,7 @@ func TestUpdateEntryPoints_MaskPolicyParity(t *testing.T) {
 		{name: "full replacement changing a policy-immutable field", paths: []string{"*"}, current: true,
 			mutate: func(r *testpb.UpdateRequest) { r.Description = new("new") }, wantErr: true},
 		{name: "full replacement leaving a policy-immutable field unset", paths: []string{"*"}, current: true,
-			mutate: func(r *testpb.UpdateRequest) { r.Description = nil }},
+			mutate: func(r *testpb.UpdateRequest) { r.Description = nil }, wantErr: true},
 		{name: "path in JSON spelling", paths: []string{"shippingAddress.street"}, current: true,
 			mutate: func(r *testpb.UpdateRequest) { r.ShippingAddress.Street = new("New") }},
 	}
@@ -132,12 +132,12 @@ func TestApplyUpdateMask_MaskPolicy(t *testing.T) {
 		{
 			name: "unchanged policy-immutable path is ignored", paths: []string{"description", "status"}, current: true,
 			policy:    []update.Option{update.WithImmutableFields("description")},
-			wantPaths: []string{"id", "resource_name", "status"},
+			wantPaths: []string{"status"},
 		},
 		{
 			name: "policy-immutable path without the stored resource", paths: []string{"description"},
-			policy: []update.Option{update.WithImmutableFields("description")},
-			want:   []violation{{"description", annotations.FieldBehavior_IMMUTABLE}},
+			policy:    []update.Option{update.WithImmutableFields("description")},
+			wantPaths: []string{},
 		},
 		{
 			name: "changed identity path", paths: []string{"id"}, current: true,
@@ -146,16 +146,16 @@ func TestApplyUpdateMask_MaskPolicy(t *testing.T) {
 		},
 		{
 			name: "identity path without the stored resource", paths: []string{"id"},
-			want: []violation{{"id", annotations.FieldBehavior_IDENTIFIER}},
+			wantPaths: []string{},
 		},
 		{
 			name: "unchanged identity path is ignored and kept as the address", paths: []string{"id", "status"}, current: true,
-			wantPaths: []string{"id", "resource_name", "status"},
+			wantPaths: []string{"status"},
 		},
 		{
 			name: "identity field the mask does not name is kept, not compared", paths: []string{"status"}, current: true,
 			mutate:    func(r *testpb.UpdateRequest) { r.Id = "2" },
-			wantPaths: []string{"id", "resource_name", "status"},
+			wantPaths: []string{"status"},
 		},
 		{
 			name: "changed identity field of a custom policy", paths: []string{"status"}, current: true,
@@ -167,7 +167,7 @@ func TestApplyUpdateMask_MaskPolicy(t *testing.T) {
 			name: "no identity fields", paths: []string{"id"}, current: true,
 			policy:    []update.Option{update.WithIdentityFields()},
 			mutate:    func(r *testpb.UpdateRequest) { r.Id = "2" },
-			wantPaths: []string{"id", "resource_name"},
+			wantPaths: []string{"id"},
 		},
 		{
 			name: "annotated identifier still compared when unnamed", paths: []string{"status"}, current: true,
@@ -251,6 +251,9 @@ func TestApplyUpdateMask_FullReplacementClearsAbsentFields(t *testing.T) {
 		Address:   &testpb.Address{City: new("Belgrade")},
 		CreatedAt: new("client"),
 	}
+
+	req.Code = storedRequest().Code
+	req.ResourceName = storedRequest().ResourceName
 
 	for _, entry := range []struct {
 		name string
@@ -372,7 +375,7 @@ func TestApplyUpdateMask_JSONSpelling(t *testing.T) {
 			mask := fieldmask.FromPaths("shippingAddress.street", "resourceName")
 			require.NoError(t, update.Apply(mask, req, append(tt.opts, update.WithCurrent(storedRequest()))...))
 
-			assert.Equal(t, []string{"id", "resource_name", "shipping_address.street"}, mask.ToPaths())
+			assert.Equal(t, []string{"shipping_address.street"}, mask.ToPaths())
 			assert.Equal(t, "New", req.GetShippingAddress().GetStreet())
 			assert.Equal(t, "requests/1", req.GetResourceName())
 			assert.Equal(t, "1", req.GetId())
@@ -498,8 +501,7 @@ func TestApplyUpdateMask_AIP203Regression(t *testing.T) {
 			mutate: func(r *testpb.UpdateRequest) { r.Name, r.Address.City = nil, nil }, want: []string{"address.city", "name"}},
 		{name: "full replacement compares a set IMMUTABLE field", paths: []string{"*"}, current: true,
 			mutate: func(r *testpb.UpdateRequest) { r.Code = new("C2") }, want: []string{"code"}},
-		{name: "full replacement without the stored resource rejects a set IMMUTABLE field", paths: []string{"*"},
-			want: []string{"code"}},
+		{name: "full replacement without current state defers IMMUTABLE fields", paths: []string{"*"}},
 		{name: "full replacement ignores OUTPUT_ONLY values", paths: []string{"*"}, current: true,
 			mutate: func(r *testpb.UpdateRequest) { r.CreatedAt = new("client") }},
 		{name: "cleared IMMUTABLE path is a change", paths: []string{"code"}, current: true,

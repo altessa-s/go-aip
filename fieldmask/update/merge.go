@@ -7,32 +7,31 @@ package update
 import (
 	"errors"
 	"fmt"
-	"maps"
-	"reflect"
-	"slices"
-	"strconv"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskwalk"
-	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskmerge"
+	"github.com/altessa-s/go-aip/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskwalk"
 )
 
 // ErrMessageMismatch is returned by [Merge] for messages that are
-// nil (or typed-nil), not of one Go type or not of one descriptor.
+// nil (or typed-nil), not of one descriptor, or cannot be converted into the
+// destination representation. Conversion errors retain their underlying cause.
 var ErrMessageMismatch = errors.New("fieldmask: messages are nil or of different types")
 
 // ErrElementCountMismatch reports a "*" sub-path of a repeated field
 // ("aliases.*.display_name") whose source list holds a different number of
 // elements than the destination list: the elements are paired by index, so
 // the update cannot tell which element a value belongs to.
-var ErrElementCountMismatch = errors.New("fieldmask: element count differs from the stored list")
+var ErrElementCountMismatch = maskmerge.ErrElementCountMismatch
 
 // Merge copies the fields msk selects from src to dst, both messages of the
-// same type, as [MergePaths] copies them: msk may name top-level fields,
+// same descriptor, as [MergePaths] copies them: msk may name top-level fields,
 // nested fields, map keys and "*" on repeated and map fields, in any spelling
 // of its field segments. A selected field src does not populate is cleared
 // in dst, fields outside the mask are kept, and dst never shares memory with
@@ -48,12 +47,12 @@ var ErrElementCountMismatch = errors.New("fieldmask: element count differs from 
 // with other paths is [fieldmask.ErrWildcardNotAlone]. A path that is not an update
 // path ([ResolvePath] under the options, of which
 // [WithStrictDynamicPaths] and the limits apply) is a *[fieldmask.ValidationError].
-// Nil (including typed-nil) messages, or messages not of one Go type and one
-// descriptor (a dynamicpb message and the generated type of its descriptor do
-// not mix), are [ErrMessageMismatch]. Every check runs before the first
+// Nil (including typed-nil) messages, or messages not of one descriptor,
+// are [ErrMessageMismatch]. Generated and dynamic representations of the same
+// descriptor may be mixed. Every check runs before the first
 // write, so dst is changed all-or-nothing.
 func Merge(msk fieldmask.FieldMask, dst, src proto.Message, opts ...Option) error {
-	d, s, err := reflectPair(dst, src)
+	d, err := reflectPair(dst, src)
 	if err != nil {
 		return err
 	}
@@ -68,17 +67,28 @@ func Merge(msk fieldmask.FieldMask, dst, src proto.Message, opts ...Option) erro
 	}
 
 	fields := d.Descriptor().Fields()
-	c := proto.Clone(s.Interface()).ProtoReflect()
 
-	for i := range fields.Len() {
-		copyField(d, c, fields.Get(i))
+	source, err := cloneMessage(src)
+	if err != nil {
+		return err
 	}
 
-	return nil
+	work, err := cloneMessage(dst)
+	if err != nil {
+		return err
+	}
+
+	for i := range fields.Len() {
+		if err := maskmerge.CopyField(work.ProtoReflect(), source.ProtoReflect(), fields.Get(i)); err != nil {
+			return conversionError(err)
+		}
+	}
+
+	return publishMessage(dst, work)
 }
 
 // MergePaths copies the fields paths name from src to dst, messages of one
-// type: the merge of an [Plan]. Each path is an update path
+// descriptor: the merge of a [Plan]. Each path is an update path
 // ([ResolvePath]: declared, JSON or snake_case field segments, map keys
 // and "*" on repeated and map fields):
 //   - a field path replaces the whole field (a parent path replaces the
@@ -109,9 +119,12 @@ func Merge(msk fieldmask.FieldMask, dst, src proto.Message, opts ...Option) erro
 // parent is set in neither message changes nothing (no empty parent or entry
 // is created). Values are deep copies, so dst never shares memory with src.
 // Every path and element count is checked before the first write
-// (*[fieldmask.ValidationError] for a bad path, [ErrMessageMismatch] for nil or mixed
+// (*[fieldmask.ValidationError] for a bad path, [ErrMessageMismatch] for nil or descriptor-mismatched
 // messages, [ErrElementCountMismatch]), so dst is changed all-or-nothing; no
-// paths change nothing. Fields are written in declaration order and map keys
+// paths change nothing. For a dynamic JSON root (Struct, Value or ListValue),
+// "*" alone replaces the entire root, including clearing absent object keys or
+// changing a list's length; protobuf wrapper names are never used as JSON paths.
+// Fields are written in declaration order and map keys
 // in sorted order, so two paths setting members of one oneof leave the later
 // declared member. The mask limits of the options ([WithMaxPaths],
 // [WithMaxPathLength], [WithMaxPathDepth]) are checked before anything else.
@@ -120,209 +133,111 @@ func MergePaths(dst, src proto.Message, paths []string, opts ...Option) error {
 }
 
 func mergePaths(dst, src proto.Message, paths []string, policy *options) error {
-	d, s, err := reflectPair(dst, src)
+	d, err := reflectPair(dst, src)
 	if err != nil {
 		return err
 	}
 
-	if err := policy.validateMaskLimits(paths); err != nil {
+	if err = policy.validateMaskLimits(paths); err != nil {
 		return err
 	}
 
 	md := d.Descriptor()
-	tree := fieldmask.FieldMask{}
 
-	for _, p := range paths {
-		segs, reason := resolveUpdateSegments(md, p, policy)
-		if reason != "" {
-			return &fieldmask.ValidationError{Path: p, Reason: "not an update path of " + string(md.FullName()) + ": " + reason}
-		}
-
-		maskwalk.Insert(tree, segs)
+	tree, err := mergeSelection(md, paths, policy)
+	if err != nil {
+		return err
 	}
 
 	if len(tree) == 0 {
 		return nil
 	}
 
-	c := proto.Clone(s.Interface()).ProtoReflect()
-	if err := checkElementCounts(d, c, tree, md, ""); err != nil {
+	source, err := cloneMessage(src)
+	if err != nil {
 		return err
 	}
 
-	mergeTree(d, c, tree, md)
+	work, err := cloneMessage(dst)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	if err := maskmerge.CheckElementCounts(work.ProtoReflect(), source.ProtoReflect(), tree, md, ""); err != nil {
+		return &elementCountError{Path: err.Path, Reason: err.Reason}
+	}
+
+	if err := maskmerge.Tree(work.ProtoReflect(), source.ProtoReflect(), tree, md); err != nil {
+		return conversionError(err)
+	}
+
+	return publishMessage(dst, work)
 }
 
-// reflectPair returns the reflected dst and src, which must be valid
-// (non-nil, not typed-nil) messages of the same Go type and the same
-// descriptor. Equal full names are not enough (independently built
-// descriptors cannot be mixed), and neither is a shared descriptor: a
-// dynamicpb message and the generated type of its descriptor hold nested
-// values of different Go types, which the generated setters reject with a
-// panic. With one Go type and one descriptor every value of src is valid in
-// dst, so the copy cannot fail once the paths are resolved. Converting
-// values through a marshal round trip was not chosen: it costs a full
-// encode/decode per field and changes unknown-field handling.
-func reflectPair(dst, src proto.Message) (protoreflect.Message, protoreflect.Message, error) {
+// reflectPair validates both messages and returns the destination. Equal full
+// names are not enough: independently built descriptors cannot be mixed.
+// The writer converts nested values into the destination's Go representation.
+func reflectPair(dst, src proto.Message) (protoreflect.Message, error) {
 	if dst == nil || src == nil {
-		return nil, nil, ErrMessageMismatch
+		return nil, ErrMessageMismatch
+	}
+
+	if nilcheck.IsNil(dst) || nilcheck.IsNil(src) {
+		return nil, fmt.Errorf("%w: nil message", ErrMessageMismatch)
 	}
 
 	d, s := dst.ProtoReflect(), src.ProtoReflect()
 	if !d.IsValid() || !s.IsValid() {
-		return nil, nil, fmt.Errorf("%w: nil message", ErrMessageMismatch)
+		return nil, fmt.Errorf("%w: nil message", ErrMessageMismatch)
 	}
 
-	if reflect.TypeOf(dst) != reflect.TypeOf(src) || d.Descriptor() != s.Descriptor() {
-		return nil, nil, fmt.Errorf("%w: %T (%s) and %T (%s)", ErrMessageMismatch,
+	if d.Descriptor() != s.Descriptor() {
+		return nil, fmt.Errorf("%w: %T (%s) and %T (%s)", ErrMessageMismatch,
 			dst, d.Descriptor().FullName(), src, s.Descriptor().FullName())
 	}
 
-	return d, s, nil
+	return d, nil
 }
 
-// copyField sets fd of d to its value in s, a private copy of the source,
-// or clears it when s is nil or does not populate it.
-func copyField(d, s protoreflect.Message, fd protoreflect.FieldDescriptor) {
-	if s != nil && s.Has(fd) {
-		d.Set(fd, s.Get(fd))
-		return
-	}
-
-	d.Clear(fd)
+// validMessage rejects typed nils before reflection: unlike generated messages,
+// a nil dynamicpb.Message cannot safely report its validity or descriptor.
+func validMessage(msg proto.Message) bool {
+	return !nilcheck.IsNil(msg) && msg.ProtoReflect().IsValid()
 }
 
-// mergeTree applies msk, a resolved mask of md (trailing "*" dropped), from
-// s to d (see [MergePaths]); s is a private copy of the source, nil where the
-// source holds nothing. Element counts are checked first
-// ([checkElementCounts]), so nothing here fails.
-func mergeTree(d, s protoreflect.Message, msk fieldmask.FieldMask, md protoreflect.MessageDescriptor) {
+// mergeSelection builds the exact tree consumed by the real merge and by
+// protected comparison. Resolve before removing OUTPUT_ONLY selections, so
+// trailing collection wildcards collapse and explicit keys remain exclusions.
+func mergeSelection(md protoreflect.MessageDescriptor, paths []string, policy *options) (fieldmask.FieldMask, error) {
 	if maskpath.IsDynamicMessage(md) {
-		mergeDynamicMessage(d, s, msk)
-		return
-	}
+		all, err := selectsAll(paths)
+		if err != nil {
+			// MergePaths reports path validation, never a planner's indexed
+			// mask error, including at a dynamic root.
+			mp, _ := errors.AsType[*MaskPathError](err)
+			return nil, &fieldmask.ValidationError{Path: mp.Path, Reason: "not an update path of " + string(md.FullName()) + ": " + mp.reason}
+		}
 
-	fields := md.Fields()
-	for i := range fields.Len() {
-		fd := fields.Get(i)
-
-		nested, ok := msk[string(fd.Name())]
-		switch {
-		case !ok:
-		case nested == nil:
-			copyField(d, s, fd)
-		case fd.IsList():
-			mergeList(d, s, fd, nested[maskpath.Wildcard])
-		case fd.IsMap():
-			mergeMap(d, s, fd, nested)
-		case maskpath.IsDynamicField(fd):
-			mergeDynamicField(d, s, fd, nested)
-		default:
-			next := behavior.Child(s, fd)
-			if next == nil && !d.Has(fd) {
-				continue
-			}
-
-			mergeTree(d.Mutable(fd).Message(), next, nested, fd.Message())
+		if all {
+			return fieldmask.FieldMask{maskpath.Wildcard: nil}, nil
 		}
 	}
+
+	tree := fieldmask.FieldMask{}
+
+	for _, p := range paths {
+		segs, reason := resolveUpdateSegments(md, p, policy)
+		if reason != "" {
+			return nil, &fieldmask.ValidationError{Path: p, Reason: "not an update path of " + string(md.FullName()) + ": " + reason}
+		}
+
+		maskwalk.Insert(tree, segs)
+	}
+
+	return tree, nil
 }
 
-// mergeList applies sub, the "*" sub-mask of the repeated field fd, to every
-// element of d from the s element of the same index (none when s holds
-// fewer, which [checkElementCounts] allows only for an empty source).
-func mergeList(d, s protoreflect.Message, fd protoreflect.FieldDescriptor, sub fieldmask.FieldMask) {
-	if sub == nil || !d.Has(fd) {
-		return
-	}
-
-	var src protoreflect.List
-	if s != nil && s.Has(fd) {
-		src = s.Get(fd).List()
-	}
-
-	dst := d.Mutable(fd).List()
-	for i := range dst.Len() {
-		var elem protoreflect.Message
-		if src != nil && i < src.Len() {
-			elem = src.Get(i).Message()
-		}
-
-		mergeTree(dst.Get(i).Message(), elem, sub, fd.Message())
-	}
-}
-
-// mergeMap applies nested, the sub-mask of the map field fd, from s to d: a
-// key named whole replaces or deletes its entry, a key with a sub-mask
-// updates its entry in place, and the "*" sub-mask updates every entry of s
-// no other key names.
-func mergeMap(d, s protoreflect.Message, fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask) {
-	var src protoreflect.Map
-	if s != nil && s.Has(fd) {
-		src = s.Get(fd).Map()
-	}
-
-	kind := fd.MapKey().Kind()
-
-	for _, key := range slices.Sorted(maps.Keys(nested)) {
-		if key == maskpath.Wildcard {
-			continue
-		}
-
-		if k, ok := maskpath.ParseMapKey(kind, key); ok {
-			mergeEntry(d, src, fd, k, nested[key])
-		}
-	}
-
-	wildcard := nested[maskpath.Wildcard]
-	if wildcard == nil || src == nil {
-		return
-	}
-
-	for _, k := range behavior.SortedMapKeys(src) {
-		if _, named := maskwalk.KeyMask(nested, k.String()); !named {
-			mergeEntry(d, src, fd, k, wildcard)
-		}
-	}
-}
-
-// mergeEntry applies sub to the entry k of the map field fd of d from src
-// (nil when the source holds no map): with a nil sub the entry is replaced,
-// or deleted when src lacks it; otherwise it is updated in place, created
-// only when src holds it.
-func mergeEntry(d protoreflect.Message, src protoreflect.Map, fd protoreflect.FieldDescriptor, k protoreflect.MapKey, sub fieldmask.FieldMask) {
-	var sv protoreflect.Value
-	if src != nil {
-		sv = src.Get(k)
-	}
-
-	if sub == nil {
-		switch {
-		case sv.IsValid():
-			d.Mutable(fd).Map().Set(k, sv)
-		case d.Has(fd):
-			d.Mutable(fd).Map().Clear(k)
-		}
-
-		return
-	}
-
-	var elem protoreflect.Message
-	if sv.IsValid() {
-		elem = sv.Message()
-	}
-
-	if elem == nil && (!d.Has(fd) || !d.Get(fd).Map().Has(k)) {
-		return
-	}
-
-	mergeTree(d.Mutable(fd).Map().Mutable(k).Message(), elem, sub, fd.MapValue().Message())
-}
-
-// elementCountError is the [ErrElementCountMismatch] refusal of the list at
-// Path.
+// elementCountError preserves the public merge refusal's base error shape.
 type elementCountError struct {
 	Path   string
 	Reason string
@@ -334,155 +249,68 @@ func (e *elementCountError) Error() string {
 
 func (e *elementCountError) Unwrap() error { return ErrElementCountMismatch }
 
-// checkElementCounts reports the first list a "*" sub-path of msk, a
-// resolved mask of md, updates in place whose source s holds a number of
-// elements other than zero and the destination d's (see [MergePaths]);
-// either message may be nil (holding nothing). prefix is the concrete path
-// of the messages.
-func checkElementCounts(d, s protoreflect.Message, msk fieldmask.FieldMask, md protoreflect.MessageDescriptor, prefix string) *elementCountError {
-	if maskpath.IsDynamicMessage(md) {
-		dv, _ := dynamicValueOf(d)
-		sv, _ := dynamicValueOf(s)
-
-		return checkDynamicCounts(dv, sv, msk, prefix)
+// cloneCurrent preserves pair-validation errors before making a private copy.
+func cloneCurrent(in, current proto.Message) (proto.Message, error) {
+	if _, err := reflectPair(in, current); err != nil {
+		return nil, err
 	}
 
-	fields := md.Fields()
-	for i := range fields.Len() {
-		fd := fields.Get(i)
+	return cloneMessage(current)
+}
 
-		nested := msk[string(fd.Name())]
-		if nested == nil {
-			continue
-		}
-
-		path := behavior.JoinPath(prefix, string(fd.Name()))
-
-		var err *elementCountError
-
-		switch {
-		case fd.IsList():
-			err = checkListCounts(d, s, fd, nested[maskpath.Wildcard], path)
-		case fd.IsMap():
-			err = checkMapCounts(d, s, fd, nested, path)
-		default:
-			err = checkElementCounts(behavior.Child(d, fd), behavior.Child(s, fd), nested, fd.Message(), path)
-		}
-
-		if err != nil {
-			return err
-		}
+// cloneMessage converts every child into its parent's representation. proto.Clone
+// assumes descriptor identity even for children accepted by dynamicpb by name.
+func cloneMessage(msg proto.Message) (proto.Message, error) {
+	if !validMessage(msg) {
+		return nil, ErrMessageMismatch
 	}
+
+	out := msg.ProtoReflect().New().Interface()
+	if err := publishMessage(out, msg); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// publishMessage completes all conversions before replacing the live message.
+func publishMessage(dst, src proto.Message) error {
+	prepared, err := preparePublication(dst, src)
+	if err != nil {
+		return err
+	}
+
+	commitMessage(dst, prepared)
 
 	return nil
 }
 
-// checkListCounts is [checkElementCounts] for the repeated field fd at path
-// with the "*" sub-mask sub.
-func checkListCounts(d, s protoreflect.Message, fd protoreflect.FieldDescriptor, sub fieldmask.FieldMask, path string) *elementCountError {
-	if sub == nil {
-		return nil
+// conversionError keeps the existing mismatch identity for a representation
+// that cannot carry a value, and retains the protobuf cause for diagnostics.
+func conversionError(err error) error {
+	if err == nil || errors.Is(err, ErrMessageMismatch) || errors.Is(err, ErrElementCountMismatch) {
+		return err
 	}
 
-	dl, sl := listOf(d, fd), listOf(s, fd)
-
-	switch n, m := listLen(sl), listLen(dl); {
-	case n == 0:
-		return nil
-	case n != m:
-		return &elementCountError{Path: path, Reason: fmt.Sprintf(
-			"the request holds %d elements and the stored resource %d; a %q sub-path updates elements in place by index",
-			n, m, maskpath.Wildcard)}
-	}
-
-	for i := range dl.Len() {
-		if err := checkElementCounts(dl.Get(i).Message(), sl.Get(i).Message(), sub, fd.Message(), behavior.JoinPath(path, strconv.Itoa(i))); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return fmt.Errorf("%w: converting message: %w", ErrMessageMismatch, err)
 }
 
-// checkMapCounts is [checkElementCounts] for the map field fd at path with
-// the sub-mask nested: the entries each key with a sub-mask addresses.
-func checkMapCounts(d, s protoreflect.Message, fd protoreflect.FieldDescriptor, nested fieldmask.FieldMask, path string) *elementCountError {
-	if fd.MapValue().Message() == nil {
-		return nil
+// preparePublication allocates using the live destination's representation.
+// The returned message owns every value and requires no further conversion.
+func preparePublication(dst, src proto.Message) (proto.Message, error) {
+	prepared := dst.ProtoReflect().New()
+	if err := maskmerge.ReplaceMessage(prepared, src.ProtoReflect()); err != nil {
+		return nil, conversionError(err)
 	}
 
-	dm, sm := mapOf(d, fd), mapOf(s, fd)
-	entry := func(m protoreflect.Map, k protoreflect.MapKey) protoreflect.Message {
-		if m == nil {
-			return nil
-		}
-
-		if v := m.Get(k); v.IsValid() {
-			return v.Message()
-		}
-
-		return nil
-	}
-
-	var keys []protoreflect.MapKey
-
-	for _, key := range slices.Sorted(maps.Keys(nested)) {
-		if nested[key] == nil || key == maskpath.Wildcard {
-			continue
-		}
-
-		if k, ok := maskpath.ParseMapKey(fd.MapKey().Kind(), key); ok {
-			keys = append(keys, k)
-		}
-	}
-
-	if nested[maskpath.Wildcard] != nil && sm != nil {
-		for _, k := range behavior.SortedMapKeys(sm) {
-			if _, named := maskwalk.KeyMask(nested, k.String()); !named {
-				keys = append(keys, k)
-			}
-		}
-	}
-
-	for _, k := range keys {
-		sub, ok := maskwalk.KeyMask(nested, k.String())
-		if !ok {
-			sub = nested[maskpath.Wildcard]
-		}
-
-		if err := checkElementCounts(entry(dm, k), entry(sm, k), sub, fd.MapValue().Message(),
-			behavior.JoinPath(path, behavior.QuoteSegment(k.String()))); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return prepared.Interface(), nil
 }
 
-// listOf returns the repeated field fd of m, nil when m is nil.
-func listOf(m protoreflect.Message, fd protoreflect.FieldDescriptor) protoreflect.List {
-	if m == nil {
-		return nil
-	}
-
-	return m.Get(fd).List()
-}
-
-// listLen returns the length of l, zero for nil.
-func listLen(l protoreflect.List) int {
-	if l == nil {
-		return 0
-	}
-
-	return l.Len()
-}
-
-// mapOf returns the map field fd of m, nil when m is nil or does not hold
-// it.
-func mapOf(m protoreflect.Message, fd protoreflect.FieldDescriptor) protoreflect.Map {
-	if m == nil || !m.Has(fd) {
-		return nil
-	}
-
-	return m.Get(fd).Map()
+func commitMessage(dst, prepared proto.Message) {
+	proto.Reset(dst)
+	prepared.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		dst.ProtoReflect().Set(fd, value)
+		return true
+	})
+	dst.ProtoReflect().SetUnknown(prepared.ProtoReflect().GetUnknown())
 }

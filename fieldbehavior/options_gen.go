@@ -37,7 +37,7 @@ func WithBehaviors(v ...annotations.FieldBehavior) Option {
 //
 // current is the stored resource an update payload is compared with: an
 // IMMUTABLE or IDENTIFIER value that differs from it is a violation, an
-// IMMUTABLE value equal to it is cleared. It must be a message of the
+// IMMUTABLE value equal to it is retained for subsequent planning. It must be a message of the
 // payload's type ([ErrCurrentMismatch] otherwise); nil means the stored
 // value is unknown. Only update payloads have a current value.
 func WithCurrent(v proto.Message) Option {

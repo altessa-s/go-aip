@@ -22,102 +22,164 @@ sections below cover the `fieldmask` building blocks it uses, which any caller c
 |-------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | AIP-161: one path grammar, field names in declared or JSON spelling                 | every entry point (`ParsePaths`, `Resolve`, `Validate`, `Filter`, `ApplyMask`, `Apply`, `Plan`, `Merge`, ...)                                                                                                | A segment may use the declared, JSON or protojson snake_case spelling of its field; results are spelled by declared names.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | AIP-161: no index into a repeated field                                             | every entry point, read masks included                                                                                                                                                                       | `aliases.0` and `aliases.0.id` are a `*ValidationError` (a field error on `updateMask.paths[i]` from `Plan`), in every `PathValidationMode`. `FromMessage` and `FromSetFields` never emit them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| AIP-161: `*` addresses every element of a repeated field or every value of a map    | every entry point                                                                                                                                                                                            | A field of the elements must go through `*` (`aliases.*.display_name`); the implicit form `aliases.display_name` is rejected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| AIP-161: map keys                                                                   | every entry point                                                                                                                                                                                            | A key must be a valid value of the map's key type in its canonical form (`ports.443`, not `ports.0443`); the literal key `*` cannot be addressed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| AIP-161 extension: `*` addresses every element of a repeated field or every value of a map    | every entry point                                                                                                                                                                                            | A field of the elements must go through `*` (`aliases.*.display_name`); the implicit form `aliases.display_name` is rejected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| AIP-161: map keys                                                                   | every entry point                                                                                                                                                                                            | A key must be a valid value of the map's key type in its canonical form (`ports.443`, not `ports.0443`); a protobuf map cannot address the literal key `*`; dynamic JSON can name it with `` `*` ``.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | AIP-161: a `google.protobuf.Struct` is a `map<string, Value>`                       | every entry point (`Resolve`, `Validate`, `Filter`, `Prune`, `ApplyMask`, `Apply`, `ValidateStrict`, `Plan`, `update.ResolvePath`, `MergePaths`, `Merge`); `FromMessage` and `FromSetFields`                 | `attrs` and `attrs.*` select the whole Struct; a key (`attrs.color`, ``attrs.`a.b` ``) one entry, replaced from the request or deleted when the request lacks it. `FromMessage` and `FromSetFields` emit top-level keys only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Extension beyond AIP-161: paths into dynamic JSON (default)                         | the same entry points                                                                                                                                                                                        | Below a Struct key, in a `Value` field and through `*` of a `ListValue` a key addresses a nested Struct entry and `*` every entry or element (`attrs.work.from`, `attrs.items.*.name`, `value_data.key`, `list_data.*.name`); no index, no `ListValue` key without `*`. Read: exactly the addressed key is kept or removed; a value of another shape (a scalar or null, a list without `*`, an element of another shape under `*`) addresses nothing, so `Filter`/`Select` drop it unless another path keeps it (the other list elements stay in order) and `Prune` leaves it as it is. Update: replaced or deleted, intermediate Structs created only for a value to write, list elements in place by index (`ErrElementCountMismatch`). AIP-203 checks are unaffected: dynamic JSON has no field behaviors. |
 | AIP-161 only: `WithStrictDynamicPaths(true)`                                        | `fieldmask.WithStrictDynamicPaths` for the read entry points; `update.WithStrictDynamicPaths` for `ApplyMask`, `Apply`, `ValidateStrict`, `Merge`, `MergePaths`, `update.ResolvePath` and `Plan` (`NewSpec`) | A path below a Struct key (`attrs.color.hue`, `attrs.*.hue`) or into a `Value` or `ListValue` field is a `*ValidationError` (a field error on `updateMask.paths[i]` from `Plan`), in every `PathValidationMode`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | AIP-161: backtick-quoted segments                                                   | every entry point; `ToPaths`, `FromMessage`, `FromSetFields`, violation paths                                                                                                                                | A segment that is empty or holds a dot or a backtick is quoted, a literal backtick doubled: the key ``x`y.z`` is written ``labels.`x``y.z` ``.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | AIP-161: an invalid update path is INVALID_ARGUMENT                                 | `ApplyMask` and `Apply` (`PathValidationEnforce`, the default), `ValidateStrict`, `Plan`, `Patch`                                                                                                            | Rejected before any mutation; `PathValidationWarn` and `PathValidationDisabled` are explicit opt-outs of `ApplyMask` and `Apply`. Every raw path is checked on its own, a path another path of the mask covers included (see [Path grammar](#path-grammar)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| AIP-134: an omitted `update_mask` updates every populated field                     | `Plan`, `Patch.Run` and `ApplyMask` (nil mask), `Apply` and `ValidateStrict` (nil `FieldMask`), `update.FromSetFields`, `ImpliedPaths`                                                                       | `Plan` and `ImpliedPaths` (nil mask): the populated mutable leaf fields, identity, secret, immutable and server-managed fields left out at every depth. `ApplyMask`, `Apply` and `ValidateStrict` (nil mask) and `update.FromSetFields`: the populated fields minus identifiers and server-managed sub-fields; a populated IMMUTABLE field is kept and compared with `WithCurrent`, and INPUT_ONLY fields are kept.                                                                                                                                                                                                                                                                                                                                                                                           |
-| AIP-134: an empty `update_mask` updates nothing                                     | `Plan`, `Patch.Run`, `ApplyMask`, `Apply`, `ValidateStrict`                                                                                                                                                  | A no-op that checks no field behavior: `Plan` returns an `Empty` plan, `Patch.Run` saves nothing after the precondition check, `Apply` leaves the resource and the mask untouched, `ValidateStrict` and `ApplyMask` return an empty mask (`ApplyMask` implies the mask instead with `WithEmptyMaskImplied`). A mask whose every path is dropped is a no-op too: `IsEmpty` on the cleaned mask mirrors `Plan.Empty`.                                                                                                                                                                                                                                                                                                                                                                                           |
+| AIP-134: an omitted `update_mask` updates every populated field | `Plan`, `Patch.Run`, `ApplyMask`, `Apply`, `ValidateStrict`, `update.FromSetFields`, `ImpliedPaths` | Omitted masks select populated leaves; empty mutable messages contribute no path. Lists, maps and atomic messages are replaced whole. Protected input is retained for validation, then unchanged protected paths are removed. `ImpliedPaths` returns writable leaves only; `FromSetFields` omits routing identifiers. |
+| AIP-134: an empty `update_mask` updates nothing | `Plan`, `Patch.Run`, `ApplyMask`, `Apply`, `ValidateStrict` | A provided empty mask is a no-op. `WithEmptyMaskImplied` is deprecated and has no effect. |
 | AIP-134: `*` is a full replacement                                                  | `Plan`, `Patch.Run`, `ApplyMask`, `Apply`, `ValidateStrict`, `Merge`                                                                                                                                         | Every mutable field is replaced; stored server-managed values survive. `*` with any other path is `ErrWildcardNotAlone`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| AIP-134: `allow_missing`                                                            | `Patch.Run` with `WithAllowMissing(true)` and `Patch.Create`                                                                                                                                                 | A missing resource is created from the request (OUTPUT_ONLY values cleared), the mask ignored once its paths are checked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| AIP-134: `allow_missing` | `Patch.Run` with `WithAllowMissing(true)` and `Patch.Create` | A missing resource is created from the request; the mask, including invalid paths, is ignored. |
 | AIP-154: the etag is optional                                                       | `Int64Precondition`, `TagPrecondition` (via [`etag.Precondition`](etag.md))                                                                                                                                  | No etag is no precondition (a nil revision, the zero `etag.Tag`) unless the etag is required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | AIP-154: a stale etag is ABORTED                                                    | `Int64Precondition.Check`/`Missing`, `TagPrecondition.Check`/`Missing`                                                                                                                                       | `etag.ErrMismatch`, a `coreerrs.ErrConflict`, for an etag that does not name the stored version or tag, or any etag sent for a missing resource. `Save` enforces the revision atomically.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | AIP-163: `validate_only` runs every check and skips the write                       | `Patch.Run` with `WithValidateOnly(true)`                                                                                                                                                                    | Precondition, mask checks, field behaviors and merge run; `Save` and `Create` are not called. The merged resource (or, with `allow_missing`, the would-be created one) is returned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | AIP-203: OUTPUT_ONLY ignored, IMMUTABLE and IDENTIFIER compared, REQUIRED non-empty | `ApplyMask`, `Apply`, `ValidateStrict`, `Plan`, `Patch`                                                                                                                                                      | See [Applying an update mask](#applying-an-update-mask) and the [AIP-203 conformance table](fieldbehavior.md#aip-203-conformance).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| AIP-193: field violations name the offending request field                          | `Plan`, `Patch.Run`                                                                                                                                                                                          | A `coreerrs.FieldError` on `updateMask.paths[i]` whose chain holds a `*MaskPathError` (index, path as sent, resource field, cause).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| AIP-193: field violations name the offending request field | `ApplyMask`, `Apply`, `Prepare`, `Complete`, `ValidateStrict`, `Spec.Plan`, `Patch.Run` | Aggregate normalization errors name every violated resource field. `Spec.Plan` returns one base-selected refusal on `updateMask.paths[i]`; `Patch.Run` wraps a selected protected change as `resource.<field>`. Implied or wildcard refusals and path-count limits use the bare mask field. `MaskPathError` retains provenance. |
 | Merge of nested and collection paths                                                | `update.Merge`, `MergePaths`                                                                                                                                                                                 | Top-level and nested fields, map keys and `*` sub-paths of repeated and map fields, all-or-nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## Applying an update mask
 
-`update.Apply(FieldMask, resource, update.WithCurrent(stored))` applies the mask under the AIP-203 field behaviors. Always pass the stored
-resource: only with it can an unchanged IMMUTABLE or IDENTIFIER value be told from a change.
+With `WithCurrent(stored)`, an unchanged `IMMUTABLE` or `IDENTIFIER` value is ignored; a different value is an
+`INVALID_ARGUMENT` violation naming the field. Explicit clears, clears through a covering message path, and clears under `*` are changes too.
+An omitted mask selects only populated fields, so omitting a field there does not request a clear.
 
-* OUTPUT_ONLY in the mask, at any depth → silently dropped, never an error; every OUTPUT_ONLY value left in the resource (inside a collection
-  replaced whole, say) is cleared.
-* IMMUTABLE or IDENTIFIER in the mask → equal to the stored value: dropped (ignored); different: violation. Without `WithCurrent`: violation, so a
-  change is never applied or lost silently.
-* A populated IDENTIFIER the mask does not name addresses the resource and is kept; with `WithCurrent` it must equal the stored one.
-* REQUIRED in the mask with an absent or falsy value (empty string or bytes, zero, false, zero enum, empty list or map, unset message) →
-  violation, nested paths included. A REQUIRED field absent from the mask may be omitted from the resource.
-* A singular message named whole (`profile`) → replaced. When it holds an OUTPUT_ONLY, IMMUTABLE or IDENTIFIER field, directly or in a singular
-  sub-message at any depth, the entry expands to its other fields, so the stored server-managed values survive; an IMMUTABLE or IDENTIFIER field
-  the resource leaves unset keeps its stored value and a set one is compared. The REQUIRED fields of the written value are checked, recursing only
-  into populated sub-messages.
-* A collection or element named whole (`labels`, `labels.k`, `aliases.*`) → replaced as new values: the REQUIRED fields of its elements are
-  checked, their IMMUTABLE and IDENTIFIER values are not compared.
-* A path into collection elements, through a map key (`labels.k.org`) or the `*` wildcard (`aliases.*.org`) → the rules above per element, a map
-  entry compared with the stored entry of the same key, a list element with the stored element of the same index.
-* A set IDENTIFIER the mask does not name, top-level, in a singular sub-message branch (`profile.display_name`), or in the collection elements a
-  sub-path addresses, is added to the mask so the filter keeps it in the body. An IDENTIFIER that is also OUTPUT_ONLY is never kept.
-* A field in the mask that the resource leaves unset is cleared; a default value is never written.
-* `*` alone → a full replacement: every field but the OUTPUT_ONLY ones, with the replacement rule above applied to the whole resource.
-* An empty mask → a no-op: the body and the mask are left untouched and no field behavior is checked. A mask whose every path is dropped
-  (OUTPUT_ONLY, unchanged IMMUTABLE or IDENTIFIER) is a no-op too once its checks pass: the mask comes back empty and the body as sent, so
-  `IsEmpty` on the cleaned mask reports that nothing is updated, as `Plan.Empty` does. Never store the body of a no-op as the resource.
-* A nil mask → the omitted `update_mask`: the implied mask of `update.FromSetFields` is applied.
+Without current state, these values stay in the request for the caller to compare, and their paths are excluded from the effective write mask.
+This applies to direct paths, covering paths, the implied mask and `*`, at every depth. `OUTPUT_ONLY` input is still cleared.
+Use `Prepare` to retain a `DeferredPlan`, then complete it with stored state directly or through `Spec.Plan` / `Patch.Run`.
+The plan owns the original values and clear intent. Never persist the filtered request as a replacement.
 
-The policy options of `update.Apply` govern the top-level fields as they govern `Spec.Plan`: a field of `WithImmutableFields` is IMMUTABLE,
-and a field of `WithIdentityFields` (`id` and `etag` by default) is IDENTIFIER when the mask names it. Unnamed, such a field addresses the
-resource and is kept, but not compared: a stale etag is the service's concurrency check.
+Singular messages containing protected fields expand into their other fields. Without current state, a whole collection or atomic message with
+protected descendants is deferred as a whole: its covering path is omitted and its value retained. The mask format cannot express a replacement
+that both changes collection membership (or crosses an atomic boundary) and excludes protected descendants. `DeferredPlan.Complete` finishes
+that replacement using its captured input and current state. With current state, these descendants are compared before replacement, including removed elements; list elements
+pair by index and map elements by key. New protected values without stored counterparts are changes as well.
 
-Violations are returned as `*BehaviorError` (matching `ErrBehaviorViolation`, mapping to INVALID_ARGUMENT), one `FieldViolation` per entry, each
-carrying the dot-separated field path, the behavior and a reason; neither the mask nor the resource is changed. An invalid path is a `*ValidationError`;
-a stored resource of another type is `ErrMessageMismatch`. On success, drop the IDENTIFIER entries added above with `DropIdentifiers` and write the
-cleaned mask back with `extract.SetUpdateMask`, so the handler sees a coherent `(mask, resource)` pair and can treat its paths as a clean instruction
-list.
+`ApplyMask` returns the effective mask. `Apply` writes it back to a non-nil `FieldMask`, and `ValidateStrict` returns it without changing the request.
+Routing identifiers and unverified protected values are preserved using a separate private filtering mask; they never become effective write paths.
+`DropIdentifiers` is no longer needed after `Apply`. `Apply(nil, ...)` cannot assign its synthesized mask back to the caller; use `ApplyMask` instead.
 
-`FromProtoFieldMask` keeps the presence of the `update_mask`: an omitted one is a nil `FieldMask` and one sent empty a non-nil empty `FieldMask`
-(`Clone` and `ToProtoFieldMask` keep it too). `Apply` on a nil mask applies `update.FromSetFields(resource)`, the implied mask of an omitted one; build
-it yourself to see the cleaned mask. It covers every populated editable field: running `Apply` against it compares the IMMUTABLE fields the client
-populated with the stored resource, leaves IDENTIFIER and OUTPUT_ONLY fields out of the mask (the identifier stays in the body, an OUTPUT_ONLY value is
-cleared), and keeps OUTPUT_ONLY fields out of the writeback mask.
-
-`update.ValidateStrict(mask, resource, update.WithCurrent(stored))` applies the same rules without touching the resource and returns the
-cleaned mask; a nil mask is validated as its implied mask, and an empty mask is a no-op that returns an empty mask without checking any field
-behavior.
+A nil mask implies populated fields; a provided empty mask is a no-op that leaves the request untouched; `*` alone means full replacement.
+`WithEmptyMaskImplied` is a deprecated compatibility no-op. A completed empty mask writes no resource fields, but normalization can still clear
+OUTPUT_ONLY request input. An empty interim mask does not authorize skipping deferred completion. REQUIRED validation, path limits and strict
+handling of invalid masks still apply.
 
 ## Applying a raw update mask
 
-`update.ApplyMask(req.GetUpdateMask(), resource, update.WithCurrent(stored))` applies the `update_mask` exactly as the client sent it and returns
-the effective mask to write back to the request. It runs the rules of `Apply` above, with three differences that make it the entry point for a raw
-client mask:
+```go
+effective, err := update.ApplyMask(req.GetUpdateMask(), req.GetWidget(), update.WithCurrent(stored))
+if err != nil {
+    return err
+}
+req.UpdateMask = effective.ToProtoFieldMask()
+```
 
-* It reads the raw paths. `FromProtoFieldMask` collapses a path another path of the mask covers into the covering one, which a `FieldMask` must
-  (see [Path grammar](#path-grammar)); `ApplyMask` checks the covered path as if sent alone, so `["profile", "profile.id"]` is refused without
-  `WithCurrent` (an IDENTIFIER named) and `["description", "description.no_such"]` and `["aliases", "aliases.0.id"]` are refused as invalid paths.
-* It checks before it touches the resource, in this order: the limits on the raw paths, duplicates included, in every mode; the grammar of each raw
-  path (`""`, malformed paths, `*` with any other path, a second `*` included), then its schema and field behaviors on its own. Under
-  `WithPathValidation`, `PathValidationEnforce` refuses, `PathValidationWarn` reports to `WithPathValidationReporter` and drops, and
-  `PathValidationDisabled` drops; an index, a sub-path into an atomic message and a strict dynamic path are refused in every mode.
-* It returns the effective mask instead of mutating one: spelled by declared names, `*` and every message named whole that holds a server-managed
-  field expanded so that no path covers an OUTPUT_ONLY, IMMUTABLE or IDENTIFIER field, without OUTPUT_ONLY paths, unchanged IMMUTABLE and
-  IDENTIFIER paths and the IDENTIFIER entries `Apply` adds to the mask (no `DropIdentifiers` needed), INPUT_ONLY fields included. Write it back with
-  `extract.SetUpdateMask` or `effective.ToProtoFieldMask()`; an empty one means nothing is updated.
+Use the raw mask so covered paths are validated before collapsing them. `ValidateStrict` checks without changing the message, and
+`Spec.Plan` / `Patch` perform a read-modify-write using stored state. `Prepare` retains deferred operations for them as described below.
 
-The presence of the mask is read as sent: nil applies and returns the implied mask, a mask with no paths is a no-op (the implied mask with
-`WithEmptyMaskImplied(true)`), and a mask that names paths is never implied, even when every path is dropped. An omitted mask or `*` whose request
-sets an IMMUTABLE value is refused without `WithCurrent`, as with `Apply`: the stored value is unknown, so a change cannot be told from an unchanged
-value. `WithStrict(true)` checks as `ValidateStrict` does, every path enforced and every refusal a `*StrictError`.
+Stateful `StripUpdate` uses the same protected merge-effect check and retains validated protected input. A subsequent `Spec.Plan` or `Patch.Run`
+can therefore compare that input even inside a mutable atomic message. Stripping has no explicit mask; use `Prepare` for masked clear intent.
 
-| Entry point          | Use it for                                                                                                            |
-|----------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `ApplyMask`          | A raw client `update_mask` applied to the request resource; returns the write-back mask                               |
-| `Apply`              | A `FieldMask` built or transformed in code, cleaned in place                                                          |
-| `ValidateStrict`     | Checking a `FieldMask` without touching the resource                                                                  |
-| `Spec.Plan`, `Patch` | A read-modify-write of the stored resource: `Plan.Paths`, write-only secrets, AIP-193 errors on `updateMask.paths[i]` |
+## Two-stage update
+
+`Prepare(raw, resource, opts...)` performs stateless normalization and returns a `DeferredPlan`. Its `Mask` is the initial effective mask;
+`Operations` describes deferred set, clear and whole-replacement intent. `Complete(stored)` compares the captured values, restores any deferred
+replacement paths, and updates the bound request to the same result as a stateful `ApplyMask`. It leaves stored state untouched and is idempotent.
+A validation or behavior refusal restores the captured original request; message mismatch and conversion failures leave the current request untouched.
+An explicit protected clear remains a comparison even when the initial mask is empty. The plan retains one resource snapshot and the raw mask,
+subject to the existing path limits, even when `Operations()` is empty. Collection validation (including stored elements of an absent request list), expansion and retained routing-message
+sanitization can need stored state without a protected comparison. An empty `Operations()` result does not authorize skipping completion.
+`Patch` uses the captured resource for `allow_missing` creation, ignoring the update mask, including invalid paths.
+Both the boundary's and the Spec's OUTPUT_ONLY clearing apply before `Create` or the `validate_only` return.
+
+With a bound plan, `Spec.Plan` and `Patch.Run` behave as on the client's original request and mask after the boundary's OUTPUT_ONLY
+sanitization: values are cleared and wholly OUTPUT_ONLY paths dropped, keeping keyed exclusions and empty-mask no-ops.
+The Spec alone determines the paths, secrets, atomic-message handling and planned request, exactly as in a one-stage call on that input.
+In addition, the update is refused if the boundary's policy refuses that sanitized input against the stored resource given now, or if the
+complete write changes a value the boundary protects. Boundary refusals are recomputed on every call, even if `Prepare` received `WithCurrent`.
+The final guard uses the boundary's own equality, including its ignored OUTPUT_ONLY descendants, and covers both direct merging and Patch's
+sanitized merge source, plus `Plan.Secret` operations (including secrets outside the mask and their oneof side effects).
+It never narrows the Spec's selection or rewrites its planned source. `Complete` itself keeps `ApplyMask`'s filtering contract.
+Mask refusals retain the client's original index and spelling and the Spec's configured mask field name, even after ignored paths are
+dropped or a wildcard is pinned to concrete keys. Resource-field errors and error classifications are unchanged. The Spec checks the
+original raw-mask limits before sanitization. Wildcard pinning can increase the sanitized path count; existing expansion limits still
+apply, and a sanitization expansion refusal identifies the originating client path.
+Stateless normalization clears OUTPUT_ONLY input even inside retained protected messages and collections.
+Only validated replacements restore protected values from stored state. An entirely OUTPUT_ONLY selection is ignored before merge preconditions are checked, including below a protected ancestor.
+Protected values are compared against the complete merge effect of the remaining selection, including protected ancestor presence,
+implicit oneof sibling clears, and requested clears. Even an unchanged selected leaf can materialize a protected ancestor or clear a protected oneof sibling.
+Payload bytes are bounded by the original resource size. Release the plan with its request context.
+For transactional entry points (`ApplyMask`, `Apply`, `MergePaths`, `Spec.Plan` and `Patch.Run`), every error leaves the destination and request as they were immediately before the call, including deferred refusals.
+Standalone `Complete` instead restores the original request captured by `Prepare` on a behavior or validation refusal; a message-mismatch or conversion failure leaves the request as it was immediately before `Complete`.
+This also covers `KeepIdentity`: cleanup and protected-value restoration complete privately before publication.
+Successful mutations copy content into the caller's existing message, preserving its identity and any bound plan.
+Conversion failures retain `ErrMessageMismatch` and their underlying protobuf cause. Dynamic JSON merges use reflection on each
+message's own descriptor, so an unselected deep subtree does not require a wire conversion. `Patch.Run` uses a private stored copy
+and publishes request restoration only after `Save` succeeds; callbacks consume the merged argument and captured `Plan.Secret` values.
+Callbacks remain responsible for the atomicity of their external writes.
+
+Attach it with `ContextWithPlan(ctx, pending)`. `PlanFromContext(ctx, resource)` only matches that exact message instance, so distinct stream
+messages cannot pick up each other's plans. Use a new resource instance and context for each received message. `Patch.Run` completes the plan
+from its context automatically. Direct `Spec.Plan` callers pass `WithPlanContext(ctx)` or `WithDeferredPlan(pending)`, plus `WithCurrent(stored)`.
+Different policies are supported without combining their resolvers or changing their ignored-descendant equality rules.
+Policy-only routing identities retain their existing rules: Spec refuses explicit identity paths, and implied or wildcard updates do not
+compare or write them. Successful deferred completion restores captured input even if the normalized request was subsequently changed.
+
+An empty effective mask is not proof that validation has finished. Interceptors must retain and attach the `Prepare` plan and defer destructive
+`KeepIdentity` cleanup until completion and request consumption. `ApplyMask` followed by `KeepIdentity` alone loses comparison evidence.
+Handlers consuming effective paths must first complete the retained plan, or use `Spec.Plan` / `Patch.Run` with it. Successful stateful planning
+restores stored protected values inside planned whole replacements to the request, so a preceding `StripUpdate` cannot lose their ignored
+OUTPUT_ONLY descendants during `MergePaths`. Preserve mask presence:
+a provided empty mask remains a no-op; never convert it to nil (which implies populated fields). `DropIdentifiers` is unnecessary after `Apply`
+or `ApplyMask`; their effective masks already exclude identifiers.
+
+The following is the runnable `ExamplePrepare` (imports: `context`, `fmt`, protobuf `proto`, `descriptorpb`, `fieldmaskpb`, and this `update` package):
+
+```go
+func ExamplePrepare() {
+	ctx := context.Background()
+	resource := &descriptorpb.FileDescriptorProto{Name: new("example.proto"), Dependency: []string{"v2.proto"}}
+	raw := &fieldmaskpb.FieldMask{Paths: []string{"name", "dependency"}}
+	policy := update.WithImmutableFields("name")
+
+	// Interceptor: normalize in place and attach the plan for this resource.
+	pending, err := update.Prepare(raw, resource, policy)
+	if err != nil {
+		panic(err)
+	}
+
+	ctx = update.ContextWithPlan(ctx, pending)
+	raw = pending.Mask().ToProtoFieldMask()
+
+	// Handler: load stored state. Patch.Run uses its context automatically;
+	// direct Spec.Plan callers pass WithPlanContext.
+	stored := &descriptorpb.FileDescriptorProto{Name: new("example.proto"), Dependency: []string{"v1.proto"}}
+
+	spec, err := update.NewSpec(resource, policy)
+	if err != nil {
+		panic(err)
+	}
+
+	plan, err := spec.Plan(resource, raw, update.WithCurrent(stored), update.WithPlanContext(ctx))
+	if err != nil {
+		panic(err)
+	}
+
+	merged := proto.Clone(stored).(*descriptorpb.FileDescriptorProto)
+	if err := update.MergePaths(merged, resource, plan.Paths, policy); err != nil {
+		panic(err)
+	}
+
+	fmt.Println(merged.GetName(), merged.GetDependency())
+	// Output: example.proto [v2.proto]
+}
+```
+
+Stateless errors still stop normalization: an early REQUIRED failure can precede additional stored-dependent violations or final expansion errors,
+and the existing conservative oneof guard may reject a switch that stored state would permit. Successful normalization has exact completion
+equivalence. Never store the normalized request itself; merge the final paths into a copy of stored state.
 
 ## Update plans and patches
 
@@ -133,7 +195,7 @@ if err != nil {
 
 plan, err := spec.Plan(req.GetWidget(), req.GetUpdateMask(), update.WithCurrent(stored))
 if err != nil {
-    return err // coreerrs.FieldError on updateMask.paths[i], holding a *MaskPathError
+    return err // the first refusal, located on the mask field
 }
 if plan.Empty() {
     return nil
@@ -145,13 +207,18 @@ if err := update.MergePaths(merged, req.GetWidget(), plan.Paths); err != nil {
 }
 ```
 
-A refusal names the offending path by its index in the mask. `errors.AsType[*update.MaskPathError](err)` returns its `Index`, `Path` (as the
-request sent it), `Field` (the resource field concerned, `aliases.*.id` say) and `Err` (`fieldmask.ErrInvalidPath`, `fieldmask.ErrWildcardNotAlone`,
-`ErrProtectedField`, `ErrBehaviorViolation` or `ErrElementCountMismatch`); a refusal of the implied or `*` mask has index -1 and the bare mask
-field.
+`Spec.Plan` locates its first refusal through `*update.MaskPathError` inside a `coreerrs.FieldError`:
+`updateMask.paths[i]` for an explicit path, or the bare mask field for implied masks, `*`, and path-count limits.
+`MaskPathError` retains the original index, mask spelling, resource field and sentinel classification.
+`Patch.Run` wraps changed protected values with a resource-field `FieldError`, retaining the Spec error as its cause.
+
+`ApplyMask`, `Apply`, `Prepare` and completion return `*BehaviorError` for resource violations; strict ApplyMask and
+`ValidateStrict` return `*StrictError`. Those aggregates report all concrete collection indexes and keys.
+Spec and Patch report one field using the same construction with or without a deferred plan. The mapper retains its base
+aggregate selection: batch and field-path wrappers do not automatically prefix or transform aggregate violation paths.
 
 `Patch[E, P, V]` runs the masked read-modify-write with an explicit `Precondition[E, V]`. `Run(ctx, in, tag, req.GetUpdateMask(), opts...)` parses
-the revision, refuses malformed and unknown paths before the read, checks the revision against the stored resource (even for an empty plan), plans
+the revision, refuses malformed and unknown paths before the read (unless `allow_missing` may create), checks the revision against the stored resource (even for an empty plan), plans
 against it (a changed IMMUTABLE or IDENTIFIER value is a `coreerrs.FieldError` on the resource field), clears the request's OUTPUT_ONLY values,
 merges the planned paths and saves. The AIP-154 presets are built on [etag](etag.md): `Int64Precondition` guards an integer version whose etag
 is `etag.FromRevision(version)`, with revision `*int64`, nil when the request sends no etag (no version check, unless `Required`);
@@ -183,6 +250,9 @@ Clients send paths with `ParsePaths` or `FromProtoFieldMask`, which reject malfo
 `FromPaths` is for trusted paths written in code: it keeps a malformed path verbatim, so it never widens to its parent and every schema check rejects
 it. A `google.protobuf.Struct` is addressed by its keys as a `map<string, Value>`, and by default a path walks the dynamic JSON below by key and `*`;
 `WithStrictDynamicPaths(true)` keeps to AIP-161, where an entry's value, a `Value` and a `ListValue` are selected whole only.
+For a dynamic JSON resource root, an omitted mask selects populated object keys or replaces a populated scalar/list whole with `*`;
+empty objects/lists and an unset `Value` imply no writes. Explicit `*` replaces the entire root, removing stored-only keys and allowing
+list length changes. Generated `structpb` and `dynamicpb` roots and nested values behave alike. These masks can be passed directly to `MergePaths`.
 
 A `FieldMask` is a set of paths none of which covers another, so a path below another path of the same mask (`profile.id` with `profile`)
 collapses into it: `["description", "description.no_such"]`, `["aliases", "aliases.0.id"]` or `["profile", "profile.id"]` become `description`,
@@ -193,7 +263,8 @@ collapses into it: `["description", "description.no_such"]`, `["aliases", "alias
   that wants every raw path checked passes the raw mask to `ApplyMask` or `Spec.Plan`. `Apply` on such a mask still enforces the covering path
   over its whole subtree: `profile` replaced keeps the stored IDENTIFIER and IMMUTABLE values and refuses changed ones.
 * `Spec.Plan` and `Patch.Run` resolve every raw path and check its field behaviors on its own, a covered path as if sent alone, and plan the
-  collapsed mask: `["profile", "profile.id"]` without `WithCurrent` is refused on `updateMask.paths[1]`.
+  collapsed mask: `["profile", "profile.id"]` accepts and drops the protected path without `WithCurrent`; with current state a changed
+  identifier is refused on its path.
 * `Apply` and `ValidateStrict` resolve every path of their `FieldMask` on its own and check a path that another one covers once both are
   resolved (`backupOwner` with `backup_owner.org`) the same way, an atomic sub-path included.
 
@@ -208,13 +279,19 @@ The cost of a client mask is bounded in every entry point before any parsing or 
 lifts a limit. The limits are `fieldmask.Option` values of the read entry points and `update.Option` values of the update entry points
 (through `NewSpec` for `Plan` and `Patch`; `ParsePaths` uses the defaults), and they hold in every `PathValidationMode`. A violation is
 `ErrMaxPathsExceeded`, `ErrMaxPathLengthExceeded` or `ErrMaxPathDepthExceeded`, each matching `ErrLimitExceeded` and `ErrInvalidPath`, inside
-the usual structured error: a `*ValidationError`, or from `Plan` a field error on `updateMask.paths[i]` (the bare `updateMask` for too many
-paths) wrapping a `*MaskPathError`. `FromMessage` and `FromSetFields` stop a recursive message at the default depth, the implied masks at the
+the usual structured error: a `*ValidationError`, or a `*StrictError` in strict update validation.
+`Spec.Plan` and `Patch.Run` locate mask defects through `*MaskPathError`; a path-count limit uses the bare mask field.
+`FromMessage` and `FromSetFields` stop a recursive message at the default depth, the implied masks at the
 policy's depth.
 
-The limits bound the effective mask: the update entry points (`ApplyMask`, `Apply`, `ValidateStrict`, `Plan`) check the paths an update writes,
+With stored state, the limits bound the final effective mask: the update entry points (`ApplyMask`, `Apply`, `ValidateStrict`, `Plan`) check the paths an update writes,
 after `*`, whole messages holding server-managed fields and pinned wildcards are expanded, and refuse an expansion over a limit before the request is
 touched, since `MergePaths` would refuse those paths. A resource whose expansion exceeds the default 1,000 paths needs a higher `WithMaxPaths`.
+
+Without stored state, covering expansion and wildcard exclusions remain unresolved. A wildcard beside a deferred key stays with that key
+in the plan instead of being pinned to temporary request keys. If an interim expansion exceeds a limit, its writes are deferred. `Complete`
+replays the original mask and request with stored state and checks the final path count, length and depth. Raw-mask limits and traversal
+budgets still apply immediately. A stateless effective mask alone does not describe this pending work.
 
 ## Request extraction
 
@@ -289,7 +366,6 @@ if err := update.Apply(mask, resource, update.WithCurrent(stored)); err != nil {
 }
 
 if writeback != nil {
-    update.DropIdentifiers(mask, resource)
     writeback(mask.ToProtoFieldMask())
 }
 ```
@@ -342,21 +418,34 @@ identifiers, immutable fields, and server-managed fields. Descriptor mismatches 
 
 Use the same policy with `update.FromSetFields`, `ExpandMessagePaths`, `DropIdentifiers`, `ImpliedPaths`, `update.ResolvePath` and `MergePaths`.
 `ApplyMask`, `Apply` and `ValidateStrict` take the same options next to the per-request ones (`WithCurrent`, `WithPathValidation`;
-`WithEmptyMaskImplied` and `WithStrict` for `ApplyMask`). This keeps implied masks, expansion, protected fields, identity preservation, and atomic
+`WithStrict` for `ApplyMask` and `Prepare`; `WithEmptyMaskImplied` is deprecated). This keeps implied masks, expansion, protected fields, identity preservation, and atomic
 boundaries consistent. A nil resolver selects annotation lookup. A shared resolver must be concurrency-safe and may also be passed to
 `fieldbehavior.WithResolver` so payload stripping and path planning use the same metadata.
 
 ## Errors
 
+Update violations use the frozen `a8b17ba` checking walk for order, only after the current evaluation finds a violation.
+Diagnostics found by both walks form the prefix in the base's order, including its REQUIRED early returns and first-difference
+atomic comparisons. The evaluation's remaining diagnostics follow in field declaration order, numeric list-index order and
+unescaped map-key order, then behavior and reason. Base wildcard diagnostics match concrete element paths in that order.
+The reference never decides acceptance. Dynamic roots, literal JSON star keys, selections the base refuses (expansion limits or wildcard
+pinning), and non-conversion reference errors or recovered panics use the deterministic order alone. Conversion errors are returned to the caller. The evaluator's refusal is still returned.
+`ApplyMask`, `Apply`, `ValidateStrict` and deferred completion report this ordered list; `Spec.Plan` and `Patch.Run` select its first
+violation. Deferred completion uses the original selection and values retained by its plan.
+
 `*fieldmask.ValidationError` matches `fieldmask.ErrInvalidPath`; its `Cause` may refine it (`ErrWildcardNotAlone`, a limit error matching
-`ErrLimitExceeded`). `*update.StrictError` retains its cause and matches `ErrInvalidUpdateMask`. Behavior failures match `ErrBehaviorViolation`. `Plan`
-and `Patch.Run` return a `coreerrs.FieldError` on `updateMask.paths[i]` wrapping a `*MaskPathError`, so `ErrInvalidPath`, `ErrProtectedField` and the
-others stay distinguishable. `Int64Precondition` and `TagPrecondition` report a stale or misplaced etag as `etag.ErrMismatch` (a
+`ErrLimitExceeded`). `*update.StrictError` retains its cause and matches `ErrInvalidUpdateMask`. Apply behavior failures match `ErrBehaviorViolation`. `Spec.Plan` reports its first violation through a `FieldError` on
+`updateMask.paths[i]` (the bare mask field for implied masks, `*`, and mask-count limits). `Patch.Run` adds a resource-field
+`FieldError` for protected changes and retains the Spec error beneath it. Deferred plans use these same entry-point error shapes. `MaskPathError` provenance and sentinel identities remain available through `errors.As` and `errors.Is`. `Int64Precondition` and `TagPrecondition` report a stale or misplaced etag as `etag.ErrMismatch` (a
 `coreerrs.ErrConflict`). `WithPathValidation` and `WithPathValidationReporter` control the path-validation mode and reporting of `update.ApplyMask` and
 `update.Apply`.
 
 See the option references of [fieldmask](../fieldmask/README.md#options) and [update](../fieldmask/update/README.md#options), [field
 behavior](fieldbehavior.md), and [projection](../projection/) for payload stripping and storage read selections.
+
+An omitted update mask for a JSON object selects each populated key literally, including `*`, dots, backticks, empty keys,
+and keys named `fields` or `values`. The returned paths quote these keys as needed; `` `*` `` selects only that key, while
+`*` replaces the complete root. Direct planning and `Prepare` followed by `Complete` preserve unselected stored keys.
 
 ## See also
 

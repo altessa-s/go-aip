@@ -113,9 +113,9 @@ func TestStrip_StrictReportsBehaviorAndFormat(t *testing.T) {
 		fieldbehavior.WithBehaviors(annotations.FieldBehavior_IMMUTABLE), fieldbehavior.WithStrict(true)))
 	assert.Equal(t, []string{"uid", "primary.interface_id"}, formatPaths(vs))
 	assert.Equal(t, annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED, vs[0].Behavior)
-	assert.Equal(t, annotations.FieldBehavior_IMMUTABLE, vs[1].Behavior, "a rejected field is not format-checked")
+	assert.Equal(t, annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED, vs[1].Behavior, "a retained value is format-checked")
 	assert.Equal(t, "UUID4", vs[0].Format)
-	assert.Empty(t, vs[1].Format, "a behavior violation has no format")
+	assert.Equal(t, "UUID4", vs[1].Format)
 }
 
 func TestStripUpdate_Formats(t *testing.T) {
@@ -123,14 +123,14 @@ func TestStripUpdate_Formats(t *testing.T) {
 
 	stored := &infopb.Host{Uid: hostUUID, Primary: &infopb.Interface{InterfaceId: hostUUID}}
 
-	// The unchanged IMMUTABLE value is cleared, the bad address reported.
+	// The unchanged IMMUTABLE value is retained, the bad address reported.
 	h := &infopb.Host{Ipv4Address: "999.0.0.1", Primary: &infopb.Interface{InterfaceId: hostUUID}}
 	vs := behaviorViolations(t, fieldbehavior.StripUpdate(h, fieldbehavior.WithCurrent(stored)))
 	assert.Equal(t, []string{"ipv4_address"}, formatPaths(vs))
 
 	h = &infopb.Host{Ipv4Address: "9.0.0.1", Primary: &infopb.Interface{InterfaceId: hostUUID}}
 	require.NoError(t, fieldbehavior.StripUpdate(h, fieldbehavior.WithCurrent(stored)))
-	assert.Empty(t, h.GetPrimary().GetInterfaceId())
+	assert.Equal(t, hostUUID, h.GetPrimary().GetInterfaceId())
 }
 
 func TestStrip_FormatOnlySubtreeIsWalked(t *testing.T) {

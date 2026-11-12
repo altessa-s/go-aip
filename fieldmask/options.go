@@ -6,7 +6,7 @@ package fieldmask
 
 //go:generate optgen generate --type=options --option-type=Option --output=options_gen.go
 
-import "github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+import "github.com/altessa-s/go-aip/internal/maskpath"
 
 // options configures the path checks of the read entry points
 // ([FromProtoFieldMask], [FieldMask.Resolve], [FieldMask.Validate],

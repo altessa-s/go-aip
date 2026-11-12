@@ -7,10 +7,20 @@ package maskwalk
 import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
+
+// DynamicHooks supplies dynamic-message handling to the shared mask traversal.
+// All callbacks are required.
+type DynamicHooks[M ~map[string]M] struct {
+	// Apply masks a dynamic message and reports whether it handled msg.
+	Apply func(msk M, msg proto.Message) bool
+	// Keeps reports whether a message reached by a branch mask is kept.
+	Keeps func(msk M, msg protoreflect.Message) bool
+	// CompactList removes unaddressed dynamic values before list recursion.
+	CompactList func(list protoreflect.List, msk M)
+}
 
 // maskOp carries the per-decision callbacks that customize how
 // [walk] reacts to each field of a message.
@@ -61,7 +71,10 @@ type maskOp[M ~map[string]M] struct {
 
 	// dynamic applies the mask to a google.protobuf.Struct, Value or
 	// ListValue message.
-	dynamic dynamicMask[M]
+	dynamic DynamicHooks[M]
+
+	// keyMask looks up a map entry's specific rule, excluding the wildcard.
+	keyMask func(M, string) (M, bool)
 }
 
 // walk iterates over the populated fields of msg, dispatching to op for each
@@ -69,7 +82,7 @@ type maskOp[M ~map[string]M] struct {
 // A google.protobuf.Struct, Value or ListValue message is handed to
 // op.dynamic.
 func walk[M ~map[string]M](msk M, msg proto.Message, op maskOp[M]) {
-	if op.dynamic.apply(msk, msg) {
+	if op.dynamic.Apply(msk, msg) {
 		return
 	}
 
@@ -93,7 +106,7 @@ func walk[M ~map[string]M](msk M, msg proto.Message, op maskOp[M]) {
 			walkMap(prf, fd, nested, op)
 		case fd.Kind() == protoreflect.MessageKind:
 			m := prf.Get(fd).Message()
-			if !op.dynamic.keeps(nested, m) {
+			if !op.dynamic.Keeps(nested, m) {
 				op.onUnmatched(prf, fd)
 				return true
 			}
@@ -122,7 +135,7 @@ func walkList[M ~map[string]M](prf protoreflect.Message, fd protoreflect.FieldDe
 		op.onListWildcardLeaf(prf, fd)
 	default:
 		lst := prf.Get(fd).List()
-		op.dynamic.compactList(lst, wildcardMask)
+		op.dynamic.CompactList(lst, wildcardMask)
 		applyToMessageList(fd, lst, wildcardMask, op.recurse)
 	}
 }
@@ -146,7 +159,7 @@ func walkMap[M ~map[string]M](prf protoreflect.Message, fd protoreflect.FieldDes
 	}
 
 	mm.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
-		specificMask, hasSpecific := KeyMask(nested, k.String())
+		specificMask, hasSpecific := op.keyMask(nested, k.String())
 
 		var finalMask M
 
@@ -166,7 +179,7 @@ func walkMap[M ~map[string]M](prf protoreflect.Message, fd protoreflect.FieldDes
 		}
 
 		if mapValueDesc != nil && mapValueDesc.Kind() == protoreflect.MessageKind {
-			if !op.dynamic.keeps(finalMask, mapVal.Message()) {
+			if !op.dynamic.Keeps(finalMask, mapVal.Message()) {
 				op.onMapEntryUnmatched(mm, k)
 				return true
 			}
@@ -183,7 +196,7 @@ func walkMap[M ~map[string]M](prf protoreflect.Message, fd protoreflect.FieldDes
 // The named entries are read by key and the field is replaced by a map
 // holding only the kept ones, so the cost follows the named keys, not the
 // size of the map. Leaf rules keep their entry; branch rules recurse into a
-// message value, and an entry [dynamicMask.keeps] rejects is dropped, as in
+// message value, and an entry [DynamicHooks.Keeps] rejects is dropped, as in
 // [walkMap].
 func keepNamedEntries[M ~map[string]M](prf protoreflect.Message, fd protoreflect.FieldDescriptor, mm protoreflect.Map, nested M, op maskOp[M]) {
 	messages := fd.MapValue().Kind() == protoreflect.MessageKind
@@ -199,7 +212,7 @@ func keepNamedEntries[M ~map[string]M](prf protoreflect.Message, fd protoreflect
 		}
 
 		if sub != nil && messages {
-			if !op.dynamic.keeps(sub, v.Message()) {
+			if !op.dynamic.Keeps(sub, v.Message()) {
 				continue
 			}
 
@@ -240,16 +253,22 @@ type dynamicMask[M ~map[string]M] struct {
 	dropUnaddressed bool
 }
 
+// hooks binds the dynamic operations used by the shared traversal.
+func (op dynamicMask[M]) hooks() DynamicHooks[M] {
+	return DynamicHooks[M]{Apply: op.apply, Keeps: op.keeps, CompactList: op.compactList}
+}
+
 // apply masks msg when it is a google.protobuf.Struct, Value or ListValue
 // and reports whether it was one. A Value or ListValue the mask addresses
 // nothing of is left as is: the caller drops it (see [dynamicMask.keeps]).
 func (op dynamicMask[M]) apply(msk M, msg proto.Message) bool {
-	switch m := msg.(type) {
-	case *structpb.Struct:
+	m := msg.ProtoReflect()
+	switch m.Descriptor().FullName() {
+	case maskpath.StructFullName:
 		op.structFields(msk, m)
-	case *structpb.Value:
+	case maskpath.ValueFullName:
 		op.value(msk, m)
-	case *structpb.ListValue:
+	case maskpath.ListValueFullName:
 		op.list(msk, m)
 	default:
 		return false
@@ -258,18 +277,30 @@ func (op dynamicMask[M]) apply(msk M, msg proto.Message) bool {
 	return true
 }
 
-// keeps reports whether the message m, held by a field, map entry or list
-// element the branch msk reaches, is kept: false only with dropUnaddressed
-// for a Value or ListValue msk addresses nothing of.
+// keeps reports whether a dynamic value is addressed by a read mask. Use
+// descriptors so generated messages and dynamicpb have identical semantics.
 func (op dynamicMask[M]) keeps(msk M, m protoreflect.Message) bool {
 	if !op.dropUnaddressed {
 		return true
 	}
 
-	switch v := m.Interface().(type) {
-	case *structpb.Value:
-		return addressable(msk, v)
-	case *structpb.ListValue:
+	switch m.Descriptor().FullName() {
+	case maskpath.ValueFullName:
+		fd := m.WhichOneof(m.Descriptor().Oneofs().Get(0))
+		if fd == nil {
+			return false
+		}
+
+		switch fd.Name() {
+		case "struct_value":
+			return true
+		case "list_value":
+			_, ok := msk[maskpath.Wildcard]
+			return ok
+		default:
+			return false
+		}
+	case maskpath.ListValueFullName:
 		_, ok := msk[maskpath.Wildcard]
 		return ok
 	default:
@@ -302,94 +333,91 @@ func (op dynamicMask[M]) compactList(lst protoreflect.List, msk M) {
 	lst.Truncate(n)
 }
 
-// addressable reports whether the branch msk addresses anything of v: a
-// Struct by its keys or "*", a list only through "*"; a scalar or null
-// nothing.
-func addressable[M ~map[string]M](msk M, v *structpb.Value) bool {
-	switch {
-	case v.GetStructValue() != nil:
-		return true
-	case v.GetListValue() != nil:
-		_, ok := msk[maskpath.Wildcard]
-		return ok
-	default:
-		return false
-	}
-}
-
 // structFields masks the entries of s; a key's own rule wins over "*".
-func (op dynamicMask[M]) structFields(msk M, s *structpb.Struct) {
+func (op dynamicMask[M]) structFields(msk M, s protoreflect.Message) {
 	wildcard, hasWildcard := msk[maskpath.Wildcard]
-
-	for key, val := range s.GetFields() {
-		sub, named := KeyMask(msk, key)
-
+	fields := s.Get(s.Descriptor().Fields().ByName("fields")).Map()
+	fields.Range(func(key protoreflect.MapKey, val protoreflect.Value) bool {
+		sub, named := KeyMask(msk, key.String())
 		switch {
 		case named:
 		case hasWildcard:
 			sub = wildcard
 		default:
 			if !op.prune {
-				delete(s.Fields, key)
+				fields.Clear(key)
 			}
 
-			continue
+			return true
 		}
 
 		if sub == nil {
 			if op.prune {
-				delete(s.Fields, key)
+				fields.Clear(key)
 			}
 
-			continue
+			return true
 		}
 
-		if !op.value(sub, val) && op.dropUnaddressed {
-			delete(s.Fields, key)
+		if !op.value(sub, val.Message()) && op.dropUnaddressed {
+			fields.Clear(key)
 		}
+
+		return true
+	})
+}
+
+// value masks the Struct or list v holds; scalar and unset values are left as is.
+func (op dynamicMask[M]) value(msk M, v protoreflect.Message) bool {
+	fd := v.WhichOneof(v.Descriptor().Oneofs().Get(0))
+	if fd == nil {
+		return false
+	}
+
+	switch fd.Name() {
+	case "struct_value":
+		op.structFields(msk, v.Get(fd).Message())
+		return true
+	case "list_value":
+		return op.list(msk, v.Get(fd).Message())
+	default:
+		return false
 	}
 }
 
-// value masks the Struct or list v holds and reports whether msk addresses
-// anything of v ([addressable]); any other value is left as is.
-func (op dynamicMask[M]) value(msk M, v *structpb.Value) bool {
-	if s := v.GetStructValue(); s != nil {
-		op.structFields(msk, s)
+// list applies the wildcard to each element, compacting unaddressed read values.
+func (op dynamicMask[M]) list(msk M, lv protoreflect.Message) bool {
+	sub, ok := msk[maskpath.Wildcard]
+	if !ok {
+		return false
+	}
+
+	fd := lv.Descriptor().Fields().ByName("values")
+
+	if sub == nil {
+		if op.prune {
+			lv.Clear(fd)
+		}
+
 		return true
 	}
 
-	if lv := v.GetListValue(); lv != nil {
-		return op.list(msk, lv)
+	values := lv.Get(fd).List()
+	n := 0
+
+	for i := range values.Len() {
+		e := values.Get(i)
+		if op.value(sub, e.Message()) || !op.dropUnaddressed {
+			if n != i {
+				values.Set(n, e)
+			}
+
+			n++
+		}
 	}
 
-	return false
-}
-
-// list masks the elements of lv through the "*" of msk and reports whether
-// msk has one: a "*" leaf keeps them all, or removes them all with prune; a
-// "*" branch masks every element, and with dropUnaddressed drops the
-// elements it addresses nothing of, keeping the others in order.
-func (op dynamicMask[M]) list(msk M, lv *structpb.ListValue) bool {
-	sub, ok := msk[maskpath.Wildcard]
-
-	switch {
-	case !ok:
-		return false
-	case sub == nil:
-		if op.prune {
-			lv.Values = nil
-		}
-	default:
-		kept := lv.Values[:0]
-
-		for _, e := range lv.GetValues() {
-			if op.value(sub, e) || !op.dropUnaddressed {
-				kept = append(kept, e)
-			}
-		}
-
-		clear(lv.Values[len(kept):])
-		lv.Values = kept
+	if n < values.Len() {
+		values.Truncate(n)
 	}
 
 	return true

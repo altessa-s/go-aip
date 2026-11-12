@@ -7,6 +7,7 @@ package update
 //go:generate optgen generate --type=options --option-type=Option --output=options_gen.go
 
 import (
+	"context"
 	"errors"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
@@ -17,8 +18,8 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldbehavior"
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
 	"github.com/altessa-s/go-aip/internal/behavior"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // options configures update planning and path traversal: the mask policy
@@ -48,19 +49,24 @@ type options struct {
 	// current is the stored resource the update applies to, a message of the
 	// request resource's type. With it an IMMUTABLE or IDENTIFIER value equal
 	// to the stored one is ignored and a different one is a violation
-	// (AIP-203); without it (nil) the stored value is unknown and every
-	// IMMUTABLE or IDENTIFIER value the update would write is a violation.
+	// (AIP-203); without it (nil) protected values are kept for the caller
+	// to compare and excluded from the effective write mask.
 	current proto.Message `optgen:"allownull"`
+
+	// WithDeferredPlan supplies the plan made by [Prepare] to [Spec.Plan]. It must belong to the same resource instance.
+	deferredPlan *DeferredPlan `optgen:"allownull"`
+	// WithPlanContext lets [Spec.Plan] find the resource's plan attached by [ContextWithPlan]. [Patch.Run] supplies its context automatically.
+	planContext context.Context `optgen:"allownull"`
 
 	pathValidation PathValidationMode
 	pathReporter   func(*fieldmask.ValidationError) `opt:"PathValidationReporter"`
 
-	// WithEmptyMaskImplied makes [ApplyMask] apply the implied mask of the populated fields ([FromSetFields]) to an update_mask
-	// sent with no paths, as to an omitted one, instead of treating it as a no-op (AIP-134). It is decided on the mask as sent: a
-	// mask whose paths are all dropped is never implied. Only ApplyMask reads it.
+	// WithEmptyMaskImplied is retained for source compatibility and has no effect.
+	//
+	// Deprecated: AIP-134 requires a provided empty mask to be a no-op. Omit the mask to imply populated fields.
 	emptyMaskImplied bool `optval:"param"`
 	// WithStrict makes [ApplyMask] check the mask as [ValidateStrict] does: every path is enforced whatever [WithPathValidation]
-	// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. Only ApplyMask reads it.
+	// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. ApplyMask and Prepare read it.
 	strict bool `optval:"param"`
 }
 
@@ -206,7 +212,7 @@ func (o *options) limits() maskpath.Limits {
 }
 
 // validateMaskLimits reports the first limit paths break as a
-// *fieldmask.ValidationError (none for the path count), or nil.
+// *fieldmask.ValidationError (no path for the path count), or nil.
 func (o *options) validateMaskLimits(paths []string) error {
 	if v := o.limits().CheckMask(paths); v != nil {
 		return &fieldmask.ValidationError{Path: v.Path, Reason: v.Reason, Cause: v.Cause}

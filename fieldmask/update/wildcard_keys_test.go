@@ -75,6 +75,8 @@ func TestWildcardSubPathBesideNoOpKey(t *testing.T) {
 	t.Run("Spec.Plan and MergePaths", func(t *testing.T) {
 		t.Parallel()
 
+		req := proto.CloneOf(req)
+
 		spec, err := update.NewSpec(&pb.Account{})
 		require.NoError(t, err)
 
@@ -114,7 +116,7 @@ func TestWholeWildcardBesideKey(t *testing.T) {
 			violations: []FieldViolation{{Path: "delegates.k.email", Behavior: annotations.FieldBehavior_REQUIRED, Reason: reasonRequired}}},
 		{name: "IMMUTABLE kept with the entry", paths: []string{"delegates.*", "delegates.k.email"},
 			req: delegatesAccount(map[string][2]string{"k": {"b@corp.com", "corp"}}), current: stored,
-			want: []string{"delegates.*"}, wantMsg: delegatesAccount(map[string][2]string{"k": {"b@corp.com", "corp"}})},
+			want: []string{"delegates"}, wantMsg: delegatesAccount(map[string][2]string{"k": {"b@corp.com", "corp"}})},
 		{name: "covered key checked alone", paths: []string{"delegates.*", "delegates.k.org"},
 			req: delegatesAccount(map[string][2]string{"k": {"b@corp.com", "other"}}), current: stored,
 			violations: []FieldViolation{{Path: "delegates.k.org", Behavior: annotations.FieldBehavior_IMMUTABLE,
@@ -124,7 +126,7 @@ func TestWholeWildcardBesideKey(t *testing.T) {
 	mask := fieldmask.FromPaths("delegates.*", "delegates.k.email")
 	msg := delegatesAccount(map[string][2]string{"k": {"b@corp.com", "corp"}})
 	require.NoError(t, update.Apply(mask, msg, update.WithCurrent(stored)))
-	require.Equal(t, []string{"delegates.*"}, mask.ToPaths())
+	require.Equal(t, []string{"delegates"}, mask.ToPaths())
 	requireProtoEqual(t, delegatesAccount(map[string][2]string{"k": {"b@corp.com", "corp"}}), msg)
 }
 

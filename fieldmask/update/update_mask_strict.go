@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldmask"
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // StrictError describes invalid paths in a strict update mask.
@@ -33,46 +33,26 @@ func (e *StrictError) Error() string {
 	return fmt.Sprintf("invalid update_mask path %q: %s", e.Violations[0].Path, e.Violations[0].Reason)
 }
 
-// ValidateStrict validates the update mask msk of resource and
-// returns the cleaned mask the update applies, ready for
-// [Apply]. Pass the stored resource with [WithCurrent]
-// and the mask policy options; path validation is always
-// enforced, so [WithPathValidation] does not apply.
+// ValidateStrict validates an update mask under the rules of [Apply] without
+// mutating resource, and returns the effective write mask. It enforces grammar,
+// schema, structural restrictions and limits regardless of [WithPathValidation].
+// OUTPUT_ONLY paths are dropped. With [WithCurrent], equal IMMUTABLE and
+// IDENTIFIER values are ignored, while changes (including selected clears) and
+// missing REQUIRED values are violations.
 //
-// msk keeps the presence of the update_mask (AIP-134), as
-// [fieldmask.FromProtoFieldMask] builds it. A nil msk is an omitted update_mask: it is
-// validated as its implied mask, [FromSetFields] of resource under
-// the options. A non-nil empty msk is an update_mask sent with no
-// paths: a no-op, returned as an empty mask without checking any field
-// behavior; only a missing resource or a [WithCurrent] message that is
-// invalid or of another type is still an error, as for [Spec.Plan].
-// Whatever the mask, an empty result ([fieldmask.FieldMask.IsEmpty]) means the update
-// changes nothing, mirroring [Plan.Empty]: every path was dropped, or
-// none was sent.
+// Without [WithCurrent], protected values remain in resource and their paths
+// are omitted from the effective mask; comparison with the stored resource is
+// the caller's duty. Use [Prepare] for two-stage normalization with retained
+// clear intent, completed by [Spec.Plan] or [Patch.Run]. Whole collections and
+// atomic values with protected descendants are deferred as described by [Apply].
 //
-// Every path is resolved against resource's schema, so a segment may use any
-// spelling of its field ([fieldmask.FieldMask.Resolve]); the returned mask spells it by
-// its declared name. An unknown path, an indexed list path ("aliases.0") and a
-// sub-path into an atomic message are violations. Every path is checked on
-// its own, one that another path covers once both are resolved included (see
-// [Apply]).
-//
-// The AIP-203 rules and the mask policy are those of Apply,
-// without mutating resource: OUTPUT_ONLY paths, at any depth, are dropped
-// from the returned mask and never reported; an IMMUTABLE or IDENTIFIER path
-// (a top-level field of [WithImmutableFields] or [WithIdentityFields]
-// included) whose value equals the stored one is dropped, and a changed one
-// — or any such path without [WithCurrent] — is a violation; a path naming a
-// REQUIRED field left empty is a violation; and a singular message named
-// whole that holds a server-managed field is expanded to its other fields so
-// its stored server-managed values survive. AIP-134's "*" wildcard alone is a
-// full replacement: it expands to every field but the OUTPUT_ONLY ones,
-// keeps the stored IMMUTABLE and IDENTIFIER values the resource leaves unset,
-// compares the ones it sets, and checks the REQUIRED fields of resource. "*"
-// with other paths is a violation.
-//
-// Errors are *StrictError, matching [ErrInvalidUpdateMask] and, for
-// field behavior violations, [ErrBehaviorViolation].
+// A nil mask implies populated fields, a provided empty mask is a no-op, and
+// "*" alone is a full replacement. Without stored state, an empty result is an
+// interim effective mask: it does not permit skipping completion of a [Prepare]
+// plan. Only a successfully completed empty mask means no merge is needed. Errors are
+// *[StrictError], matching [ErrInvalidUpdateMask] and their underlying cause;
+// field behavior violations also match [ErrBehaviorViolation].
+// A nil or invalid resource matches [ErrMessageMismatch].
 func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Option) (fieldmask.FieldMask, error) {
 	o := newOptions(opts...)
 	policy := o
@@ -82,6 +62,11 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 			Reason: "resource is missing"}}}
 	}
 
+	resource, err := cloneMessage(resource)
+	if err != nil {
+		return nil, strictError(err, policy.updateMaskFieldName)
+	}
+
 	u, root, err := newApplyCheck(resource, o.current, policy)
 	if err != nil {
 		return nil, strictError(err, policy.updateMaskFieldName)
@@ -89,7 +74,9 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 
 	switch {
 	case msk == nil:
-		return ValidateStrict(impliedUpdateMask(resource, o), resource, opts...)
+		u.orderMode = referenceImplied
+		msk = u.impliedSelection(root)
+		u.checkImplied(resource.ProtoReflect().Descriptor(), root)
 	case len(msk) == 0:
 		return fieldmask.FieldMask{}, nil // a provided empty update_mask is a no-op (AIP-134).
 	}
@@ -103,7 +90,6 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 
 	if all {
 		work := u.replaceAll(descriptor, root)
-		u.checkOneofSwitches(descriptor, root, work, nil)
 
 		return strictResult(work, u, descriptor, policy.updateMaskFieldName)
 	}
@@ -114,7 +100,6 @@ func ValidateStrict(msk fieldmask.FieldMask, resource proto.Message, opts ...Opt
 	}
 
 	u.checkCovering(work, covered, descriptor, root)
-	u.checkOneofSwitches(descriptor, root, work, covered)
 
 	return strictResult(work, u, descriptor, policy.updateMaskFieldName)
 }
@@ -126,8 +111,13 @@ func strictResult(work fieldmask.FieldMask, u *updateCheck, md protoreflect.Mess
 		return nil, strictError(err, maskField)
 	}
 
-	if len(u.violations) != 0 {
-		return nil, &StrictError{Violations: u.violations}
+	violations, err := u.orderedViolations(md)
+	if err != nil {
+		return nil, strictError(err, maskField)
+	}
+
+	if len(violations) > 0 {
+		return nil, &StrictError{Violations: violations}
 	}
 
 	return work, nil

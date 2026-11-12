@@ -29,8 +29,8 @@ const branchingLevels = 24
 
 // branchingDescriptor builds an acyclic schema of levels messages, L0 to
 // L<levels-1>, each holding two fields a and b of the next type, ending in
-// Leaf{string out [OUTPUT_ONLY]; string v}: a "*" replacement without the
-// stored resource expands every absent message by schema, 2^levels leaves.
+// Leaf{string out [OUTPUT_ONLY]; string v}: a populated "*" replacement has
+// 2^levels leaves. Absent branches await stored-state expansion.
 func branchingDescriptor(t testing.TB, levels int) protoreflect.MessageDescriptor {
 	t.Helper()
 
@@ -75,18 +75,18 @@ func branchingDescriptor(t testing.TB, levels int) protoreflect.MessageDescripto
 	return fd.Messages().ByName("L0")
 }
 
-// TestReplacementExpansionBudget pins the exact case of a "*" replacement
-// without the stored resource over an acyclic schema branching at each of 24
-// levels: the expansion by schema stops at the first excess of the path
-// limit instead of building 2^24 paths, refused with the limit sentinel by
+// TestReplacementExpansionBudget checks that a populated branching replacement
+// stops at the first excess of the path limit, refused with the limit sentinel by
 // ApplyMask, Apply, ValidateStrict and Spec.Plan within a small allocation
 // bound; a message named whole of that schema is bounded the same way.
 //
 // Not parallel: it reads the process-wide allocation counter, which parallel
 // tests would disturb (parallel tests wait until the serial ones are done).
 func TestReplacementExpansionBudget(t *testing.T) { //nolint:paralleltest // see above
-	md := branchingDescriptor(t, branchingLevels)
-	req := dynamicpb.NewMessage(md)
+	// Populate 4096 leaves, enough to exceed the path limit under either "*"
+	// or "a". An absent 24-level schema is tested separately below.
+	md := branchingDescriptor(t, 12)
+	req := populatedBranchingMessage(md)
 
 	spec, err := update.NewSpec(dynamicpb.NewMessage(md))
 	require.NoError(t, err)
@@ -96,20 +96,20 @@ func TestReplacementExpansionBudget(t *testing.T) { //nolint:paralleltest // see
 		run  func() error
 	}{
 		{name: "ApplyMask", run: func() error {
-			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, proto.Clone(req))
+			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, proto.Clone(req), update.WithCurrent(req))
 			return err
 		}},
 		{name: "ApplyMask parent", run: func() error {
-			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"a"}}, proto.Clone(req))
+			_, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"a"}}, proto.Clone(req), update.WithCurrent(req))
 			return err
 		}},
-		{name: "Apply", run: func() error { return update.Apply(fieldmask.FromPaths("*"), proto.Clone(req)) }},
+		{name: "Apply", run: func() error { return update.Apply(fieldmask.FromPaths("*"), proto.Clone(req), update.WithCurrent(req)) }},
 		{name: "ValidateStrict", run: func() error {
-			_, err := update.ValidateStrict(fieldmask.FromPaths("*"), req)
+			_, err := update.ValidateStrict(fieldmask.FromPaths("*"), req, update.WithCurrent(req))
 			return err
 		}},
 		{name: "Spec.Plan", run: func() error {
-			_, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"*"}})
+			_, err := spec.Plan(req, &fieldmaskpb.FieldMask{Paths: []string{"*"}}, update.WithCurrent(req))
 			return err
 		}},
 	} {
@@ -126,9 +126,34 @@ func TestReplacementExpansionBudget(t *testing.T) { //nolint:paralleltest // see
 		require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(64<<20), "%s allocated %d bytes", tc.name, after.TotalAlloc-before.TotalAlloc)
 	}
 
-	// A small branching schema still expands within the limits.
+	// A small populated branching schema still expands within the limits.
 	small := branchingDescriptor(t, 3)
-	got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, dynamicpb.NewMessage(small))
+	got, err := update.ApplyMask(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, populatedBranchingMessage(small))
 	require.NoError(t, err)
 	require.Len(t, got.ToPaths(), 8)
+
+	// Absent branches need no speculative traversal. Completion against an
+	// equally empty stored resource must stay empty too.
+	absent := dynamicpb.NewMessage(branchingDescriptor(t, branchingLevels))
+	pending, err := update.Prepare(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, absent)
+	require.NoError(t, err)
+	require.Empty(t, pending.Mask())
+	got, err = pending.Complete(dynamicpb.NewMessage(absent.Descriptor()))
+	require.NoError(t, err)
+	require.Empty(t, got)
+	requireProtoEqual(t, dynamicpb.NewMessage(absent.Descriptor()), absent)
+}
+
+func populatedBranchingMessage(md protoreflect.MessageDescriptor) *dynamicpb.Message {
+	m := dynamicpb.NewMessage(md)
+
+	fields := md.Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if fd.Message() != nil {
+			m.Set(fd, protoreflect.ValueOfMessage(populatedBranchingMessage(fd.Message())))
+		}
+	}
+
+	return m
 }

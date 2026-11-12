@@ -7,7 +7,7 @@ package fieldmask
 import (
 	"google.golang.org/protobuf/proto"
 
-	"github.com/altessa-s/go-aip/fieldmask/internal/maskpath"
+	"github.com/altessa-s/go-aip/internal/maskpath"
 )
 
 // FromMessage creates a FieldMask or []string for all fields defined in the message schema.

@@ -21,7 +21,8 @@ import (
 var ErrMaxDepthExceeded = errors.New("fieldbehavior: max traversal depth exceeded")
 
 // ErrCurrentMismatch is returned by [Strip] when the [WithCurrent] message is
-// invalid or not of the payload's message type.
+// invalid, not of the payload's message type, or cannot be converted into the
+// payload's representation. Conversion failures retain their underlying cause.
 var ErrCurrentMismatch = errors.New("fieldbehavior: current message is invalid or of another type")
 
 // BehaviorViolation describes a single field a request cannot carry: a

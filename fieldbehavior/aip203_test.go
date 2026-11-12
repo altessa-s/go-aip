@@ -182,9 +182,8 @@ func TestStrip_OutputOnlyNeverReported(t *testing.T) {
 }
 
 // TestStripUpdate_Immutable pins the AIP-203 IMMUTABLE rule on an update
-// payload: an unchanged value is ignored (cleared), a changed one is a
-// violation, and without the stored resource every populated value is a
-// violation; a rejected payload is left untouched.
+// payload: an unchanged value is retained for later planning, a changed one is a
+// violation, and without the stored resource protected values are kept; a rejected payload is left untouched.
 func TestStripUpdate_Immutable(t *testing.T) {
 	t.Parallel()
 
@@ -204,17 +203,16 @@ func TestStripUpdate_Immutable(t *testing.T) {
 			want: []string{"owner.org"}},
 		{name: "set where the stored parent is absent", mutate: func(a *testpb.Account) { a.BackupOwner = &testpb.Owner{Org: "o"} },
 			current: stored, want: []string{"backup_owner.org"}},
-		{name: "without the stored resource", mutate: func(*testpb.Account) {}, want: []string{"owner.org", "region"},
-			reason: "immutable field cannot be modified"},
+		{name: "without the stored resource", mutate: func(*testpb.Account) {}},
 		{name: "changed identifier", mutate: func(a *testpb.Account) { a.Name = "accounts/2" }, current: stored, want: []string{"name"},
 			reason: "identifier field cannot be changed from its stored value"},
 		{
-			name: "collection elements are new values",
+			name: "changed collection elements",
 			mutate: func(a *testpb.Account) {
 				a.Members = []*testpb.Owner{{Email: "m", Org: "new"}}
 				a.Delegates = map[string]*testpb.Owner{"k": {Email: "d", Org: "new"}}
 			},
-			current: stored,
+			current: stored, want: []string{"members.0.org", "delegates.k.org"},
 		},
 	}
 	for _, tt := range tests {
@@ -245,8 +243,15 @@ func TestStripUpdate_Immutable(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Empty(t, a.GetRegion(), "an unchanged IMMUTABLE value is ignored")
-			assert.Empty(t, a.GetOwner().GetOrg())
+
+			if tt.current == nil {
+				assert.Equal(t, "eu", a.GetRegion())
+				assert.Equal(t, "org-1", a.GetOwner().GetOrg())
+			} else {
+				assert.Equal(t, "eu", a.GetRegion(), "validated input survives later planning")
+				assert.Equal(t, "org-1", a.GetOwner().GetOrg())
+			}
+
 			assert.Equal(t, "accounts/1", a.GetName(), "the IDENTIFIER is kept to address the resource")
 			assert.Empty(t, a.GetUpdateTime(), "OUTPUT_ONLY is cleared")
 
@@ -265,11 +270,11 @@ func TestStripUpdate_StrictAndCurrentMismatch(t *testing.T) {
 
 	a := validAccount()
 	require.NoError(t, fieldbehavior.StripUpdate(a, fieldbehavior.WithCurrent(validAccount()), fieldbehavior.WithStrict(true)))
-	assert.Empty(t, a.GetRegion())
+	assert.Equal(t, "eu", a.GetRegion())
 	assert.Empty(t, a.GetUpdateTime())
 
 	require.ErrorIs(t, fieldbehavior.StripUpdate(validAccount(), fieldbehavior.WithCurrent(&testpb.Owner{})), fieldbehavior.ErrCurrentMismatch)
-	require.ErrorIs(t, fieldbehavior.StripUpdate(validAccount(), fieldbehavior.WithCurrent((*testpb.Account)(nil))), fieldbehavior.ErrBehaviorViolation,
+	require.NoError(t, fieldbehavior.StripUpdate(validAccount(), fieldbehavior.WithCurrent((*testpb.Account)(nil))),
 		"a typed-nil stored resource is unknown")
 	require.NoError(t, fieldbehavior.StripUpdate(&testpb.Owner{Note: "n"}, fieldbehavior.WithCurrent(&testpb.Owner{})))
 }

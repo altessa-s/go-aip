@@ -82,28 +82,14 @@ const (
 	// ReasonIdentifierChanged reports an IDENTIFIER value that differs from
 	// the stored one.
 	ReasonIdentifierChanged = "identifier field cannot be changed from its stored value"
-	// ReasonImmutableUnverified reports an IMMUTABLE value the update would
-	// write while the stored value is not known, so it cannot be ignored as
-	// unchanged.
-	ReasonImmutableUnverified = "immutable field cannot be modified"
-	// ReasonIdentifierUnverified is ReasonImmutableUnverified for an
-	// IDENTIFIER field.
-	ReasonIdentifierUnverified = "identifier field cannot be modified"
 )
 
-// ProtectedViolation returns the violation of the IMMUTABLE or IDENTIFIER
-// field at path (behavior b) an update cannot accept: changed when the stored
-// value is known (verified), unverifiable otherwise.
-func ProtectedViolation(path string, b annotations.FieldBehavior, verified bool) Violation {
-	reason := ReasonImmutableUnverified
-
-	switch {
-	case b == annotations.FieldBehavior_IDENTIFIER && verified:
+// ProtectedViolation returns the violation of a protected field whose value
+// differs from the stored resource.
+func ProtectedViolation(path string, b annotations.FieldBehavior) Violation {
+	reason := ReasonImmutableChanged
+	if b == annotations.FieldBehavior_IDENTIFIER {
 		reason = ReasonIdentifierChanged
-	case b == annotations.FieldBehavior_IDENTIFIER:
-		reason = ReasonIdentifierUnverified
-	case verified:
-		reason = ReasonImmutableChanged
 	}
 
 	return Violation{Path: path, Behavior: b, Reason: reason}

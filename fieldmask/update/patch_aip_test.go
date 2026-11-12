@@ -82,7 +82,7 @@ func TestPlanMaskPresence(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			empty, err := spec.Plan(req, &fieldmaskpb.FieldMask{}, opts...)
+			empty, err := spec.Plan(proto.CloneOf(req), &fieldmaskpb.FieldMask{}, opts...)
 			require.NoError(t, err)
 			require.True(t, empty.Empty())
 			require.Empty(t, empty.Paths)
@@ -106,7 +106,7 @@ func TestPatchRunMaskPresence(t *testing.T) {
 		t.Parallel()
 
 		s := &accountStore{cur: storedAccount()}
-		out, err := s.patch(t).Run(t.Context(), req, "", &fieldmaskpb.FieldMask{})
+		out, err := s.patch(t).Run(t.Context(), proto.CloneOf(req), "", &fieldmaskpb.FieldMask{})
 		require.NoError(t, err)
 		require.Nil(t, s.saved)
 		require.True(t, proto.Equal(storedAccount(), out), "got %v", out)
@@ -115,7 +115,7 @@ func TestPatchRunMaskPresence(t *testing.T) {
 		t.Parallel()
 
 		s := &accountStore{cur: storedAccount()}
-		_, err := s.patch(t).Run(t.Context(), req, etag.FromRevision[int64](7).String(), &fieldmaskpb.FieldMask{})
+		_, err := s.patch(t).Run(t.Context(), proto.CloneOf(req), etag.FromRevision[int64](7).String(), &fieldmaskpb.FieldMask{})
 		require.ErrorIs(t, err, coreerrs.ErrConflict)
 		require.Nil(t, s.saved)
 	})
@@ -123,7 +123,7 @@ func TestPatchRunMaskPresence(t *testing.T) {
 		t.Parallel()
 
 		s := &accountStore{cur: storedAccount()}
-		out, err := s.patch(t).Run(t.Context(), req, "", nil)
+		out, err := s.patch(t).Run(t.Context(), proto.CloneOf(req), "", nil)
 		require.NoError(t, err)
 
 		want := storedAccount()
@@ -195,6 +195,7 @@ func TestPatchRunAllowMissing(t *testing.T) {
 	t.Run("creates a missing resource", func(t *testing.T) {
 		t.Parallel()
 
+		req := proto.CloneOf(req)
 		s := &accountStore{}
 		out, err := s.patch(t).Run(t.Context(), req, "", mask, update.WithAllowMissing(true))
 		require.NoError(t, err)
@@ -239,25 +240,24 @@ func TestPatchRunAllowMissing(t *testing.T) {
 				patch.Create = nil
 			}
 
-			_, err := patch.Run(t.Context(), req, tt.tag, mask, tt.opts...)
+			_, err := patch.Run(t.Context(), proto.CloneOf(req), tt.tag, mask, tt.opts...)
 			require.ErrorIs(t, err, tt.want)
 			require.Nil(t, tt.store.created)
 		})
 	}
 
-	t.Run("an invalid mask is refused before the create", func(t *testing.T) {
+	t.Run("an invalid mask is ignored on allow_missing create", func(t *testing.T) {
 		t.Parallel()
 
 		s := &accountStore{}
-		_, err := s.patch(t).Run(t.Context(), req, "", &fieldmaskpb.FieldMask{Paths: []string{"nope"}}, update.WithAllowMissing(true))
-		require.ErrorIs(t, err, fieldmask.ErrInvalidPath)
-		require.Nil(t, s.created)
+		_, err := s.patch(t).Run(t.Context(), proto.CloneOf(req), "", &fieldmaskpb.FieldMask{Paths: []string{"nope"}}, update.WithAllowMissing(true))
+		require.NoError(t, err)
+		require.NotNil(t, s.created)
 	})
 }
 
 // TestPlanErrorLocation pins AIP-193 locations: a refusal names the offending
-// mask path, "updateMask.paths[i]" under the configured field name, and
-// carries a *MaskPathError; the implied and "*" masks have no path.
+// configured mask path. MaskPathError retains provenance; implied and "*" have no path.
 func TestPlanErrorLocation(t *testing.T) {
 	t.Parallel()
 
