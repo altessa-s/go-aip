@@ -25,6 +25,8 @@ var (
 	// server-side fault, never a client error. It classifies the scan error through apierror.Classify: the failure matches this
 	// sentinel alone (INTERNAL) whatever the scan error wraps, and apierror.HiddenCause returns the scan error.
 	ErrCorruptRecord = errors.New("sqlbase: stored record is invalid")
+	// ErrInvalidSchema is [listing.ErrInvalidSchema], re-exported so errors.Is matches either.
+	ErrInvalidSchema = listing.ErrInvalidSchema
 )
 
 // mapError classifies a query failure e: the caller's context ending is its error and the time cap expiring (or a driver timeout)

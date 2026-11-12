@@ -44,7 +44,6 @@ import (
 	"github.com/altessa-s/go-aip/unreachable"
 	"github.com/altessa-s/go-aip/validateonly"
 
-	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -79,8 +78,12 @@ var sentinels = map[string]expectation{
 	"batch.ErrNotFound":        {batch.ErrNotFound, code.Code_NOT_FOUND, apierror.ReasonNotFound}, // default rule
 	"batch.ErrParentMismatch":  {batch.ErrParentMismatch, cInvalid, aipmap.ReasonInvalidBatch},
 	"batch.ErrTooManyItems":    {batch.ErrTooManyItems, cInvalid, aipmap.ReasonBatchTooLarge},
+	"etag.ErrInvalid":          {etag.ErrInvalid, cInvalid, aipmap.ReasonInvalidEtag},
+	"etag.ErrMismatch":         {etag.ErrMismatch, code.Code_ABORTED, apierror.ReasonVersionConflict}, // ErrConflict
+	"etag.ErrMissing":          {etag.ErrMissing, cInvalid, aipmap.ReasonEtagRequired},
 	"etag.ErrNilMessage":       {etag.ErrNilMessage, cInternal, rInternal},
 	"etag.ErrNoField":          {etag.ErrNoField, cInternal, rInternal},
+	"etag.ErrNotRevision":      {etag.ErrNotRevision, cInvalid, aipmap.ReasonInvalidEtag},
 	"fieldbehavior.ErrBehaviorViolation": {
 		fieldbehavior.ErrBehaviorViolation, cInvalid, aipmap.ReasonFieldBehaviorViolation,
 	},
@@ -118,6 +121,7 @@ var sentinels = map[string]expectation{
 	"filter.ErrFunctionNotAllowed":    {filter.ErrFunctionNotAllowed, cInvalid, aipmap.ReasonFilterNotAllowed},
 	"filter.ErrInvalidExpression":     {filter.ErrInvalidExpression, cInvalid, aipmap.ReasonInvalidFilter},
 	"filter.ErrInvalidOptions":        {filter.ErrInvalidOptions, cInternal, rInternal},
+	"filter.ErrInvalidRegex":          {filter.ErrInvalidRegex, cInvalid, aipmap.ReasonInvalidFilter},
 	"filter.ErrMaxDepthExceeded":      {filter.ErrMaxDepthExceeded, cInvalid, aipmap.ReasonFilterTooComplex},
 	"filter.ErrMaxOperationsExceeded": {filter.ErrMaxOperationsExceeded, cInvalid, aipmap.ReasonFilterTooComplex},
 	"filter.ErrParseFailed":           {filter.ErrParseFailed, cInvalid, aipmap.ReasonInvalidFilter},
@@ -289,7 +293,7 @@ func TestSentinelMapping(t *testing.T) {
 
 	m := newMapper(t)
 
-	for _, table := range []map[string]expectation{sentinels, errorTypes, externalSentinels} {
+	for _, table := range []map[string]expectation{sentinels, errorTypes} {
 		for _, name := range slices.Sorted(maps.Keys(table)) {
 			tc := table[name]
 			t.Run(name, func(t *testing.T) {
@@ -323,10 +327,4 @@ func TestEverySentinelIsListed(t *testing.T) {
 		"every exported sentinel needs an entry in sentinels (and a rule in aipmap, or a deliberate default)")
 	assert.ElementsMatch(t, slices.Sorted(maps.Keys(errorTypes)), types,
 		"every exported error type needs an entry in errorTypes")
-} // externalSentinels covers public errors returned directly from go-atlas-core.
-var externalSentinels = map[string]expectation{
-	"coreetag.ErrInvalidTag": {coreetag.ErrInvalidTag, cInvalid, aipmap.ReasonInvalidEtag},
-	"coreetag.ErrMismatch":   {coreetag.ErrMismatch, code.Code_ABORTED, apierror.ReasonVersionConflict}, // ErrConflict
-	"coreetag.ErrMissing":    {coreetag.ErrMissing, cInvalid, aipmap.ReasonEtagRequired},
-	"coreetag.ErrNotVersion": {coreetag.ErrNotVersion, cInvalid, aipmap.ReasonInvalidEtag},
 }

@@ -32,25 +32,25 @@ func TestParse(t *testing.T) {
 		{name: "bare value is strong", in: "abc-123_~", want: coreetag.Strong("abc-123_~")},
 		{name: "bare obs-text", in: "caf\xc3\xa9", want: coreetag.Strong("caf\xc3\xa9")},
 		{name: "bare trimmed", in: " abc ", want: coreetag.Strong("abc")},
-		{name: "empty", in: "", err: coreetag.ErrMissing},
-		{name: "blank", in: "   ", err: coreetag.ErrInvalidTag},
-		{name: "empty opaque tag", in: `""`, err: coreetag.ErrInvalidTag},
-		{name: "unclosed", in: `"abc`, err: coreetag.ErrInvalidTag},
-		{name: "trailing content", in: `"abc"x`, err: coreetag.ErrInvalidTag},
-		{name: "lowercase weak prefix", in: `w/"abc"`, err: coreetag.ErrInvalidTag},
-		{name: "weak prefix without quotes", in: `W/abc`, err: coreetag.ErrInvalidTag},
-		{name: "bare with space", in: "a b", err: coreetag.ErrInvalidTag},
-		{name: "bare with quote", in: `a"b`, err: coreetag.ErrInvalidTag},
-		{name: "bare with control", in: "a\x01b", err: coreetag.ErrInvalidTag},
-		{name: "quoted with control", in: "\"a\x7fb\"", err: coreetag.ErrInvalidTag},
-		{name: "strict quotes refuse bare", in: "abc", opts: []etag.Option{etag.WithStrictQuotes(true)}, err: coreetag.ErrInvalidTag},
+		{name: "empty", in: "", err: etag.ErrMissing},
+		{name: "blank", in: "   ", err: etag.ErrInvalid},
+		{name: "empty opaque tag", in: `""`, err: etag.ErrInvalid},
+		{name: "unclosed", in: `"abc`, err: etag.ErrInvalid},
+		{name: "trailing content", in: `"abc"x`, err: etag.ErrInvalid},
+		{name: "lowercase weak prefix", in: `w/"abc"`, err: etag.ErrInvalid},
+		{name: "weak prefix without quotes", in: `W/abc`, err: etag.ErrInvalid},
+		{name: "bare with space", in: "a b", err: etag.ErrInvalid},
+		{name: "bare with quote", in: `a"b`, err: etag.ErrInvalid},
+		{name: "bare with control", in: "a\x01b", err: etag.ErrInvalid},
+		{name: "quoted with control", in: "\"a\x7fb\"", err: etag.ErrInvalid},
+		{name: "strict quotes refuse bare", in: "abc", opts: []etag.Option{etag.WithStrictQuotes(true)}, err: etag.ErrInvalid},
 		{name: "strict quotes accept quoted", in: `"abc"`, opts: []etag.Option{etag.WithStrictQuotes(true)}, want: coreetag.Strong("abc")},
-		{name: "too long", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`, err: coreetag.ErrInvalidTag},
+		{name: "too long", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`, err: etag.ErrInvalid},
 		{name: "max length unlimited", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`,
 			opts: []etag.Option{etag.WithMaxLength(0)}, want: coreetag.Strong(strings.Repeat("a", etag.DefaultMaxLength))},
-		{name: "custom max length", in: `"abcd"`, opts: []etag.Option{etag.WithMaxLength(5)}, err: coreetag.ErrInvalidTag},
+		{name: "custom max length", in: `"abcd"`, opts: []etag.Option{etag.WithMaxLength(5)}, err: etag.ErrInvalid},
 		{name: "negative max length keeps default", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`,
-			opts: []etag.Option{etag.WithMaxLength(-1)}, err: coreetag.ErrInvalidTag},
+			opts: []etag.Option{etag.WithMaxLength(-1)}, err: etag.ErrInvalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,6 +80,15 @@ func TestParseRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSentinelsAreCoreSentinels(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorIs(t, etag.ErrMissing, coreetag.ErrMissing)
+	require.ErrorIs(t, etag.ErrInvalid, coreetag.ErrInvalidTag)
+	require.ErrorIs(t, etag.ErrMismatch, coreetag.ErrMismatch)
+	require.ErrorIs(t, etag.ErrNotRevision, coreetag.ErrNotVersion)
+}
+
 func TestFromRevision(t *testing.T) {
 	t.Parallel()
 
@@ -107,11 +116,11 @@ func TestRevision(t *testing.T) {
 	}
 	for _, tag := range refused {
 		_, err = etag.Revision[uint64](tag)
-		require.ErrorIs(t, err, coreetag.ErrNotVersion, "tag %q", tag)
+		require.ErrorIs(t, err, etag.ErrNotRevision, "tag %q", tag)
 	}
 
 	_, err = etag.Revision[int64](etag.FromRevision[uint64](math.MaxInt64 + 1))
-	require.ErrorIs(t, err, coreetag.ErrNotVersion, "beyond int64")
+	require.ErrorIs(t, err, etag.ErrNotRevision, "beyond int64")
 }
 
 func TestComparison(t *testing.T) {

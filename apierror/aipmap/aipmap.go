@@ -30,9 +30,6 @@ import (
 	"github.com/altessa-s/go-aip/state"
 	"github.com/altessa-s/go-aip/unreachable"
 	"github.com/altessa-s/go-aip/validateonly"
-
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
-	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 )
 
 // ErrorInfo reasons of the rules. They are part of the API contract: clients
@@ -135,7 +132,7 @@ const (
 // wraps pagetoken.ErrInvalidToken.
 //
 // Sentinels without a rule keep the classification of [apierror.DefaultRules]:
-// coreetag.ErrMismatch is a coreerrs.ErrConflict (ABORTED), batch.ErrNotFound,
+// etag.ErrMismatch is a coreerrs.ErrConflict (ABORTED), batch.ErrNotFound,
 // softdelete.ErrNotFound and ErrAlreadyDeleted are NOT_FOUND,
 // softdelete.ErrNotDeleted ALREADY_EXISTS, requestid.ErrStore UNAVAILABLE,
 // and the remaining server-side faults (backend/sqlbase.ErrScope and
@@ -216,9 +213,9 @@ func fieldInfoRules() []apierror.Rule {
 // etagRules cover the AIP-154 etag a client sends. A mismatch is
 // coreerrs.ErrConflict, ABORTED by the default rules.
 func etagRules() []apierror.Rule {
-	rules := invalid(ReasonEtagRequired, coreetag.ErrMissing)
+	rules := invalid(ReasonEtagRequired, etag.ErrMissing)
 
-	return append(rules, invalid(ReasonInvalidEtag, coreetag.ErrInvalidTag, coreetag.ErrNotVersion)...)
+	return append(rules, invalid(ReasonInvalidEtag, etag.ErrInvalid, etag.ErrNotRevision)...)
 }
 
 func filterRules() []apierror.Rule {
@@ -229,7 +226,7 @@ func filterRules() []apierror.Rule {
 		filter.ErrMaxDepthExceeded, filter.ErrMaxOperationsExceeded, filter.ErrExpressionTooLong)...)
 	rules = append(rules, invalid(ReasonInvalidFilter,
 		filter.ErrParseFailed, filter.ErrInvalidExpression, filter.ErrEmptyExpression, filter.ErrUnsupportedOperation,
-		filter.ErrUnsupportedType, filter.ErrFieldTypeMismatch, filter.ErrEnumValueNotAllowed, regexanchor.ErrInvalidRegex)...)
+		filter.ErrUnsupportedType, filter.ErrFieldTypeMismatch, filter.ErrEnumValueNotAllowed, filter.ErrInvalidRegex)...)
 
 	return append(rules, exhausted(filter.ErrDataLimitExceeded, listing.ErrWorkBudget)...)
 }

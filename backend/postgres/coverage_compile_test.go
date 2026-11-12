@@ -17,8 +17,6 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
-
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // TestCoverageCompileErrors rejects every ill-typed or unsupported expression shape before rendering.
@@ -97,7 +95,7 @@ func TestCoverageCompileErrors(t *testing.T) {
 		{name: "json contains error", node: call(filter.OpContains, ident("j"), ident("zz")), wantErr: filter.ErrInvalidOptions},
 		{name: "json contains bad literal", node: call(filter.OpContains, ident("j"), lit(`{`)), wantErr: filter.ErrFieldTypeMismatch},
 		{name: "matches field", node: call(filter.OpMatches, ident("s"), ident("ps")), wantErr: filter.ErrUnsupportedOperation},
-		{name: "matches invalid", node: call(filter.OpMatches, ident("s"), lit("(")), wantErr: regexanchor.ErrInvalidRegex},
+		{name: "matches invalid", node: call(filter.OpMatches, ident("s"), lit("(")), wantErr: filter.ErrInvalidRegex},
 		{name: "portable regex POSIX", node: call(filter.OpMatches, ident("s"), lit(`\d`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, wantErr: filter.ErrUnsupportedOperation},
 		{name: "portable regex non-ASCII", node: call(filter.OpMatches, ident("s"), lit(`(?i)é`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, contract: true, wantErr: filter.ErrUnsupportedOperation},
 		{name: "portable regex ok", node: call(filter.OpMatches, ident("s"), lit(`(?i)^a.*b$`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, contract: true},
@@ -107,7 +105,7 @@ func TestCoverageCompileErrors(t *testing.T) {
 		{name: "portable regex single dot", node: call(filter.OpMatches, ident("s"), lit(`a.b`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, contract: true, wantErr: filter.ErrUnsupportedOperation},
 		{name: "portable regex class", node: call(filter.OpMatches, ident("s"), lit(`[a-z]+`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, wantErr: filter.ErrUnsupportedOperation},
 		{name: "portable regex alternation", node: call(filter.OpMatches, ident("s"), lit(`a|b`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, contract: true, wantErr: filter.ErrUnsupportedOperation},
-		{name: "portable regex invalid", node: call(filter.OpMatches, ident("s"), lit(`(`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, wantErr: regexanchor.ErrInvalidRegex},
+		{name: "portable regex invalid", node: call(filter.OpMatches, ident("s"), lit(`(`)), policy: []filter.PolicyOption{filter.WithContractRules(map[filter.ContractRule]bool{filter.PortableRegex: true})}, wantErr: filter.ErrInvalidRegex},
 		{name: "field not allowed", expr: `i == 1`, policy: []filter.PolicyOption{filter.WithAnyField(false), filter.WithAllowedFields("s")}, wantErr: filter.ErrFieldNotAllowed},
 		{name: "portable contract", expr: `s in []`, policy: []filter.PolicyOption{filter.WithPortableContract(true), filter.WithFieldTypes(map[string]filter.FieldKind{"s": filter.FieldKindString})}, wantErr: filter.ErrInvalidExpression},
 		{name: "decimal operand", expr: `n == 1.5`, policy: []filter.PolicyOption{filter.WithFieldTypes(map[string]filter.FieldKind{"n": filter.FieldKindDecimal})}},

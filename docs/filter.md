@@ -127,7 +127,7 @@ pattern, trusted or not, is held to a safe subset: single-character repetitions 
 class such as `(?:a|b)*`), at most two unbounded and four variable repetitions, counted bounds up to 100, alternations and bounded variable repetitions
 whose choices (the branches of each alternation as written, so `(?:.|a)(?:.|a)…$` counts 2 per group although Go folds it into `.{n}$`; `m-n+1`, 2 for
 `?`) multiply to at most 1000, no `.*.*`-like run of unbounded repetitions over shared characters, every literal `{` escaped and no octal escape
-`\1`–`\7`; any other pattern fails with `regexanchor.ErrInvalidRegex`. `WithUnsafeRegex` lifts the subset for patterns the service writes itself and cannot be
+`\1`–`\7`; any other pattern fails with `ErrInvalidRegex`. `WithUnsafeRegex` lifts the subset for patterns the service writes itself and cannot be
 combined with `WithUntrustedInput`.
 
 ## CEL syntax
@@ -485,7 +485,7 @@ automatically.
 | `ErrAllowlistRequired`     | `NewPolicy` without a nonempty allowlist or restricting `WithFieldAccess`, unless trusted input opts out (`WithAnyField`) |
 | `ErrMaxDepthExceeded`      | AST nesting above `WithMaxDepth`                                                                                          |
 | `ErrMaxOperationsExceeded` | Visits above `WithMaxOperations`                                                                                          |
-| `regexanchor.ErrInvalidRegex`          | Pattern fails RE2 compilation, exceeds `WithMaxRegexLength` or falls outside the safe subset                              |
+| `ErrInvalidRegex`          | Pattern fails RE2 compilation, exceeds `WithMaxRegexLength` or falls outside the safe subset                              |
 | `ErrDataLimitExceeded`     | Evaluation reads more data than `evaluator.WithMaxDataBudget` allows                                                      |
 | `ErrPolicyRequired`        | A translator or evaluator built with a nil policy                                                                         |
 | `ErrInvalidOptions`        | Contradictory or malformed options (a pattern in `WithAllowedFields`, `WithUnsafeRegex` with untrusted input)             |

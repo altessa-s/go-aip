@@ -12,8 +12,6 @@ import (
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/evaluator"
 	"github.com/altessa-s/go-aip/filter/filtertest"
-
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // TestUnknownOperandsAllocateNothing evaluates prepared filters whose null operands are unknown on every record and absorbed by
@@ -96,5 +94,5 @@ func TestPreparedMatchesLiteralPatterns(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = prepared.Evaluate(map[string]any{"email": "a", "pattern": "("})
-	require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
+	require.ErrorIs(t, err, filter.ErrInvalidRegex)
 }

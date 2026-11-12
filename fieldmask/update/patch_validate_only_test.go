@@ -141,7 +141,7 @@ func TestTagPrecondition(t *testing.T) {
 
 	v, err = optional.Parse(`W/"1"`)
 	require.NoError(t, err)
-	require.ErrorIs(t, optional.Check(stored, v), coreetag.ErrMismatch, "exact comparison by default")
+	require.ErrorIs(t, optional.Check(stored, v), etag.ErrMismatch, "exact comparison by default")
 
 	weak := update.TagPrecondition[*pb.Account]{Rule: etag.NewPrecondition(etag.WithComparison(etag.CompareWeak)), Etag: current}
 	require.NoError(t, weak.Check(stored, v))

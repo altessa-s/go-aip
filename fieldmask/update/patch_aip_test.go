@@ -20,7 +20,6 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	pb "github.com/altessa-s/go-aip/internal/proto/gen/fieldbehaviortest/v1"
-	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -155,7 +154,7 @@ func TestInt64PreconditionOptionalEtag(t *testing.T) {
 	require.True(t, ok, "err = %v", err)
 	require.Equal(t, "account.etag", fe.Field)
 	require.Equal(t, etag.ReasonRequired, fe.Reason)
-	require.ErrorIs(t, err, coreetag.ErrMissing)
+	require.ErrorIs(t, err, etag.ErrMissing)
 
 	for _, p := range []update.Int64Precondition[*pb.Account]{optional, required} {
 		v, err = p.Parse(etag.FromRevision[int64](3).String())

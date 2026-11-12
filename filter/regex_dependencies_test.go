@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-aip/filter"
-
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func TestRegexDependenciesAndIsolation(t *testing.T) {
@@ -55,7 +53,7 @@ func TestRegexErrorCauses(t *testing.T) {
 		policy, err := filter.NewPolicy(filter.WithAnyField(true), option)
 		require.NoError(t, err)
 		_, err = policy.CompileRegex("valid")
-		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 		require.ErrorIs(t, err, cause)
 		typed, ok := errors.AsType[*syntax.Error](err)
 		require.True(t, ok)
@@ -65,7 +63,7 @@ func TestRegexErrorCauses(t *testing.T) {
 	policy, err := filter.NewPolicy(filter.WithAnyField(true))
 	require.NoError(t, err)
 	_, err = policy.CompileRegex("[")
-	require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
+	require.ErrorIs(t, err, filter.ErrInvalidRegex)
 	_, ok := errors.AsType[*syntax.Error](err)
 	require.True(t, ok)
 }

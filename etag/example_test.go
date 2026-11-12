@@ -13,7 +13,6 @@ import (
 	"github.com/altessa-s/go-aip/etag"
 
 	pb "github.com/altessa-s/go-aip/internal/proto/gen/etagtest/v1"
-	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -31,7 +30,7 @@ func ExamplePrecondition() {
 	}
 
 	err = pre.Check(sent, current)
-	fmt.Println(errors.Is(err, coreetag.ErrMismatch), errors.Is(err, coreerrs.ErrConflict))
+	fmt.Println(errors.Is(err, etag.ErrMismatch), errors.Is(err, coreerrs.ErrConflict))
 	fmt.Println(pre.Check("", current))
 	// Output:
 	// true true

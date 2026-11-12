@@ -14,7 +14,6 @@ import (
 
 	filter "github.com/altessa-s/go-aip/filter"
 	filterfuncs "github.com/altessa-s/go-aip/filter/functions"
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func TestNew(t *testing.T) {
@@ -563,11 +562,11 @@ func TestValidateRegex(t *testing.T) {
 
 	t.Run("regex exceeding length", func(t *testing.T) {
 		long := strings.Repeat("a", 1025)
-		require.ErrorIs(t, filter.ValidateRegex(long, 1024), regexanchor.ErrInvalidRegex)
+		require.ErrorIs(t, filter.ValidateRegex(long, 1024), filter.ErrInvalidRegex)
 	})
 
 	t.Run("invalid regex pattern", func(t *testing.T) {
-		require.ErrorIs(t, filter.ValidateRegex("[invalid", 1024), regexanchor.ErrInvalidRegex)
+		require.ErrorIs(t, filter.ValidateRegex("[invalid", 1024), filter.ErrInvalidRegex)
 	})
 }
 

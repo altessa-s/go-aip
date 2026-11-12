@@ -13,7 +13,7 @@ backend is its own module, and so is a custom backend) can use it. Stateless and
 | Function                                    | Description                                                                                   |
 |---------------------------------------------|-----------------------------------------------------------------------------------------------|
 | `EndOfText(pattern string) (string, error)` | Rewrites each `$` RE2 reads as end of text to `\z`; fails with `ErrInvalidRegex` otherwise    |
-| `ErrInvalidRegex`                           | The error of a pattern that cannot be anchored; also returned by filter policy validation |
+| `ErrInvalidRegex`                           | The error of a pattern that cannot be anchored; filter exports it as `filter.ErrInvalidRegex` |
 
 ## Why
 

@@ -348,14 +348,14 @@ atomically. Both presets are built on the [etag](../../etag) package (AIP-154):
 * `Int64Precondition[E]{Field: "resource.etag", Version: version}` guards an integer version whose etag is `etag.FromRevision(version)`,
   `W/"<version>"`, with revision `*int64` (`etag.Precondition.ParseRevision`): the etag is optional, so a request without one carries no precondition
   (a nil revision) unless `Required` is set; a malformed etag is a `coreerrs.FieldError` on `Field` (`etag.ReasonInvalid`, or `etag.ReasonRequired`
-  for a missing required one); a present etag that does not name the stored version is `coreetag.ErrMismatch`, a `coreerrs.ErrConflict` (ABORTED);
+  for a missing required one); a present etag that does not name the stored version is `etag.ErrMismatch`, a `coreerrs.ErrConflict` (ABORTED);
   `Singleton` permits version zero.
 * `TagPrecondition[E]{Rule: etag.NewPrecondition(...), Etag: current}` guards an opaque etag, such as a content tag from `etag.FromMessage` or a tag
   stored with the resource, with revision `coreetag.Tag` (the zero Tag when no etag is sent). `Rule` sets the field, whether the etag is required and the
-  comparison (exact by default); a sent etag that does not match `Etag(entity)` is `coreetag.ErrMismatch`.
+  comparison (exact by default); a sent etag that does not match `Etag(entity)` is `etag.ErrMismatch`.
 
 `WithAllowMissing(true)` is AIP-134's `allow_missing`: when `Read` reports `coreerrs.ErrNotFound`, `Run` checks `Precondition.Missing` (both presets
-refuse an etag sent for a missing resource as `coreetag.ErrMismatch`), ignores the entire mask, including invalid paths, and passes a copy of the request
+refuse an etag sent for a missing resource as `etag.ErrMismatch`), ignores the entire mask, including invalid paths, and passes a copy of the request
 resource without its OUTPUT_ONLY values to `Patch.Create`. Without `Create`, such a request is `ErrInvalidPatch`.
 
 `WithValidateOnly(true)` is AIP-163's `validate_only` (see [validateonly](../../validateonly)): `Run` performs every step, the precondition, the mask
@@ -410,7 +410,7 @@ descendants. Unprotected OUTPUT_ONLY descendants of whole collection replacement
 | `fieldmask.ErrMaxPathsExceeded`, `fieldmask.ErrMaxPathDepthExceeded`, `fieldmask.ErrMaxPathLengthExceeded` | every entry point a mask enters                                            | A mask over a limit (see [Limits](#limits))                                                            |
 | `ErrElementCountMismatch`                                                                                  | `Spec.Plan`, `Merge`, `MergePaths`                                         | A `*` sub-path of a list whose source holds elements, but not as many as the destination               |
 | `ErrMessageMismatch`                                                                                       | `ApplyMask`, `Merge`, `MergePaths`, `NewSpec`, `Spec.Plan`, `WithCurrent`  | Nil messages, or messages of different types                                                           |
-| `coreetag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                                     | A present etag that does not name the stored version, or any etag for a missing resource               |
+| `etag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                                     | A present etag that does not name the stored version, or any etag for a missing resource               |
 | `coreerrs.FieldError` on the etag field                                                                    | `Int64Precondition.Parse`, `TagPrecondition.Parse`                         | A malformed etag (`etag.ReasonInvalid`) or a missing required one (`etag.ReasonRequired`)              |
 | `ErrInvalidPatch`                                                                                          | `Patch.Run`                                                                | A missing dependency, or allow_missing without `Create`                                                |
 

@@ -29,7 +29,7 @@ const (
 // An empty sent etag carries no precondition unless [WithRequired](true).
 // A sent etag is parsed like [Parse] and must match the current tag under
 // the configured [Comparison] ([CompareExact] by default), else the request
-// fails with [coreetag.ErrMismatch], a core/errors.ErrConflict that the API reports
+// fails with [ErrMismatch], a core/errors.ErrConflict that the API reports
 // as ABORTED. A malformed or missing required etag is a
 // [coreerrs.FieldError] (INVALID_ARGUMENT) on [WithField].
 type Precondition struct {
@@ -51,12 +51,12 @@ func (p Precondition) opts() *options {
 
 // Parse decodes the etag a request sends. An empty sent is the zero coreetag.Tag (no
 // precondition) unless the etag is required; a malformed one is a
-// [coreerrs.FieldError] whose chain holds [coreetag.ErrMissing] or [coreetag.ErrInvalidTag].
+// [coreerrs.FieldError] whose chain holds [ErrMissing] or [ErrInvalid].
 func (p Precondition) Parse(sent string) (coreetag.Tag, error) {
 	o := p.opts()
 	if sent == "" {
 		if o.required {
-			return coreetag.Tag{}, &coreerrs.FieldError{Field: o.field, Reason: ReasonRequired, Err: coreetag.ErrMissing}
+			return coreetag.Tag{}, &coreerrs.FieldError{Field: o.field, Reason: ReasonRequired, Err: ErrMissing}
 		}
 
 		return coreetag.Tag{}, nil
@@ -73,14 +73,14 @@ func (p Precondition) Parse(sent string) (coreetag.Tag, error) {
 // Match checks a parsed etag against the current tag of the resource. A zero
 // expected (no etag sent) accepts any resource. The zero current tag stands
 // for a resource that does not exist (or has no etag): every sent etag
-// fails it with [coreetag.ErrMismatch].
+// fails it with [ErrMismatch].
 func (p Precondition) Match(expected, current coreetag.Tag) error {
 	if expected.IsZero() {
 		return nil
 	}
 
 	if !p.opts().compare(expected, current) {
-		return coreetag.ErrMismatch
+		return ErrMismatch
 	}
 
 	return nil
@@ -104,7 +104,7 @@ func (p Precondition) Check(sent string, current coreetag.Tag) error {
 // [WithSingleton] (every stored revision is positive) and MaxInt64 (the next
 // revision would overflow). The caller compares the revision with the
 // stored one, typically atomically in the store, and reports a stale one as
-// [coreetag.ErrMismatch].
+// [ErrMismatch].
 func (p Precondition) ParseRevision(sent string) (rev int64, ok bool, err error) {
 	t, err := p.Parse(sent)
 	if err != nil || t.IsZero() {
@@ -115,7 +115,7 @@ func (p Precondition) ParseRevision(sent string) (rev int64, ok bool, err error)
 
 	rev, err = Revision[int64](t)
 	if err == nil && (rev == math.MaxInt64 || (rev == 0 && !o.singleton)) {
-		err = coreetag.ErrNotVersion
+		err = ErrNotRevision
 	}
 
 	if err != nil {

@@ -326,7 +326,7 @@ All sentinels match with `errors.Is`; wrapped causes stay reachable. The table m
 | `ErrAllowlistRequired`     | `NewPolicy` without a nonempty allowlist or restricting `WithFieldAccess`, unless trusted input opts out (`WithAnyField`) |
 | `ErrMaxDepthExceeded`      | AST nesting above `WithMaxDepth`                                                                                          |
 | `ErrMaxOperationsExceeded` | Visits above `WithMaxOperations`                                                                                          |
-| `regexanchor.ErrInvalidRegex`          | Pattern fails RE2 compilation, exceeds `WithMaxRegexLength` or falls outside the safe subset                              |
+| `ErrInvalidRegex`          | Pattern fails RE2 compilation, exceeds `WithMaxRegexLength` or falls outside the safe subset                              |
 | `ErrDataLimitExceeded`     | Evaluation reads more data than `evaluator.WithMaxDataBudget` allows                                                      |
 | `ErrPolicyRequired`        | A translator or evaluator built with a nil policy                                                                         |
 | `ErrInvalidOptions`        | Contradictory or malformed options (a pattern in `WithAllowedFields`, `WithUnsafeRegex` with untrusted input)             |

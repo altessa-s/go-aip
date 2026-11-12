@@ -13,7 +13,6 @@ import (
 
 	filtereval "github.com/altessa-s/go-aip/filter/evaluator"
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func newTestParser(tb testing.TB) *filterparser.Parser {
@@ -483,7 +482,7 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 		}
 		_, err := eval.Evaluate(node, data)
 		require.Error(t, err, "expected error for regex exceeding max length")
-		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 	})
 
 	t.Run("custom regex length limit", func(t *testing.T) {
@@ -498,7 +497,7 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 		}
 		_, err := eval.Evaluate(node, data)
 		require.Error(t, err, "expected error for regex exceeding custom max length")
-		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 	})
 }
 

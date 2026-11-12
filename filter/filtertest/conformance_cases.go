@@ -14,7 +14,6 @@ import (
 	"github.com/altessa-s/go-aip/filter/functions"
 
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // Field names of [ConformanceRecords] the cases refer to (API names; without a field mapping also the storage names).
@@ -291,9 +290,9 @@ func conformanceCases() []conformanceCase {
 		{name: "enum value not allowed", err: filter.ErrEnumValueNotAllowed, expr: `status == 9`},
 		{name: "literal kind mismatch", err: filter.ErrFieldTypeMismatch, expr: `age == "x"`},
 		{name: "element kind mismatch", err: filter.ErrFieldTypeMismatch, expr: `1 in tags`},
-		{name: "invalid regex", err: regexanchor.ErrInvalidRegex, expr: `name.matches("(")`},
-		{name: "unsafe regex", err: regexanchor.ErrInvalidRegex, expr: `name.matches("(a|aa)+$")`},
-		{name: "regex too long", err: regexanchor.ErrInvalidRegex, expr: `name.matches("abcdef")`, policy: []filter.PolicyOption{filter.WithMaxRegexLength(4)}},
+		{name: "invalid regex", err: filter.ErrInvalidRegex, expr: `name.matches("(")`},
+		{name: "unsafe regex", err: filter.ErrInvalidRegex, expr: `name.matches("(a|aa)+$")`},
+		{name: "regex too long", err: filter.ErrInvalidRegex, expr: `name.matches("abcdef")`, policy: []filter.PolicyOption{filter.WithMaxRegexLength(4)}},
 		{name: "regex not allowed", err: filter.ErrFunctionNotAllowed, expr: `name.matches("^a")`, policy: []filter.PolicyOption{filter.WithSafeRegex(false)}},
 		{
 			name: "max depth", err: filter.ErrMaxDepthExceeded, expr: `!(!(!(!(name == "a"))))`,

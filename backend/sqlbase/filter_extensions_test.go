@@ -15,8 +15,6 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
-
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // extended is a dialect implementing every optional extension with readable markers; errOn makes one of them fail.
@@ -160,7 +158,7 @@ func TestExtensionsErrors(t *testing.T) {
 		`tags`:                      filter.ErrUnsupportedOperation,
 		`other in tags`:             filter.ErrUnsupportedOperation,
 		`tags.endsWith(other)`:      filter.ErrUnsupportedOperation,
-		`tags.matches("(")`:         regexanchor.ErrInvalidRegex,
+		`tags.matches("(")`:         filter.ErrInvalidRegex,
 		`tags.contains(1)`:          filter.ErrInvalidExpression,
 		`tags in ["a", other]`:      filter.ErrUnsupportedOperation,
 		`price == "x"`:              filter.ErrFieldTypeMismatch,

@@ -18,7 +18,6 @@ import (
 	"github.com/altessa-s/go-aip/filter/filtertest"
 
 	filtereval "github.com/altessa-s/go-aip/filter/evaluator"
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -363,7 +362,7 @@ func TestEvaluator_MongoSemanticsErrors(t *testing.T) {
 		{`secret == 1`, filter.ErrFieldNotAllowed},
 		{`has(secret.x)`, filter.ErrFieldNotAllowed},
 		{`age == "x"`, filter.ErrFieldTypeMismatch},
-		{`name.matches("(")`, regexanchor.ErrInvalidRegex},
+		{`name.matches("(")`, filter.ErrInvalidRegex},
 		{`tags.size() == -1`, filter.ErrInvalidExpression},
 		{`tags.size() > 2147483648`, filter.ErrInvalidExpression},
 		{`tags.size() != "2"`, filter.ErrInvalidExpression},
@@ -401,7 +400,7 @@ func TestEvaluator_MongoSemanticsValidatesEveryBranch(t *testing.T) {
 		`active || tags.size() == -1`:    filter.ErrInvalidExpression,
 		`!active && tags.size() > -2`:    filter.ErrInvalidExpression,
 		`active || secret == 1`:          filter.ErrFieldNotAllowed,
-		`active || name.matches("(")`:    regexanchor.ErrInvalidRegex,
+		`active || name.matches("(")`:    filter.ErrInvalidRegex,
 		`active || 1 == name`:            filter.ErrInvalidExpression,
 		`active || name.contains(1)`:     filter.ErrInvalidExpression,
 		`active || tags.size() == "one"`: filter.ErrInvalidExpression,

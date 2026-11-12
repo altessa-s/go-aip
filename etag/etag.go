@@ -14,8 +14,20 @@ import (
 	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 )
 
-// Errors specific to protobuf etag fields.
+// Errors of the etag package. [ErrMissing], [ErrInvalid], [ErrMismatch] and
+// [ErrNotRevision] are the go-atlas-core entity-tag sentinels, so
+// errors.Is matches across both packages.
 var (
+	// ErrMissing reports an empty etag where one is required.
+	ErrMissing = coreetag.ErrMissing
+	// ErrInvalid reports a value that is not an entity tag (see [Parse]).
+	ErrInvalid = coreetag.ErrInvalidTag
+	// ErrMismatch reports an etag that does not name the current state of
+	// the resource. It wraps core/errors.ErrConflict, which the API maps
+	// to ABORTED (AIP-154).
+	ErrMismatch = coreetag.ErrMismatch
+	// ErrNotRevision reports a tag [FromRevision] did not issue.
+	ErrNotRevision = coreetag.ErrNotVersion
 	// ErrNilMessage reports a nil proto message.
 	ErrNilMessage = errors.New("etag: nil message")
 	// ErrNoField reports a message without a singular string field named
@@ -33,42 +45,42 @@ var (
 //     not start with `W/`. [WithStrictQuotes] refuses bare values.
 //
 // Surrounding white space is trimmed. The empty string is
-// [coreetag.ErrMissing]; anything else that is not an entity tag, the empty opaque
-// tag `""` and a value longer than [WithMaxLength] bytes are [coreetag.ErrInvalidTag].
+// [ErrMissing]; anything else that is not an entity tag, the empty opaque
+// tag `""` and a value longer than [WithMaxLength] bytes are [ErrInvalid].
 func Parse(s string, opts ...Option) (coreetag.Tag, error) {
 	return newOptions(opts...).parse(s)
 }
 
 func (o *options) parse(s string) (coreetag.Tag, error) {
 	if s == "" {
-		return coreetag.Tag{}, coreetag.ErrMissing
+		return coreetag.Tag{}, ErrMissing
 	}
 
 	if o.maxLength > 0 && len(s) > o.maxLength {
-		return coreetag.Tag{}, fmt.Errorf("etag: longer than %d bytes: %w", o.maxLength, coreetag.ErrInvalidTag)
+		return coreetag.Tag{}, fmt.Errorf("etag: longer than %d bytes: %w", o.maxLength, ErrInvalid)
 	}
 
 	t := strings.TrimSpace(s)
 	if t == "" {
-		return coreetag.Tag{}, fmt.Errorf("etag: blank: %w", coreetag.ErrInvalidTag)
+		return coreetag.Tag{}, fmt.Errorf("etag: blank: %w", ErrInvalid)
 	}
 
 	if t[0] == '"' || strings.HasPrefix(t, "W/") {
 		tag, err := coreetag.Parse(t)
 		if err != nil {
-			return coreetag.Tag{}, fmt.Errorf("etag: not an entity tag: %w", coreetag.ErrInvalidTag)
+			return coreetag.Tag{}, fmt.Errorf("etag: not an entity tag: %w", ErrInvalid)
 		}
 
 		return tag, nil
 	}
 
 	if o.strictQuotes {
-		return coreetag.Tag{}, fmt.Errorf("etag: not quoted: %w", coreetag.ErrInvalidTag)
+		return coreetag.Tag{}, fmt.Errorf("etag: not quoted: %w", ErrInvalid)
 	}
 
 	for i := range len(t) {
 		if !isTagChar(t[i]) {
-			return coreetag.Tag{}, fmt.Errorf("etag: invalid character at offset %d: %w", i, coreetag.ErrInvalidTag)
+			return coreetag.Tag{}, fmt.Errorf("etag: invalid character at offset %d: %w", i, ErrInvalid)
 		}
 	}
 
@@ -97,22 +109,22 @@ func FromRevision[T int64 | uint64](rev T) coreetag.Tag {
 }
 
 // Revision returns the revision a [FromRevision] tag carries. It fails with
-// [coreetag.ErrNotVersion] unless t is weak and its value is the canonical decimal
+// [ErrNotRevision] unless t is weak and its value is the canonical decimal
 // (no sign, no leading zero except "0") of a revision T can hold, so
 // exactly one tag maps to each revision.
 func Revision[T int64 | uint64](t coreetag.Tag) (T, error) {
 	v := t.Value()
 	if !t.IsWeak() || !canonicalDecimal(v) {
-		return 0, coreetag.ErrNotVersion
+		return 0, ErrNotRevision
 	}
 
 	u, err := strconv.ParseUint(v, 10, 64)
 	if err != nil {
-		return 0, coreetag.ErrNotVersion
+		return 0, ErrNotRevision
 	}
 
 	if _, signed := any(T(0)).(int64); signed && u > math.MaxInt64 {
-		return 0, coreetag.ErrNotVersion
+		return 0, ErrNotRevision
 	}
 
 	return T(u), nil

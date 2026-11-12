@@ -7,7 +7,6 @@ package filter
 import (
 	"regexp"
 
-	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -17,11 +16,11 @@ import (
 // used by both the evaluator and translators for consistent regex validation.
 func ValidateRegex(pattern string, maxLength int) error {
 	if len(pattern) > maxLength {
-		return coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLength)
+		return coreerrs.Wrapf(ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLength)
 	}
 
 	if _, err := regexp.Compile(pattern); err != nil {
-		return coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "%w", err)
+		return coreerrs.Wrapf(ErrInvalidRegex, "%w", err)
 	}
 
 	return nil

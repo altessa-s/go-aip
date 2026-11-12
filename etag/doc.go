@@ -17,7 +17,7 @@
 // A Precondition checks the etag an Update, Delete or custom method sends:
 // an absent etag is no precondition unless WithRequired, a malformed one is a
 // core/errors.FieldError (INVALID_ARGUMENT) and one that does not match the
-// current tag is coreetag.ErrMismatch, a core/errors.ErrConflict that the API maps to
+// current tag is ErrMismatch, a core/errors.ErrConflict that the API maps to
 // ABORTED. Matching is exact by default (the client echoes the tag it read),
 // with RFC 9110 strong and weak comparison available. Get reads the etag
 // field of a request and Stamp writes the current tag into a response.
@@ -27,7 +27,7 @@
 //	pre := etag.NewPrecondition(etag.WithField("book.etag"))
 //	cur := etag.FromRevision(stored.Revision)
 //	if err := pre.Check(req.GetBook().GetEtag(), cur); err != nil {
-//		return nil, err // FieldError or coreetag.ErrMismatch (ABORTED)
+//		return nil, err // FieldError or ErrMismatch (ABORTED)
 //	}
 //	// ... apply the update ...
 //	if err := etag.Stamp(resp, etag.FromRevision(saved.Revision)); err != nil {
