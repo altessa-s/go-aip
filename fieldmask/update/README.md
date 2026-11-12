@@ -134,6 +134,8 @@ Preservation follows the configured resolver, identity, immutable and atomic pol
 Omitted masks and `*` retain their existing preservation policy.
 A covering path keeps protected descendants; a selected whole collection or atomic message is kept whole, apart from OUTPUT_ONLY clearing.
 With explicit paths or an explicit empty mask, an unselected container is dropped even when it contains IMMUTABLE or nested IDENTIFIER fields.
+Partial collection paths keep their element sub-masks: unselected map entries and unselected IMMUTABLE siblings are dropped.
+Lists retain their original length and positions; an element with no retained fields remains an empty message. Selected whole elements retain their protected descendants.
 Within selected branches, nested identifiers retain the existing identity-preservation behavior.
 Stateless `Apply` and `ApplyMask` still retain unverified protected input for callers to compare, including whole collections needed for positional comparison.
 The captured original input remains the source for deferred replacements, secrets and creation.

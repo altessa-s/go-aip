@@ -37,7 +37,7 @@ func TestPrepareProtectedSelection(t *testing.T) {
 					{name: "nested mutable", paths: []string{"parent.display_name"}, keep: "nested"},
 					{name: "list", paths: []string{"members"}, keep: "members"},
 					{name: "changed list", paths: []string{"members"}, keep: "members", change: true, refuse: true},
-					{name: "list descendant", paths: []string{"members.*.note"}, keep: "members"},
+					{name: "list descendant", paths: []string{"members.*.note"}, keep: "member notes"},
 					{name: "map", paths: []string{"delegates"}, keep: "delegates"},
 					{name: "changed map", paths: []string{"delegates"}, keep: "delegates", change: true, refuse: true},
 				} {
@@ -87,6 +87,11 @@ func TestPrepareProtectedSelection(t *testing.T) {
 							want.Parent = input.Parent
 						case "nested":
 							want.Parent = &pb.Account{Name: input.Parent.Name, DisplayName: input.Parent.DisplayName}
+						case "member notes":
+							want.Members = []*pb.Owner{{Note: "note"}}
+							if protected == annotations.FieldBehavior_IDENTIFIER {
+								want.Members[0].Org = input.Members[0].Org
+							}
 						case "members":
 							want.Members = input.Members
 						case "delegates":

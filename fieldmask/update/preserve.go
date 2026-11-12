@@ -20,8 +20,8 @@ func preserveUnverified(keep fieldmask.FieldMask, msg protoreflect.Message, poli
 	preserveUnverifiedDepth(keep, msg, policy, true, false, requiredMaxDepth)
 }
 
-// preserveSelectedUnverified keeps selected identities and protected collections
-// whole, without adding unselected protected fields or containers. Prepare owns
+// preserveSelectedUnverified keeps selected identities without widening partial
+// collection selections to unselected protected fields or entries. Prepare owns
 // the original input, so its handler-visible request needs no other comparisons.
 func preserveSelectedUnverified(keep fieldmask.FieldMask, msg protoreflect.Message, policy *options) {
 	preserveUnverifiedDepth(keep, msg, policy, true, true, requiredMaxDepth)
@@ -61,8 +61,10 @@ func preserveUnverifiedDepth(keep fieldmask.FieldMask, msg protoreflect.Message,
 			return true // already kept whole
 		}
 
-		if selectedOnly && room == 0 {
-			return true // retain only the selection at the traversal bound
+		if selectedOnly && (fd.IsList() || fd.IsMap() || room == 0) {
+			// The filter recurses through element masks and keeps empty list
+			// messages in place. Comparison uses Prepare's captured input.
+			return true
 		}
 
 		if fd.IsList() || fd.IsMap() || isAtomicValue(fd, policy) || room == 0 {

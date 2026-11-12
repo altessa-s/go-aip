@@ -88,7 +88,20 @@ func TestPrepareDefersTemporaryPinning(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				requireProtoEqual(t, original, req)
+				filtered := proto.CloneOf(original)
+
+				selected := filtered
+				if nested {
+					selected = filtered.Parent
+				}
+
+				for k, owner := range selected.Delegates {
+					if k != "k" {
+						owner.Email = "" // only note is selected on wildcard elements
+					}
+				}
+
+				requireProtoEqual(t, filtered, req)
 
 				mask, err := pending.Complete(stored)
 				if err != nil {

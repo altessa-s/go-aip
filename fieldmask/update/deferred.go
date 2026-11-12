@@ -89,6 +89,8 @@ type DeferredPlan struct {
 // selected protected values are retained. Unselected non-identity IMMUTABLE input
 // is cleared, including in unselected containers; selected whole collections and
 // atomic messages retain their protected descendants for deferred comparison.
+// Partial collection paths drop unselected map entries and immutable siblings.
+// List positions are preserved, with empty messages where no fields survive.
 // An explicit empty mask remains a no-op with no comparisons or secret changes.
 // With [WithCurrent] it finishes immediately and retains no pending comparisons.
 // On failure it returns no plan and leaves resource unchanged. A stateless
