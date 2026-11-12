@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-aip v0.1.5
+	github.com/altessa-s/go-aip v0.1.6
 	github.com/altessa-s/go-atlas-core v0.3.3
 	github.com/stretchr/testify v1.12.1
 )
