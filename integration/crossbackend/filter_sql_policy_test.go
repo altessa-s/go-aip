@@ -18,6 +18,7 @@ import (
 
 	maria "github.com/altessa-s/go-aip/backend/mariadb"
 	pg "github.com/altessa-s/go-aip/backend/postgres"
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func TestSQLSchemaPolicy(t *testing.T) {
@@ -33,7 +34,7 @@ func TestSQLSchemaPolicy(t *testing.T) {
 		{"operations", `name == "a"`, []filter.PolicyOption{filter.WithMaxOperations(1)}, filter.ErrMaxOperationsExceeded},
 		{"depth", `!(name == "a")`, []filter.PolicyOption{filter.WithMaxDepth(1)}, filter.ErrMaxDepthExceeded},
 		{"regex compiler", `name.matches("abc")`, []filter.PolicyOption{filter.WithRegexCompiler(func(string) (filter.RegexMatcher, error) { return nil, rejected })}, rejected},
-		{"unsafe regex length", `name.matches("abc")`, []filter.PolicyOption{filter.WithUnsafeRegex(true), filter.WithMaxRegexLength(1)}, filter.ErrInvalidRegex},
+		{"unsafe regex length", `name.matches("abc")`, []filter.PolicyOption{filter.WithUnsafeRegex(true), filter.WithMaxRegexLength(1)}, regexanchor.ErrInvalidRegex},
 		{"array codec", `tags == "a"`, []filter.PolicyOption{filter.WithValueCodecs(map[filter.FieldKind]filter.ValueCodec{filter.FieldKindString: literalValidationCodec{err: rejected}})}, rejected},
 		{"decimal parser", `price == 2`, []filter.PolicyOption{filter.WithDecimalParser(func(filter.Node, any) (decimal.Decimal, error) { return decimal.Decimal{}, rejected })}, rejected},
 	}

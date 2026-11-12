@@ -10,6 +10,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldinfo"
 
 	testpb "github.com/altessa-s/go-aip/internal/proto/gen/fieldinfotest/v1"
+	annotations "google.golang.org/genproto/googleapis/api/annotations"
 )
 
 func BenchmarkValidate(b *testing.B) {
@@ -39,12 +40,12 @@ func BenchmarkValidate_NoFormats(b *testing.B) {
 func BenchmarkNormalizeValue(b *testing.B) {
 	for _, bc := range []struct {
 		name   string
-		format fieldinfo.Format
+		format annotations.FieldInfo_Format
 		value  string
 	}{
-		{"UUID4", fieldinfo.UUID4, "F47AC10B-58CC-4372-A567-0E02B2C3D479"},
-		{"IPv4", fieldinfo.IPv4, "001.022.233.040"},
-		{"IPv6", fieldinfo.IPv6, "2001:0DB8:0::0"},
+		{"UUID4", annotations.FieldInfo_UUID4, "F47AC10B-58CC-4372-A567-0E02B2C3D479"},
+		{"IPv4", annotations.FieldInfo_IPV4, "001.022.233.040"},
+		{"IPv6", annotations.FieldInfo_IPV6, "2001:0DB8:0::0"},
 	} {
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()

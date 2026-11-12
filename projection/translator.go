@@ -82,14 +82,10 @@ func NewTranslatorContext(policy *Policy, opts ...TranslatorOption) (*Translator
 	return o, nil
 }
 
-// Telemetry is the translation timer of one projection translator, created by [NewTelemetry]. A nil *Telemetry is
-// disabled.
-type Telemetry = metrics.TranslateTimer
-
 // NewTelemetry creates the translation timer of a projection translator, recorded as the histogram
 // projection_<backend>_translate_duration_seconds. Translators create it from the collector of their
 // WithProjectionCollector option. A nil meter disables collection and returns nil, whose Start is a no-op.
-func NewTelemetry(m metrics.Meter, backend string) *Telemetry {
+func NewTelemetry(m metrics.Meter, backend string) *metrics.TranslateTimer {
 	return metrics.NewTranslateTimer(m, "projection_"+backend, "Duration of projection translation in seconds.")
 }
 

@@ -24,7 +24,7 @@ renderers that read a dot as SQL qualification.
 
 A policy holds what the client may ask for, in CEL-side (API) names, independent of any backend: build it once per resource and pass it to
 every translator and evaluator. Storage names are a translator concern: `NewTranslatorContext(policy, opts ...TranslatorOption)` returns a copy
-(a `*TranslatorContext`, an alias of `*Policy`) bound to one backend's names (`WithFieldMapping`), leaving the shared policy unchanged; it
+(a `*Policy`) bound to one backend's names (`WithFieldMapping`), leaving the shared policy unchanged; it
 fails with `ErrPolicyRequired` for a nil policy.
 See [Parser / policy / translator](../docs/filter.md#parser--policy--translator).
 
@@ -68,13 +68,12 @@ The translators live in the backend packages ([Backends](#backends)); the Postgr
 | `CustomFunction`              | AST expansion contract; implementations do not require CEL                   |
 | `Policy`                      | Validated API field, limit and regex rules; construct with `NewPolicy`       |
 | `TranslatorOption`            | Storage binding of a policy (`WithFieldMapping`); see `NewTranslatorContext` |
-| `TranslatorContext`           | Alias of `Policy`: the bound copy `NewTranslatorContext` returns             |
 | `FieldPolicy`                 | Immutable compiled field value returned by `Policy.Field`                    |
 | `FieldKind`                   | Declared field value kind                                                    |
 | `PolicyOption`                | Shared policy construction option                                            |
 | `Translator`                  | Backend-neutral translator port (one rendered query value)                   |
 | `Compatibility`               | `ValidateAST` checks a configured backend without I/O                        |
-| `Telemetry`                   | Backend-scoped translation duration (`NewTelemetry`); nil disables it        |
+| `metrics.TranslateTimer`                   | Backend-scoped translation duration (`NewTelemetry`); nil disables it        |
 
 ## Usage
 
@@ -134,9 +133,9 @@ The backend-neutral ports live in this package so that every backend package dep
 |-------------------|----------------------------------------------------------------------------------------|
 | `Translator[Out]` | `Translate(Node) (Out, error)`: one rendered query value                               |
 | `Compatibility`   | `ValidateAST(Node) error` checks the configured backend: shape, policy, literal values |
-| `Telemetry`       | `NewTelemetry(meter, backend)` records `filter_<backend>_translate_duration_seconds`   |
+| `metrics.TranslateTimer`       | `NewTelemetry(meter, backend)` records `filter_<backend>_translate_duration_seconds`   |
 
-A nil meter disables `Telemetry`; a nil `*Telemetry` is a valid disabled receiver.
+A nil meter disables `metrics.TranslateTimer`; a nil `*metrics.TranslateTimer` is a valid disabled receiver.
 
 ### SQL translators
 
@@ -164,7 +163,7 @@ rather than a qualified `"table"."column"`. Each package README covers its own.
 | `filter.NewParser`                                                       | `parser.New`                                                                        |
 | Parser configuration formerly in `filter`                                | `parser.Option` and generated `parser.With*` options                                |
 | `filter.NewEvaluator`, `evaluator.WithPolicy(opts...)`                   | `evaluator.New(policy, opts...)` over a policy from `filter.NewPolicy`              |
-| Field rules of `TranslatorOption` / `TranslatorContext`                  | `filter.PolicyOption`, `Policy`, `NewPolicy`                                        |
+| Field rules of `TranslatorOption` / `Policy`                  | `filter.PolicyOption`, `Policy`, `NewPolicy`                                        |
 | `filter.WithFieldMapping` as a policy option                             | `filter.TranslatorOption`: backend `WithFilterOptions`, or `NewTranslatorContext`   |
 | Backend `WithFilterOptions(filter.PolicyOption...)`                      | The shared `*filter.Policy` as the first constructor argument                       |
 | `filter.WithProfile`                                                     | `evaluator.WithProfile(schema)`; build MongoDB storage rules with `mongo.NewSchema` |
@@ -327,7 +326,7 @@ All sentinels match with `errors.Is`; wrapped causes stay reachable. The table m
 | `ErrAllowlistRequired`     | `NewPolicy` without a nonempty allowlist or restricting `WithFieldAccess`, unless trusted input opts out (`WithAnyField`) |
 | `ErrMaxDepthExceeded`      | AST nesting above `WithMaxDepth`                                                                                          |
 | `ErrMaxOperationsExceeded` | Visits above `WithMaxOperations`                                                                                          |
-| `ErrInvalidRegex`          | Pattern fails RE2 compilation, exceeds `WithMaxRegexLength` or falls outside the safe subset                              |
+| `regexanchor.ErrInvalidRegex`          | Pattern fails RE2 compilation, exceeds `WithMaxRegexLength` or falls outside the safe subset                              |
 | `ErrDataLimitExceeded`     | Evaluation reads more data than `evaluator.WithMaxDataBudget` allows                                                      |
 | `ErrPolicyRequired`        | A translator or evaluator built with a nil policy                                                                         |
 | `ErrInvalidOptions`        | Contradictory or malformed options (a pattern in `WithAllowedFields`, `WithUnsafeRegex` with untrusted input)             |

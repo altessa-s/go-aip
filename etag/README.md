@@ -1,7 +1,10 @@
 # etag
 
 ```go
-import "github.com/altessa-s/go-aip/etag"
+import (
+    "github.com/altessa-s/go-aip/etag"
+    coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
+)
 ```
 
 Package `etag` implements [AIP-154](https://google.aip.dev/154) resource freshness validation
@@ -12,19 +15,19 @@ that implements it. [fieldmask/update](../fieldmask/update) builds `Patch` preco
 
 ## Tags
 
-`Tag` is the go-atlas-core entity tag (`encoding/etag.Tag`, an alias): an opaque value plus a weak flag. The zero `Tag` is the absent tag; it
-renders as `""` and matches nothing. `Tag.String` renders the wire form, `"value"` (strong) or `W/"value"` (weak), which is the value of an
+`coreetag.Tag` comes from `github.com/altessa-s/go-atlas-core/encoding/etag`: an opaque value plus a weak flag. The zero `coreetag.Tag` is the absent tag; it
+renders as `""` and matches nothing. `coreetag.Tag.String` renders the wire form, `"value"` (strong) or `W/"value"` (weak), which is the value of an
 AIP-154 `etag` field and of an HTTP `ETag` header alike.
 
 | Function                           | Result                                                                                                                                                                |
 |------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Strong(v)`, `Weak(v)`             | `"v"`, `W/"v"` for a trusted value; an empty value is the zero `Tag`.                                                                                                 |
-| `FromRevision[int64 \| uint64](r)` | `W/"<r>"` in canonical decimal (the go-atlas-core version tag); weak because equal revisions mean semantically equal resources. A negative `int64` is the zero `Tag`. |
-| `Revision[int64 \| uint64](t)`     | The revision of a `FromRevision` tag; anything else (strong, non-canonical, out of range) is `ErrNotRevision`.                                                        |
+| `coreetag.Strong(v)`, `coreetag.Weak(v)`             | `"v"`, `W/"v"` for a trusted value; an empty value is the zero `coreetag.Tag`.                                                                                                 |
+| `FromRevision[int64 \| uint64](r)` | `W/"<r>"` in canonical decimal (the go-atlas-core version tag); weak because equal revisions mean semantically equal resources. A negative `int64` is the zero `coreetag.Tag`. |
+| `Revision[int64 \| uint64](t)`     | The revision of a `FromRevision` tag; anything else (strong, non-canonical, out of range) is `coreetag.ErrNotVersion`.                                                        |
 | `FromMessage(m, opts...)`          | The content tag of a resource: SHA-256 of its deterministic binary encoding, unpadded base64url (43 bytes).                                                           |
 | `Parse(s, opts...)`                | The tag a client sends (see [Parsing](#parsing)).                                                                                                                     |
 
-`Tag.StrongMatch` and `Tag.WeakMatch` are the RFC 9110 §8.8.3.2 comparison functions:
+`coreetag.Tag.StrongMatch` and `coreetag.Tag.WeakMatch` are the RFC 9110 §8.8.3.2 comparison functions:
 
 | a       | b       | strong | weak |
 |---------|---------|--------|------|
@@ -57,9 +60,9 @@ computes, or store them with the resource.
   characters only (`%x21 / %x23-7E / %x80-FF`: no space, quote or control character) and must not start with `W/`. `WithStrictQuotes(true)`
   refuses it.
 
-Surrounding white space is trimmed. The empty string is `ErrMissing`; the empty quoted tag `""`, a blank value, an unclosed quote, trailing
-content and invalid characters are `ErrInvalid`. A value longer than `WithMaxLength` bytes (default `DefaultMaxLength`, 256; 0 is
-unlimited) is `ErrInvalid` before any parsing.
+Surrounding white space is trimmed. The empty string is `coreetag.ErrMissing`; the empty quoted tag `""`, a blank value, an unclosed quote, trailing
+content and invalid characters are `coreetag.ErrInvalidTag`. A value longer than `WithMaxLength` bytes (default `DefaultMaxLength`, 256; 0 is
+unlimited) is `coreetag.ErrInvalidTag` before any parsing.
 
 ## Preconditions
 
@@ -68,8 +71,8 @@ concurrent use.
 
 | Method                     | Behavior                                                                                                                                                                                                          |
 |----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `Parse(sent)`              | The parsed tag; the zero `Tag` for an empty `sent` (no precondition) unless `WithRequired(true)`.                                                                                                                 |
-| `Match(expected, current)` | nil for a zero `expected`; `ErrMismatch` unless `expected` matches `current`. A zero `current` (a missing resource) matches nothing.                                                                              |
+| `Parse(sent)`              | The parsed tag; the zero `coreetag.Tag` for an empty `sent` (no precondition) unless `WithRequired(true)`.                                                                                                                 |
+| `Match(expected, current)` | nil for a zero `expected`; `coreetag.ErrMismatch` unless `expected` matches `current`. A zero `current` (a missing resource) matches nothing.                                                                              |
 | `Check(sent, current)`     | `Parse` then `Match`.                                                                                                                                                                                             |
 | `ParseRevision(sent)`      | The revision of a `FromRevision` etag, `ok == false` when absent; W/"0" only `WithSingleton(true)`, MaxInt64 never (the next revision would overflow). The caller compares it, typically atomically in its store. |
 
@@ -93,7 +96,7 @@ if err != nil {
 	return nil, err
 }
 if err := pre.Check(req.GetBook().GetEtag(), etag.FromRevision(stored.Revision)); err != nil {
-	return nil, err // coreerrs.FieldError (INVALID_ARGUMENT) or etag.ErrMismatch (ABORTED)
+	return nil, err // coreerrs.FieldError (INVALID_ARGUMENT) or coreetag.ErrMismatch (ABORTED)
 }
 saved, err := repo.Update(ctx, merge(stored, req.GetBook()))
 if err != nil {
@@ -109,7 +112,7 @@ return resp, nil
 ## Fields
 
 `Get(m)` reads the `etag` field of a request resource or of a Delete or custom method request; `Stamp(m, t)` writes `t.String()` into the
-`etag` field of a response (the zero `Tag` clears it). Both find the field by descriptor (`FieldName`, `"etag"`) and require a singular string
+`etag` field of a response (the zero `coreetag.Tag` clears it). Both find the field by descriptor (`FieldName`, `"etag"`) and require a singular string
 field: anything else is `ErrNoField`. A nil message is `ErrNilMessage` (`Get` reads a typed nil message as `""`).
 
 ## AIP-154 conformance
@@ -120,7 +123,7 @@ field: anything else is `ErrNoField`. A nil message is `ErrNilMessage` (`Get` re
 | The server provides the etag on output                            | MUST       | `Stamp` writes the current tag into every response; `FromRevision` and `FromMessage` issue it.                                                                                                    |
 | Etag values conform to RFC 7232 / RFC 9110 and include the quotes | SHOULD     | Issued tags always render quoted (`"v"`, `W/"v"`); `Parse` validates entity-tag characters.                                                                                                       |
 | A matching etag permits the request                               | MUST       | `Precondition.Match` returns nil; other failures are the caller's.                                                                                                                                |
-| A mismatching etag fails with ABORTED                             | MUST       | `ErrMismatch` wraps `coreerrs.ErrConflict`, which the go-atlas error mapping and the apierror package (AIP-193) report as ABORTED. Check permissions first so PERMISSION_DENIED takes precedence. |
+| A mismatching etag fails with ABORTED                             | MUST       | `coreetag.ErrMismatch` wraps `coreerrs.ErrConflict`, which the go-atlas error mapping and the apierror package (AIP-193) report as ABORTED. Check permissions first so PERMISSION_DENIED takes precedence. |
 | A request without an etag is permitted                            | SHOULD     | An empty sent etag is no precondition.                                                                                                                                                            |
 | Services may require etags                                        | MAY        | `WithRequired(true)`: a missing etag is a `coreerrs.FieldError` (`ReasonRequired`).                                                                                                               |
 | Delete and custom methods may carry an etag                       | MAY        | `Get` reads the request's own `etag` field; `Precondition` works for any method.                                                                                                                  |
@@ -134,15 +137,15 @@ quotes, and tolerating plain strings costs nothing.
 
 | Error                 | Returned by                                     | Meaning                                                                                         |
 |-----------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------|
-| `ErrMissing`          | `Parse`; in the chain of a `Precondition` error | An empty etag where one is required.                                                            |
-| `ErrInvalid`          | `Parse`; in the chain of a `Precondition` error | Not an entity tag, or longer than `WithMaxLength`.                                              |
-| `ErrNotRevision`      | `Revision`; in the chain of `ParseRevision`     | Not a tag `FromRevision` issues (or W/"0" without `WithSingleton`, MaxInt64).                   |
+| `coreetag.ErrMissing`          | `Parse`; in the chain of a `Precondition` error | An empty etag where one is required.                                                            |
+| `coreetag.ErrInvalidTag`          | `Parse`; in the chain of a `Precondition` error | Not an entity tag, or longer than `WithMaxLength`.                                              |
+| `coreetag.ErrNotVersion`      | `Revision`; in the chain of `ParseRevision`     | Not a tag `FromRevision` issues (or W/"0" without `WithSingleton`, MaxInt64).                   |
 | `coreerrs.FieldError` | `Precondition.Parse`, `Check`, `ParseRevision`  | INVALID_ARGUMENT on `WithField` (default `"etag"`), reason `ReasonRequired` or `ReasonInvalid`. |
-| `ErrMismatch`         | `Precondition.Match`, `Check`                   | The etag does not name the current state; wraps `coreerrs.ErrConflict` (ABORTED).               |
+| `coreetag.ErrMismatch`         | `Precondition.Match`, `Check`                   | The etag does not name the current state; wraps `coreerrs.ErrConflict` (ABORTED).               |
 | `ErrNoField`          | `Get`, `Stamp`, `FromMessage`                   | No singular string `etag` field, or a hash path that does not name a field.                     |
 | `ErrNilMessage`       | `Get`, `Stamp`, `FromMessage`                   | A nil message.                                                                                  |
 
-`ErrMissing`, `ErrInvalid`, `ErrMismatch` and `ErrNotRevision` are the go-atlas-core `encoding/etag` sentinels, so `errors.Is` matches across both
+`coreetag.ErrMissing`, `coreetag.ErrInvalidTag`, `coreetag.ErrMismatch` and `coreetag.ErrNotVersion` are the go-atlas-core `encoding/etag` sentinels, so `errors.Is` matches across both
 packages.
 
 ## Options

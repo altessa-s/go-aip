@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/listing/listingtest"
 
+	pagetoken "github.com/altessa-s/go-aip/pagination/pagetoken"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -65,7 +66,7 @@ func TestCompilePageSize(t *testing.T) {
 	}
 
 	_, err := widgetSchema(t).Compile(t.Context(), listing.Request{PageSize: -1})
-	require.Equal(t, listing.FieldPageSize, fieldOf(err))
+	require.Equal(t, pagetoken.SizeField, fieldOf(err))
 }
 
 // TestCompileOrdersFields checks the first invalid field in request order
@@ -76,7 +77,7 @@ func TestCompileOrdersFields(t *testing.T) {
 	s := widgetSchema(t, listing.WithParentRequired(true))
 	bad := listing.Request{PageSize: -1, OrderBy: "nope", Filter: "nope =="}
 	_, err := s.Compile(t.Context(), bad)
-	require.Equal(t, listing.FieldPageSize, fieldOf(err))
+	require.Equal(t, pagetoken.SizeField, fieldOf(err))
 
 	bad.PageSize = 0
 	_, err = s.Compile(t.Context(), bad)

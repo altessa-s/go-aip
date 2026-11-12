@@ -10,13 +10,13 @@ Everything go-aip renders for ClickHouse, in one package:
 |---------------|----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | Filter        | `NewFilterTranslator(policy, opts ...FilterOption) (*FilterTranslator, error)`                                       | A `WHERE` clause from a `filter.Node` (AIP-160)                                                |
 | Schema filter | `NewFilterTranslatorWithSchema(policy, schema *Schema, opts ...FilterOption) (*SchemaFilterTranslator, error)`       | A typed `WHERE` clause under the listing storage contract (`Nullable`, `Array(T)`, JSON paths) |
-| Order         | `NewOrderTranslator(policy, opts ...OrderOption) (*sqlbase.OrderTranslator, error)`                                  | The body of `ORDER BY` from an `orderby.Spec` (AIP-132)                                        |
-| Projection    | `NewProjectionTranslator(policy, opts ...ProjectionOption) (*sqlbase.ProjectionTranslator, error)`                   | The `SELECT` column list from a `projection.Spec` (AIP-157)                                    |
-| List engine   | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...ListEngineOption) (*sqlbase.ListEngine[T], error)` | Keyset `List` pages over a table (AIP-132, AIP-158) with `ListDialect` fixed                   |
+| Order         | `NewOrderTranslator(policy, opts ...sqlbase.OrderOption) (*sqlbase.OrderTranslator, error)`                                  | The body of `ORDER BY` from an `orderby.Spec` (AIP-132)                                        |
+| Projection    | `NewProjectionTranslator(policy, opts ...sqlbase.ProjectionOption) (*sqlbase.ProjectionTranslator, error)`                   | The `SELECT` column list from a `projection.Spec` (AIP-157)                                    |
+| List engine   | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...sqlbase.ListEngineOption) (*sqlbase.ListEngine[T], error)` | Keyset `List` pages over a table (AIP-132, AIP-158) with `ListDialect` fixed                   |
 
 Every constructor takes the resource's shared, client-facing policy (built once in API names and reused by every backend) followed by the storage
 options that bind it to ClickHouse column names. The order and projection constructors are the dialect-generic [`sqlbase`](../sqlbase/README.md)
-translators with the ClickHouse dialect fixed (`OrderOption` and `ProjectionOption` are aliases of the `sqlbase` option types); use
+translators with the ClickHouse dialect fixed (using `sqlbase.OrderOption` and `sqlbase.ProjectionOption`); use
 `sqlbase.NewOrderTranslator` / `sqlbase.NewProjectionTranslator` with an application `sqlbase.ColumnResolver` for trusted storage expressions. The list
 engine is the shared [`sqlbase`](../sqlbase/README.md#listing-engine) keyset engine with this package's `ListDialect` fixed, and it filters with the
 schema translator in listing contract mode, as the PostgreSQL and MariaDB engines do.
@@ -515,13 +515,10 @@ if cols == "" {
 | `ListDialect`                   | The ClickHouse `sqlbase.ListDialect`, with the contract-mode filter translator               |
 | `NewListEngine`                 | `sqlbase.NewListEngine` with `ListDialect` fixed                                             |
 | `MustNewListEngine`             | Panicking `NewListEngine` for package-level declarations fixed in code                       |
-| `ListEngineOption`              | Alias of `sqlbase.ListEngineOption` (the `sqlbase.WithList…` options)                        |
 | `OrderDialect`                  | The ClickHouse `sqlbase.OrderDialect`, for `sqlbase.NewOrderTranslator` or a resolver        |
 | `NewOrderTranslator`            | `sqlbase.OrderTranslator` with the ClickHouse dialect                                        |
-| `OrderOption`                   | Alias of `sqlbase.OrderOption`                                                               |
 | `ProjectionDialect`             | The ClickHouse `sqlbase.ProjectionDialect`, with `* EXCEPT` exclusions                       |
 | `NewProjectionTranslator`       | `sqlbase.ProjectionTranslator` with the ClickHouse dialect                                   |
-| `ProjectionOption`              | Alias of `sqlbase.ProjectionOption`                                                          |
 
 ## Related packages
 

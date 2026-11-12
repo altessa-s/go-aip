@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-aip/etag"
 
 	pb "github.com/altessa-s/go-aip/internal/proto/gen/etagtest/v1"
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 )
 
 func book() *pb.Book {
@@ -25,7 +26,7 @@ func book() *pb.Book {
 	}
 }
 
-func hash(t *testing.T, m proto.Message, opts ...etag.HashOption) etag.Tag {
+func hash(t *testing.T, m proto.Message, opts ...etag.HashOption) coreetag.Tag {
 	t.Helper()
 
 	tag, err := etag.FromMessage(m, opts...)

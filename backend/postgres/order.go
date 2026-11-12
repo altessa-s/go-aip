@@ -19,10 +19,6 @@ const qualifiedParts = 2
 // PostgreSQL silently truncates longer identifiers.
 var identifiers = sqlbase.Identifiers{Quote: '"', MaxIdentLen: sqlbase.PostgresMaxIdentLen, MaxParts: qualifiedParts}
 
-// OrderOption configures [NewOrderTranslator]. It is [sqlbase.OrderOption]; the
-// options are [sqlbase.WithOrderOptions] and [sqlbase.WithOrderCollector].
-type OrderOption = sqlbase.OrderOption
-
 // OrderDialect returns the PostgreSQL ORDER BY dialect: double-quoted `col` or `table.col` parts of at most 63 bytes,
 // `COLLATE "name"` before the direction, NULLS FIRST/LAST, and metrics labeled "postgres". A dotted client key must be declared
 // ([sqlbase.QualifiedNamesDialect]). Pass it to [sqlbase.NewOrderTranslator] or delegate an application
@@ -41,6 +37,6 @@ func OrderDialect() sqlbase.OrderDialect {
 // direction and NULLS FIRST/LAST. [sqlbase.WithOrderOptions] binds the policy
 // to storage names and [sqlbase.WithOrderCollector] records metrics. Returns
 // [orderby.ErrPolicyRequired] for a nil policy.
-func NewOrderTranslator(policy *orderby.Policy, opts ...OrderOption) (*sqlbase.OrderTranslator, error) {
+func NewOrderTranslator(policy *orderby.Policy, opts ...sqlbase.OrderOption) (*sqlbase.OrderTranslator, error) {
 	return sqlbase.NewOrderTranslator(policy, OrderDialect(), opts...)
 }

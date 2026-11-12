@@ -19,11 +19,9 @@ import (
 // Request fields a list error names: every invalid request is an
 // InvalidArgument [coreerrs.FieldError] on one of them.
 const (
-	FieldPageSize  = pagetoken.SizeField
-	FieldPageToken = pagetoken.TokenField
-	FieldFilter    = "filter"
-	FieldOrderBy   = "orderBy"
-	FieldParent    = "parent"
+	FieldFilter  = "filter"
+	FieldOrderBy = "orderBy"
+	FieldParent  = "parent"
 )
 
 // Request is the common shape of a List request (AIP-132, AIP-158, AIP-160).
@@ -98,11 +96,11 @@ func (s *Schema) pageSize(req Request) (int, error) {
 			return 0, s.FormatError(e.Field, e.Reason, e.Err)
 		}
 
-		return 0, s.FormatError(FieldPageSize, err.Error(), err)
+		return 0, s.FormatError(pagetoken.SizeField, err.Error(), err)
 	}
 
 	if size <= 0 || size == int(^uint(0)>>1) {
-		return 0, s.FormatError(FieldPageSize, "resolved page size must be positive and permit a lookahead row", ErrInvalidSchema)
+		return 0, s.FormatError(pagetoken.SizeField, "resolved page size must be positive and permit a lookahead row", ErrInvalidSchema)
 	}
 
 	return size, nil

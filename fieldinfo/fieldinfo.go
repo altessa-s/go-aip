@@ -22,9 +22,9 @@ const annotationCacheSize = 4096
 
 // Info is the google.api.field_info annotation of a field.
 type Info struct {
-	// Format is the standard format of the field's value, [Unspecified]
+	// Format is the standard format of the field's value, [annotations.FieldInfo_FORMAT_UNSPECIFIED]
 	// when the field declares none.
-	Format Format
+	Format annotations.FieldInfo_Format
 	// ReferencedTypes lists the message types a generic field (a
 	// google.protobuf.Any) may hold: simple names of the field's package,
 	// fully qualified names, or "*" for any type. It is exposed only;
@@ -34,7 +34,7 @@ type Info struct {
 
 // annotation is the cached, immutable decoding of one field's annotation.
 type annotation struct {
-	format          Format
+	format          annotations.FieldInfo_Format
 	referencedTypes []string
 }
 
@@ -58,9 +58,9 @@ func Lookup(fd protoreflect.FieldDescriptor) Info {
 	return Info{Format: a.format, ReferencedTypes: slices.Clone(a.referencedTypes)}
 }
 
-// FormatOf returns the format fd declares, [Unspecified] when none. Unlike
+// FormatOf returns the format fd declares, [annotations.FieldInfo_FORMAT_UNSPECIFIED] when none. Unlike
 // [Lookup] it allocates nothing.
-func FormatOf(fd protoreflect.FieldDescriptor) Format {
+func FormatOf(fd protoreflect.FieldDescriptor) annotations.FieldInfo_Format {
 	return cachedAnnotation(fd).format
 }
 

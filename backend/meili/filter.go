@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -25,7 +26,7 @@ import (
 // [filter.ErrInvalidExpression], whatever the policy allows.
 type FilterTranslator struct {
 	predicateRenderer func(filter.Node) (string, bool, error)
-	telemetry         *filter.Telemetry
+	telemetry         *metrics.TranslateTimer
 	literalEncoder    func(any) (any, error)
 	config            *filter.Policy
 	depth             filter.DepthGuard

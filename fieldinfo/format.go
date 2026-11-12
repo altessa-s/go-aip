@@ -11,23 +11,6 @@ import (
 	"google.golang.org/genproto/googleapis/api/annotations"
 )
 
-// Format aliases the google.api.FieldInfo.Format enum of AIP-202.
-type Format = annotations.FieldInfo_Format
-
-// The AIP-202 formats.
-const (
-	// Unspecified is the default: the field has no standard format.
-	Unspecified = annotations.FieldInfo_FORMAT_UNSPECIFIED
-	// UUID4 is an RFC 9562 (formerly RFC 4122) version 4 UUID.
-	UUID4 = annotations.FieldInfo_UUID4
-	// IPv4 is an RFC 791 IPv4 address in dotted-decimal form.
-	IPv4 = annotations.FieldInfo_IPV4
-	// IPv6 is an RFC 4291 IPv6 address.
-	IPv6 = annotations.FieldInfo_IPV6
-	// IPv4OrIPv6 is an address of either family.
-	IPv4OrIPv6 = annotations.FieldInfo_IPV4_OR_IPV6
-)
-
 // Reasons of a value that does not match its format. They are the Reason of
 // a [Violation] and the text of a [*ValueError].
 const (
@@ -61,11 +44,11 @@ const (
 )
 
 // Known reports whether f is a format this package validates.
-func Known(f Format) bool {
+func Known(f annotations.FieldInfo_Format) bool {
 	switch f {
-	case UUID4, IPv4, IPv6, IPv4OrIPv6:
+	case annotations.FieldInfo_UUID4, annotations.FieldInfo_IPV4, annotations.FieldInfo_IPV6, annotations.FieldInfo_IPV4_OR_IPV6:
 		return true
-	case Unspecified:
+	case annotations.FieldInfo_FORMAT_UNSPECIFIED:
 		return false
 	default:
 		return false
@@ -84,11 +67,11 @@ func Known(f Format) bool {
 //     brackets are rejected: they are not part of the address.
 //   - IPv4OrIPv6: an IPv6 value when s holds a colon, an IPv4 value otherwise.
 //
-// It returns nil for a valid value and for [Unspecified], a *[ValueError]
+// It returns nil for a valid value and for [annotations.FieldInfo_FORMAT_UNSPECIFIED], a *[ValueError]
 // (matching [ErrInvalidValue]) for an invalid one, and [ErrUnknownFormat] for
 // a format this package does not know. The error never holds the value.
-func ValidateValue(f Format, s string) error {
-	if f != Unspecified && !Known(f) {
+func ValidateValue(f annotations.FieldInfo_Format, s string) error {
+	if f != annotations.FieldInfo_FORMAT_UNSPECIFIED && !Known(f) {
 		return ErrUnknownFormat
 	}
 
@@ -101,22 +84,22 @@ func ValidateValue(f Format, s string) error {
 
 // validateKnown validates s against the known format f without allocating
 // for a valid value; any other format accepts every value.
-func validateKnown(f Format, s string) *ValueError {
+func validateKnown(f annotations.FieldInfo_Format, s string) *ValueError {
 	var (
 		ok     bool
 		reason string
 	)
 
 	switch f {
-	case UUID4:
+	case annotations.FieldInfo_UUID4:
 		ok, reason = isUUID4(s), ReasonUUID4
-	case IPv4:
+	case annotations.FieldInfo_IPV4:
 		_, ok = parseIPv4(s)
 		reason = ReasonIPv4
-	case IPv6:
+	case annotations.FieldInfo_IPV6:
 		_, ok = parseIPv6(s)
 		reason = ReasonIPv6
-	case IPv4OrIPv6:
+	case annotations.FieldInfo_IPV4_OR_IPV6:
 		_, ok = parseIP(s)
 		reason = ReasonIPv4OrIPv6
 	default:
@@ -135,18 +118,18 @@ func validateKnown(f Format, s string) *ValueError {
 // leading zeros of each octet stripped, and an IPv6 address in the RFC 5952
 // canonical form (lowercase, leading zeros of each group stripped, the
 // longest run of zero groups compressed to "::"; an IPv4-mapped address keeps
-// its dotted tail, "::ffff:192.0.2.1"). [Unspecified] returns s unchanged.
-func NormalizeValue(f Format, s string) (string, error) {
+// its dotted tail, "::ffff:192.0.2.1"). [annotations.FieldInfo_FORMAT_UNSPECIFIED] returns s unchanged.
+func NormalizeValue(f annotations.FieldInfo_Format, s string) (string, error) {
 	switch f {
-	case Unspecified:
+	case annotations.FieldInfo_FORMAT_UNSPECIFIED:
 		return s, nil
-	case UUID4:
+	case annotations.FieldInfo_UUID4:
 		return normalizeUUID4(s)
-	case IPv4:
+	case annotations.FieldInfo_IPV4:
 		return normalizeIPv4(s)
-	case IPv6:
+	case annotations.FieldInfo_IPV6:
 		return normalizeIPv6(s)
-	case IPv4OrIPv6:
+	case annotations.FieldInfo_IPV4_OR_IPV6:
 		a, ok := parseIP(s)
 		if !ok {
 			return "", &ValueError{Format: f.String(), Reason: ReasonIPv4OrIPv6}
@@ -164,7 +147,7 @@ func NormalizeValue(f Format, s string) (string, error) {
 // lowercase spelling and "2001:0DB8:0::0" equals "2001:db8::". An IPv4
 // address and its IPv4-mapped IPv6 form are different values. It returns the
 // error of [NormalizeValue] when either value is invalid.
-func Equal(f Format, a, b string) (bool, error) {
+func Equal(f annotations.FieldInfo_Format, a, b string) (bool, error) {
 	na, err := NormalizeValue(f, a)
 	if err != nil {
 		return false, err
@@ -180,7 +163,7 @@ func Equal(f Format, a, b string) (bool, error) {
 
 func normalizeUUID4(s string) (string, error) {
 	if !isUUID4(s) {
-		return "", &ValueError{Format: UUID4.String(), Reason: ReasonUUID4}
+		return "", &ValueError{Format: annotations.FieldInfo_UUID4.String(), Reason: ReasonUUID4}
 	}
 
 	return strings.ToLower(s), nil
@@ -225,7 +208,7 @@ func isHex(c byte) bool {
 func normalizeIPv4(s string) (string, error) {
 	a, ok := parseIPv4(s)
 	if !ok {
-		return "", &ValueError{Format: IPv4.String(), Reason: ReasonIPv4}
+		return "", &ValueError{Format: annotations.FieldInfo_IPV4.String(), Reason: ReasonIPv4}
 	}
 
 	return a.String(), nil
@@ -275,7 +258,7 @@ func parseIPv4(s string) (netip.Addr, bool) {
 func normalizeIPv6(s string) (string, error) {
 	a, ok := parseIPv6(s)
 	if !ok {
-		return "", &ValueError{Format: IPv6.String(), Reason: ReasonIPv6}
+		return "", &ValueError{Format: annotations.FieldInfo_IPV6.String(), Reason: ReasonIPv6}
 	}
 
 	return a.String(), nil

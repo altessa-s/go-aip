@@ -19,6 +19,8 @@ import (
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/orderby"
+
+	pagetoken "github.com/altessa-s/go-aip/pagination/pagetoken"
 )
 
 type disjunctiveDialect struct{ postgres.ListDialect }
@@ -112,7 +114,7 @@ func TestRequestFormatterAndOrderPrecedence(t *testing.T) {
 	require.Empty(t, fake.Calls())
 	_, err = l.List(t.Context(), "list", listing.Request{PageToken: "invalid"}, nil)
 	require.ErrorIs(t, err, marker)
-	require.Equal(t, listing.FieldPageToken, field)
+	require.Equal(t, pagetoken.TokenField, field)
 }
 
 type modifiedOrderParser struct{ key orderby.Key }

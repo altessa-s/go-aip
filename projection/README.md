@@ -69,7 +69,7 @@ only safe after field mapping.
 | `View`              | AIP-157 resource view: `ViewUnspecified`, `ViewBasic`, `ViewFull`, custom values above `ViewFull`; `Or(def)`                                              |
 | `Fields`            | Authorized API paths: `Mode()` and `Paths()`                                                                                                              |
 | `TranslatorContext` | A `Policy` bound to one backend; `Resolve(Spec)`, `ResolveView(Spec, View)`, `ViewSelection(View)`, `RequiredFields()`, `DeclaresField(path)`, `Policy()` |
-| `Telemetry`         | `NewTelemetry(meter, backend)`: the translation duration histogram `projection_<backend>_translate_duration_seconds`                                      |
+| `metrics.TranslateTimer`         | `NewTelemetry(meter, backend)`: the translation duration histogram `projection_<backend>_translate_duration_seconds`                                      |
 
 ## Parser options
 
@@ -301,7 +301,7 @@ Nil path validators use the default grammar. The allow-list roots that make up e
 | `Policy.Select`, `Policy.ViewFields`     | Apply the mask-or-view rule; return the fields of one view.                                                                                                                                                                |
 | `Policy.Views`, `Policy.DefaultView`     | The served views (`ViewFull` and the configured ones) and the default view.                                                                                                                                                |
 | `NewTranslatorContext`                   | Bind a policy to the storage options of one backend; `ErrPolicyRequired` for nil.                                                                                                                                          |
-| `Telemetry`, `NewTelemetry`              | Per-backend translation duration histogram `projection_<backend>_translate_duration_seconds`, used by the translators' `WithProjectionCollector`.                                                                          |
+| `metrics.TranslateTimer`, `NewTelemetry`              | Per-backend translation duration histogram `projection_<backend>_translate_duration_seconds`, used by the translators' `WithProjectionCollector`.                                                                          |
 | `TranslatorOption`                       | TranslatorOption is a functional option for configuring translatorOptions.                                                                                                                                                 |
 
 ## Related packages

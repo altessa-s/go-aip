@@ -17,6 +17,8 @@ import (
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/listing/listingtest"
 	"github.com/altessa-s/go-aip/pagination/pagetoken/pagetokentest"
+
+	pagetoken "github.com/altessa-s/go-aip/pagination/pagetoken"
 )
 
 // TestListAppliesRestriction checks the request restriction reaches the
@@ -54,7 +56,7 @@ func TestListAppliesRestriction(t *testing.T) {
 
 	calls := len(fake.Calls())
 	_, err = l.List(t.Context(), "widgets.List", listing.Request{PageSize: 1, OrderBy: "name", PageToken: first.NextPageToken}, nil)
-	require.Equal(t, listing.FieldPageToken, listingtest.FieldOf(err), "a token of a restricted list is refused without the restriction")
+	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err), "a token of a restricted list is refused without the restriction")
 	require.Len(t, fake.Calls(), calls, "no query runs for a refused token")
 
 	_, err = l.List(t.Context(), "widgets.List", listing.Request{Restriction: &filter.BinaryOpNode{

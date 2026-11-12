@@ -151,14 +151,10 @@ func NullsSmallest(k Key) NullOrder {
 // directions (Meilisearch). Pass it to [CheckNativeOrdering].
 func NullsAlwaysLast(Key) NullOrder { return NullsLast }
 
-// Telemetry is the translation timer of one order translator, created by [NewTelemetry]. A nil *Telemetry is
-// disabled.
-type Telemetry = metrics.TranslateTimer
-
 // NewTelemetry creates the translation timer of an order translator, recorded as the histogram
 // orderby_<backend>_translate_duration_seconds. Translators create it from the collector of their WithOrderCollector
 // option. A nil meter disables collection and returns nil, whose Start is a no-op.
-func NewTelemetry(m metrics.Meter, backend string) *Telemetry {
+func NewTelemetry(m metrics.Meter, backend string) *metrics.TranslateTimer {
 	return metrics.NewTranslateTimer(m, "orderby_"+backend, "Duration of order_by translation.")
 }
 

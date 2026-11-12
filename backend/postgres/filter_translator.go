@@ -8,6 +8,7 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -48,7 +49,7 @@ func NewFilterTranslator(policy *filter.Policy, opts ...FilterOption) (*FilterTr
 // SchemaFilterTranslator renders schema-aware PostgreSQL predicates. It is immutable
 // and safe for concurrent calls; each call builds its own expression program.
 type SchemaFilterTranslator struct {
-	telemetry *filter.Telemetry
+	telemetry *metrics.TranslateTimer
 	schema    *Schema
 	policy    *filter.Policy
 }

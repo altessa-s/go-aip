@@ -9,6 +9,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 )
 
 // Get returns the value of the etag field of a request resource, or of a
@@ -33,10 +35,10 @@ func Get(m proto.Message) (string, error) {
 
 // Stamp sets the etag field of a response resource to t.String(), so every
 // response carries the current etag (AIP-154: the etag is provided by the
-// server on output). The zero Tag clears the field. A message without a
+// server on output). The zero coreetag.Tag clears the field. A message without a
 // singular string etag field is [ErrNoField]; a nil or typed nil message is
 // [ErrNilMessage].
-func Stamp(m proto.Message, t Tag) error {
+func Stamp(m proto.Message, t coreetag.Tag) error {
 	if m == nil || !m.ProtoReflect().IsValid() {
 		return ErrNilMessage
 	}

@@ -19,9 +19,6 @@ const qualifiedParts = 2
 // MySQL identifier limit. A third part would name the database, as the filter dialect refuses too.
 var identifiers = sqlbase.Identifiers{Quote: '`', MaxIdentLen: sqlbase.MariaDBMaxIdentLen, MaxParts: qualifiedParts}
 
-// OrderOption configures [NewOrderTranslator]: [sqlbase.WithOrderOptions] and [sqlbase.WithOrderCollector].
-type OrderOption = sqlbase.OrderOption
-
 // OrderDialect returns the MariaDB and MySQL ORDER BY dialect, with metrics labeled "mariadb": backtick-quoted `col` or `table.col` parts of at most 64
 // bytes; a dotted client key must be declared ([sqlbase.QualifiedNamesDialect]). A collation is written unquoted
 // before the direction (`col COLLATE utf8mb4_bin DESC`), so it must be a plain collation name (letters, digits and
@@ -41,6 +38,6 @@ func OrderDialect() sqlbase.OrderDialect {
 // backtick-quoted columns, NULL placement emulated with an IS NULL sort key and COLLATE for collated keys. It is
 // [sqlbase.NewOrderTranslator] without the dialect argument; use that one directly for an application
 // [sqlbase.ColumnResolver]. Returns [orderby.ErrPolicyRequired] for a nil policy.
-func NewOrderTranslator(policy *orderby.Policy, opts ...OrderOption) (*sqlbase.OrderTranslator, error) {
+func NewOrderTranslator(policy *orderby.Policy, opts ...sqlbase.OrderOption) (*sqlbase.OrderTranslator, error) {
 	return sqlbase.NewOrderTranslator(policy, OrderDialect(), opts...)
 }

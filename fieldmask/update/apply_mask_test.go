@@ -118,8 +118,8 @@ func runApplyMaskCases(t *testing.T, cases []applyMaskCase) {
 }
 
 // TestApplyMask_Presence pins the AIP-134 modes decided on the mask as sent:
-// an omitted mask applies the implied one, an empty mask is a no-op unless
-// WithEmptyMaskImplied, a mask whose every path is dropped is a no-op, and
+// an omitted mask applies the implied one, an empty mask is a no-op,
+// a mask whose every path is dropped is a no-op, and
 // "*" alone is a full replacement.
 func TestApplyMask_Presence(t *testing.T) {
 	t.Parallel()
@@ -134,11 +134,9 @@ func TestApplyMask_Presence(t *testing.T) {
 	runApplyMaskCases(t, []applyMaskCase{
 		{name: "omitted: the implied mask", paths: nil, req: req, want: []string{"description", "profile.display_name"}, wantMsg: implied},
 		{name: "empty: a no-op", paths: []string{}, req: req, want: []string{}},
-		{name: "empty implied on request", paths: []string{}, req: req, opts: []update.Option{update.WithEmptyMaskImplied(true)},
-			want: []string{}},
 		{name: "omitted with nothing set", paths: nil, req: &pb.Resource{Id: "r"}, want: []string{}},
 		{name: "every path dropped: a no-op, never implied", paths: []string{"create_time", "profile.updated_at"}, req: req,
-			opts: []update.Option{update.WithEmptyMaskImplied(true)}, want: []string{}},
+			want: []string{}},
 		{name: "omitted with an IMMUTABLE value and no stored resource", paths: nil, req: immutable,
 			want: []string{"description"}},
 		{name: "omitted with an unchanged IMMUTABLE value", paths: nil, req: immutable, current: &pb.Resource{TenantId: "t"},

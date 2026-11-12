@@ -126,10 +126,10 @@ func WithListValueEncoding(v evaluator.ValueEncoding) ListEngineOption {
 // defaultListOptions returns the default values for listOptions.
 func defaultListOptions() *listOptions {
 	return &listOptions{
-		maxDataBudget:      DefaultMaxDataBudget,
+		maxDataBudget:      evaluator.DefaultMaxDataBudget,
 		maxWork:            DefaultMaxWork,
 		positionCodec:      pagetoken.ScalarPositionCodec{},
-		timestampPrecision: DefaultTimestampPrecision,
+		timestampPrecision: defaultTimestampPrecision,
 	}
 }
 

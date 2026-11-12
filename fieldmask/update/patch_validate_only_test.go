@@ -20,6 +20,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	pb "github.com/altessa-s/go-aip/internal/proto/gen/fieldbehaviortest/v1"
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -123,7 +124,7 @@ func TestPatchRunValidateOnly(t *testing.T) {
 func TestTagPrecondition(t *testing.T) {
 	t.Parallel()
 
-	current := func(a *pb.Account) etag.Tag { return etag.Strong(a.GetEtag()) }
+	current := func(a *pb.Account) coreetag.Tag { return coreetag.Strong(a.GetEtag()) }
 	optional := update.TagPrecondition[*pb.Account]{Rule: etag.NewPrecondition(etag.WithField("account.etag")), Etag: current}
 	stored := storedAccount() // etag "1"
 
@@ -140,7 +141,7 @@ func TestTagPrecondition(t *testing.T) {
 
 	v, err = optional.Parse(`W/"1"`)
 	require.NoError(t, err)
-	require.ErrorIs(t, optional.Check(stored, v), etag.ErrMismatch, "exact comparison by default")
+	require.ErrorIs(t, optional.Check(stored, v), coreetag.ErrMismatch, "exact comparison by default")
 
 	weak := update.TagPrecondition[*pb.Account]{Rule: etag.NewPrecondition(etag.WithComparison(etag.CompareWeak)), Etag: current}
 	require.NoError(t, weak.Check(stored, v))
@@ -158,7 +159,7 @@ func TestTagPrecondition(t *testing.T) {
 
 	_, err = empty.Parse("")
 	require.ErrorIs(t, err, update.ErrInvalidPatch)
-	require.ErrorIs(t, empty.Check(stored, etag.Tag{}), update.ErrInvalidPatch)
+	require.ErrorIs(t, empty.Check(stored, coreetag.Tag{}), update.ErrInvalidPatch)
 	require.ErrorIs(t, update.Int64Precondition[*pb.Account]{}.Check(stored, nil), update.ErrInvalidPatch)
 }
 
@@ -169,7 +170,7 @@ func TestPatchRunTagPrecondition(t *testing.T) {
 	spec, err := update.NewSpec(&pb.Account{})
 	require.NoError(t, err)
 
-	contentTag := func(a *pb.Account) etag.Tag {
+	contentTag := func(a *pb.Account) coreetag.Tag {
 		tag, hashErr := etag.FromMessage(a)
 		require.NoError(t, hashErr)
 
@@ -178,16 +179,16 @@ func TestPatchRunTagPrecondition(t *testing.T) {
 
 	stored := storedAccount()
 
-	var saved etag.Tag
+	var saved coreetag.Tag
 
-	patch := update.Patch[*pb.Account, *pb.Account, etag.Tag]{
+	patch := update.Patch[*pb.Account, *pb.Account, coreetag.Tag]{
 		Field: "account", Spec: spec,
 		Precondition: update.TagPrecondition[*pb.Account]{Rule: etag.NewPrecondition(etag.WithField("account.etag")), Etag: contentTag},
 		Read: func(context.Context) (*pb.Account, error) {
 			return proto.Clone(stored).(*pb.Account), nil
 		},
 		ToProto: func(a *pb.Account) *pb.Account { return a },
-		Save: func(_ context.Context, merged *pb.Account, _ update.Plan, expected etag.Tag) (*pb.Account, error) {
+		Save: func(_ context.Context, merged *pb.Account, _ update.Plan, expected coreetag.Tag) (*pb.Account, error) {
 			saved = expected
 
 			if stampErr := etag.Stamp(merged, contentTag(merged)); stampErr != nil {

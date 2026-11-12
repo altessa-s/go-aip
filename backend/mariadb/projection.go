@@ -9,10 +9,6 @@ import (
 	"github.com/altessa-s/go-aip/projection"
 )
 
-// ProjectionOption configures [NewProjectionTranslator]: [sqlbase.WithProjectionOptions] and
-// [sqlbase.WithProjectionCollector].
-type ProjectionOption = sqlbase.ProjectionOption
-
 // ProjectionDialect returns the MariaDB and MySQL SELECT-list dialect: backtick-quoted `col` or `table.col` parts of at
 // most 64 bytes, metrics labeled "mariadb", and no exclusion projection. A dotted client path must be declared
 // ([sqlbase.QualifiedNamesDialect]). Pass it to [sqlbase.NewProjectionTranslator] or delegate an application
@@ -27,6 +23,6 @@ func ProjectionDialect() sqlbase.ProjectionDialect {
 // [projection.ErrPolicyRequired] for a nil policy. A policy whose
 // "every authorized field" would resolve to "everything except the denied fields" fails with
 // [projection.ErrAllFieldsUnresolvable]: list the allowed fields with [projection.WithAllowedFields].
-func NewProjectionTranslator(policy *projection.Policy, opts ...ProjectionOption) (*sqlbase.ProjectionTranslator, error) {
+func NewProjectionTranslator(policy *projection.Policy, opts ...sqlbase.ProjectionOption) (*sqlbase.ProjectionTranslator, error) {
 	return sqlbase.NewProjectionTranslator(policy, ProjectionDialect(), opts...)
 }

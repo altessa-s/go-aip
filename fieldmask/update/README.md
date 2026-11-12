@@ -29,7 +29,7 @@ Routing identifiers and unverified protected values are preserved using a separa
 `DropIdentifiers` is no longer needed after `Apply`. `Apply(nil, ...)` cannot assign its synthesized mask back to the caller; use `ApplyMask` instead.
 
 A nil mask implies populated fields; a provided empty mask is a no-op that leaves the request untouched; `*` alone means full replacement.
-`WithEmptyMaskImplied` is a deprecated compatibility no-op. A completed empty mask writes no resource fields, but normalization can still clear
+A completed empty mask writes no resource fields, but normalization can still clear
 OUTPUT_ONLY request input. An empty interim mask does not authorize skipping deferred completion. REQUIRED validation, path limits and strict
 handling of invalid masks still apply.
 
@@ -348,14 +348,14 @@ atomically. Both presets are built on the [etag](../../etag) package (AIP-154):
 * `Int64Precondition[E]{Field: "resource.etag", Version: version}` guards an integer version whose etag is `etag.FromRevision(version)`,
   `W/"<version>"`, with revision `*int64` (`etag.Precondition.ParseRevision`): the etag is optional, so a request without one carries no precondition
   (a nil revision) unless `Required` is set; a malformed etag is a `coreerrs.FieldError` on `Field` (`etag.ReasonInvalid`, or `etag.ReasonRequired`
-  for a missing required one); a present etag that does not name the stored version is `etag.ErrMismatch`, a `coreerrs.ErrConflict` (ABORTED);
+  for a missing required one); a present etag that does not name the stored version is `coreetag.ErrMismatch`, a `coreerrs.ErrConflict` (ABORTED);
   `Singleton` permits version zero.
 * `TagPrecondition[E]{Rule: etag.NewPrecondition(...), Etag: current}` guards an opaque etag, such as a content tag from `etag.FromMessage` or a tag
-  stored with the resource, with revision `etag.Tag` (the zero Tag when no etag is sent). `Rule` sets the field, whether the etag is required and the
-  comparison (exact by default); a sent etag that does not match `Etag(entity)` is `etag.ErrMismatch`.
+  stored with the resource, with revision `coreetag.Tag` (the zero Tag when no etag is sent). `Rule` sets the field, whether the etag is required and the
+  comparison (exact by default); a sent etag that does not match `Etag(entity)` is `coreetag.ErrMismatch`.
 
 `WithAllowMissing(true)` is AIP-134's `allow_missing`: when `Read` reports `coreerrs.ErrNotFound`, `Run` checks `Precondition.Missing` (both presets
-refuse an etag sent for a missing resource as `etag.ErrMismatch`), ignores the entire mask, including invalid paths, and passes a copy of the request
+refuse an etag sent for a missing resource as `coreetag.ErrMismatch`), ignores the entire mask, including invalid paths, and passes a copy of the request
 resource without its OUTPUT_ONLY values to `Patch.Create`. Without `Create`, such a request is `ErrInvalidPatch`.
 
 `WithValidateOnly(true)` is AIP-163's `validate_only` (see [validateonly](../../validateonly)): `Run` performs every step, the precondition, the mask
@@ -385,7 +385,7 @@ out, err := patch.Run(ctx, req.GetWidget(), req.GetWidget().GetEtag(), req.GetUp
 `NewSpec` captures descriptor-bound update policy. `Option` configures identity fields (`id` and `etag` by default), immutable and implied-skip
 fields, atomic messages, the error field name, and behavior resolution. `DefaultAtomicMessage` recognizes well-known atomic values. The per-request
 options (`WithCurrent`, `WithPathValidation`, `WithPathValidationReporter`) configure `ApplyMask`, `Apply`, `ValidateStrict` (`WithCurrent`; path
-validation is always enforced) and `Spec.Plan` (`WithCurrent`; the policy is the spec's); `WithStrict` configures `ApplyMask` and `Prepare`; `WithEmptyMaskImplied` is deprecated and has no effect. Policy and per-request values share one `Option` type, so `Apply` takes
+validation is always enforced) and `Spec.Plan` (`WithCurrent`; the policy is the spec's); `WithStrict` configures `ApplyMask` and `Prepare`. Policy and per-request values share one `Option` type, so `Apply` takes
 the policy options directly.
 
 Share the same policy options across `ApplyMask`, `Apply`, `ValidateStrict`, `FromSetFields`, `ExpandMessagePaths`, `DropIdentifiers`, `ImpliedPaths`,
@@ -410,7 +410,7 @@ descendants. Unprotected OUTPUT_ONLY descendants of whole collection replacement
 | `fieldmask.ErrMaxPathsExceeded`, `fieldmask.ErrMaxPathDepthExceeded`, `fieldmask.ErrMaxPathLengthExceeded` | every entry point a mask enters                                            | A mask over a limit (see [Limits](#limits))                                                            |
 | `ErrElementCountMismatch`                                                                                  | `Spec.Plan`, `Merge`, `MergePaths`                                         | A `*` sub-path of a list whose source holds elements, but not as many as the destination               |
 | `ErrMessageMismatch`                                                                                       | `ApplyMask`, `Merge`, `MergePaths`, `NewSpec`, `Spec.Plan`, `WithCurrent`  | Nil messages, or messages of different types                                                           |
-| `etag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                                     | A present etag that does not name the stored version, or any etag for a missing resource               |
+| `coreetag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                                     | A present etag that does not name the stored version, or any etag for a missing resource               |
 | `coreerrs.FieldError` on the etag field                                                                    | `Int64Precondition.Parse`, `TagPrecondition.Parse`                         | A malformed etag (`etag.ReasonInvalid`) or a missing required one (`etag.ReasonRequired`)              |
 | `ErrInvalidPatch`                                                                                          | `Patch.Run`                                                                | A missing dependency, or allow_missing without `Create`                                                |
 
@@ -431,7 +431,6 @@ descendants. Unprotected OUTPUT_ONLY descendants of whole collection replacement
 | `WithCurrent`                | `Option`      | nil (unknown)                           | The stored resource IMMUTABLE and IDENTIFIER values are compared with (AIP-203).                                       |
 | `WithPathValidation`         | `Option`      | PathValidationEnforce                   | Select PathValidationEnforce, PathValidationWarn, or PathValidationDisabled for `ApplyMask` and `Apply`.               |
 | `WithPathValidationReporter` | `Option`      | nil / unset                             | Observe path validation failures in reporting mode.                                                                    |
-| `WithEmptyMaskImplied`       | `Option`      | false                                   | Deprecated compatibility no-op. Omit the mask to imply populated fields.                 |
 | `WithStrict`                 | `Option`      | false                                   | `ApplyMask` / `Prepare`: check as `ValidateStrict` does (every path enforced, refusals as `*StrictError`).                    |
 | `WithAllowMissing`           | `PatchOption` | false                                   | AIP-134 allow_missing for one `Patch.Run`: create a missing resource with `Patch.Create`.                              |
 | `WithValidateOnly`           | `PatchOption` | false                                   | AIP-163 validate_only for one `Patch.Run`: run every check, skip `Save` and `Create`.                                  |
@@ -506,7 +505,7 @@ from the wildcard through implied masks, validation, filtering, planning and mer
 | `Patch`                                                                                                                                 | A masked read-modify-write: precondition, plan, merge, save, allow_missing create and validate_only.                                                                                  |
 | `Precondition`                                                                                                                          | Revision syntax and concurrency policy: `Parse`, `Check`, `Missing`.                                                                                                                  |
 | `Int64Precondition`                                                                                                                     | The AIP-154 integer-version preset with an optional etag, built on `etag.Precondition.ParseRevision`.                                                                                 |
-| `TagPrecondition`                                                                                                                       | The AIP-154 opaque-etag preset: an `etag.Precondition` rule and the current `etag.Tag` of an entity.                                                                                  |
+| `TagPrecondition`                                                                                                                       | The AIP-154 opaque-etag preset: an `etag.Precondition` rule and the current `coreetag.Tag` of an entity.                                                                                  |
 | `PathValidationMode`                                                                                                                    | How `ApplyMask` and `Apply` treat invalid paths: `PathValidationEnforce`, `PathValidationWarn`, `PathValidationDisabled` (see [Path validation in Apply](#path-validation-in-apply)). |
 | `Option`, `PatchOption`                                                                                                                 | The policy and per-request options of the package; the per-call options of `Patch.Run`.                                                                                               |
 | `DefaultUpdateMaskField`                                                                                                                | `"updateMask"`, the field update-mask errors name unless `WithUpdateMaskFieldName` renames it.                                                                                        |

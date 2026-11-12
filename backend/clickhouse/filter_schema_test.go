@@ -15,6 +15,8 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func schemaFields() map[string]sqlbase.Field {
@@ -268,7 +270,7 @@ func TestSchemaRejects(t *testing.T) {
 		{`created < timestamp("2300-01-01T00:00:00Z")`, filter.ErrFieldTypeMismatch},
 		{`name.matches("é(?i)")`, filter.ErrUnsupportedOperation},
 		{`name.matches("(?i)é")`, filter.ErrUnsupportedOperation},
-		{`name.matches("(")`, filter.ErrInvalidRegex},
+		{`name.matches("(")`, regexanchor.ErrInvalidRegex},
 	} {
 		t.Run(tc.expr, func(t *testing.T) {
 			t.Parallel()

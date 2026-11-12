@@ -13,6 +13,8 @@ import (
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/evaluator"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func TestMongoValidationRejections(t *testing.T) {
@@ -39,7 +41,7 @@ func TestMongoValidationRejections(t *testing.T) {
 		{name: "size outside comparison", node: &filter.CallNode{Op: filter.OpSize, Target: &filter.IdentNode{Name: "name"}}, fields: []string{"name"}, wantErr: filter.ErrUnsupportedOperation},
 		{name: "size without target", node: &filter.CallNode{Op: filter.OpSize}, fields: []string{"name"}, wantErr: filter.ErrInvalidExpression},
 		{name: "invalid Mongo size operand", node: &filter.BinaryOpNode{Op: filter.OpGT, Left: &filter.CallNode{Op: filter.OpSize, Target: &filter.IdentNode{Name: "name"}}, Right: &filter.LiteralNode{Value: int64(-1)}}, fields: []string{"name"}, wantErr: filter.ErrInvalidExpression},
-		{name: "invalid regex", expression: `name.matches("[")`, fields: []string{"name"}, wantErr: filter.ErrInvalidRegex},
+		{name: "invalid regex", expression: `name.matches("[")`, fields: []string{"name"}, wantErr: regexanchor.ErrInvalidRegex},
 		{name: "unsupported function", node: &filter.CallNode{Op: filter.OpSubstring, Target: &filter.IdentNode{Name: "name"}}, fields: []string{"name"}, wantErr: filter.ErrUnsupportedOperation},
 		{name: "unsupported unary operator", node: &filter.UnaryOpNode{Op: filter.OpSize, Operand: &filter.IdentNode{Name: "name"}}, fields: []string{"name"}, wantErr: filter.ErrUnsupportedOperation},
 		{name: "unsupported comparison operator", node: &filter.BinaryOpNode{Op: filter.OpSubstring, Left: &filter.IdentNode{Name: "name"}, Right: &filter.LiteralNode{Value: int64(1)}}, fields: []string{"name"}, wantErr: filter.ErrUnsupportedOperation},

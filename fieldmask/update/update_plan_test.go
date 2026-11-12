@@ -25,6 +25,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -370,7 +371,7 @@ func TestPatchRun(t *testing.T) {
 		require.ErrorAs(t, err, &fe)
 		require.Equal(t, "resource.etag", fe.Field)
 		require.Equal(t, etag.ReasonRequired, fe.Reason)
-		require.ErrorIs(t, err, etag.ErrMissing)
+		require.ErrorIs(t, err, coreetag.ErrMissing)
 	})
 	t.Run("mask errors stop before the read", func(t *testing.T) {
 		t.Parallel()

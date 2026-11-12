@@ -8,6 +8,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-aip/orderby"
+
+	metrics "github.com/altessa-s/go-aip/metrics"
 )
 
 // ascending and descending are the int32 values MongoDB expects in a sort
@@ -21,7 +23,7 @@ const (
 // document. It is safe for concurrent use after construction.
 type OrderTranslator struct {
 	config    *orderby.TranslatorContext
-	telemetry *orderby.Telemetry
+	telemetry *metrics.TranslateTimer
 }
 
 // NewOrderTranslator creates a new MongoDB sort translator bound to policy, the client-facing

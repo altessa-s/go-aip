@@ -8,6 +8,7 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -16,7 +17,7 @@ import (
 // Nullable, Array columns are native Array(T) without NULL elements, JSONPath fields are read from a JSON String
 // column with JSONExtract). Create it with [NewFilterTranslatorWithSchema]. It is safe for concurrent calls.
 type SchemaFilterTranslator struct {
-	telemetry *filter.Telemetry
+	telemetry *metrics.TranslateTimer
 	schema    *Schema
 	policy    *filter.Policy
 }

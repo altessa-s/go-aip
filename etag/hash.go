@@ -16,6 +16,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/altessa-s/go-aip/fieldbehavior"
+
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 )
 
 // FromMessage returns the content tag of a resource: the SHA-256 digest of
@@ -33,9 +35,9 @@ import (
 // across protobuf runtimes or languages: compare tags a single service
 // computes, or store them with the resource. A field path that does not name
 // a field is [ErrNoField]; a nil message is [ErrNilMessage].
-func FromMessage(m proto.Message, opts ...HashOption) (Tag, error) {
+func FromMessage(m proto.Message, opts ...HashOption) (coreetag.Tag, error) {
 	if m == nil || !m.ProtoReflect().IsValid() {
-		return Tag{}, ErrNilMessage
+		return coreetag.Tag{}, ErrNilMessage
 	}
 
 	o := newHashOptions(opts...)
@@ -43,12 +45,12 @@ func FromMessage(m proto.Message, opts ...HashOption) (Tag, error) {
 
 	include, err := resolvePaths(md, o.hashFields)
 	if err != nil {
-		return Tag{}, err
+		return coreetag.Tag{}, err
 	}
 
 	exclude, err := resolvePaths(md, o.excludeFields)
 	if err != nil {
-		return Tag{}, err
+		return coreetag.Tag{}, err
 	}
 
 	c := proto.Clone(m).ProtoReflect()
@@ -73,13 +75,13 @@ func FromMessage(m proto.Message, opts ...HashOption) (Tag, error) {
 		err = fieldbehavior.Strip(c.Interface(),
 			fieldbehavior.WithBehaviors(o.excludeBehaviors...), fieldbehavior.WithMaxDepth(math.MaxInt))
 		if err != nil {
-			return Tag{}, fmt.Errorf("etag: exclude behaviors: %w", err)
+			return coreetag.Tag{}, fmt.Errorf("etag: exclude behaviors: %w", err)
 		}
 	}
 
 	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(c.Interface())
 	if err != nil {
-		return Tag{}, fmt.Errorf("etag: marshal: %w", err)
+		return coreetag.Tag{}, fmt.Errorf("etag: marshal: %w", err)
 	}
 
 	sum := sha256.Sum256(b)
@@ -90,10 +92,10 @@ func FromMessage(m proto.Message, opts ...HashOption) (Tag, error) {
 	}
 
 	if o.weak {
-		return Weak(value), nil
+		return coreetag.Weak(value), nil
 	}
 
-	return Strong(value), nil
+	return coreetag.Strong(value), nil
 }
 
 // resolvePath returns the field descriptors of a dotted path: every segment

@@ -32,7 +32,7 @@ func WithOrderCollector(v metrics.Meter) OrderOption {
 }
 
 // WithOrderMaxDataBudget bounds the work the value encoding may spend reading one sort value; a value it cannot read within the
-// budget is unsortable. Defaults to DefaultMaxDataBudget.
+// budget is unsortable. Defaults to [evaluator.DefaultMaxDataBudget].
 func WithOrderMaxDataBudget(v int) OrderOption {
 	return func(o *orderOptions) {
 		if v <= 0 {
@@ -71,7 +71,7 @@ func WithOrderValueEncoding(v evaluator.ValueEncoding) OrderOption {
 // defaultOrderOptions returns the default values for orderOptions.
 func defaultOrderOptions() *orderOptions {
 	return &orderOptions{
-		maxDataBudget: DefaultMaxDataBudget,
+		maxDataBudget: evaluator.DefaultMaxDataBudget,
 	}
 }
 

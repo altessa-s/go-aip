@@ -44,15 +44,6 @@ func WithDeferredPlan(v *DeferredPlan) Option {
 	}
 }
 
-// WithEmptyMaskImplied is retained for source compatibility and has no effect.
-//
-// Deprecated: AIP-134 requires a provided empty mask to be a no-op. Omit the mask to imply populated fields.
-func WithEmptyMaskImplied(v bool) Option {
-	return func(o *options) {
-		o.emptyMaskImplied = v
-	}
-}
-
 // WithIdentityFields sets the identityFields option.
 func WithIdentityFields(v ...string) Option {
 	return func(o *options) {

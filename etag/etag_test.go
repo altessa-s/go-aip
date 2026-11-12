@@ -23,34 +23,34 @@ func TestParse(t *testing.T) {
 		name string
 		in   string
 		opts []etag.Option
-		want etag.Tag
+		want coreetag.Tag
 		err  error
 	}{
-		{name: "strong", in: `"abc"`, want: etag.Strong("abc")},
-		{name: "weak", in: `W/"abc"`, want: etag.Weak("abc")},
-		{name: "surrounding white space", in: " \t\"abc\"\n", want: etag.Strong("abc")},
-		{name: "bare value is strong", in: "abc-123_~", want: etag.Strong("abc-123_~")},
-		{name: "bare obs-text", in: "caf\xc3\xa9", want: etag.Strong("caf\xc3\xa9")},
-		{name: "bare trimmed", in: " abc ", want: etag.Strong("abc")},
-		{name: "empty", in: "", err: etag.ErrMissing},
-		{name: "blank", in: "   ", err: etag.ErrInvalid},
-		{name: "empty opaque tag", in: `""`, err: etag.ErrInvalid},
-		{name: "unclosed", in: `"abc`, err: etag.ErrInvalid},
-		{name: "trailing content", in: `"abc"x`, err: etag.ErrInvalid},
-		{name: "lowercase weak prefix", in: `w/"abc"`, err: etag.ErrInvalid},
-		{name: "weak prefix without quotes", in: `W/abc`, err: etag.ErrInvalid},
-		{name: "bare with space", in: "a b", err: etag.ErrInvalid},
-		{name: "bare with quote", in: `a"b`, err: etag.ErrInvalid},
-		{name: "bare with control", in: "a\x01b", err: etag.ErrInvalid},
-		{name: "quoted with control", in: "\"a\x7fb\"", err: etag.ErrInvalid},
-		{name: "strict quotes refuse bare", in: "abc", opts: []etag.Option{etag.WithStrictQuotes(true)}, err: etag.ErrInvalid},
-		{name: "strict quotes accept quoted", in: `"abc"`, opts: []etag.Option{etag.WithStrictQuotes(true)}, want: etag.Strong("abc")},
-		{name: "too long", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`, err: etag.ErrInvalid},
+		{name: "strong", in: `"abc"`, want: coreetag.Strong("abc")},
+		{name: "weak", in: `W/"abc"`, want: coreetag.Weak("abc")},
+		{name: "surrounding white space", in: " \t\"abc\"\n", want: coreetag.Strong("abc")},
+		{name: "bare value is strong", in: "abc-123_~", want: coreetag.Strong("abc-123_~")},
+		{name: "bare obs-text", in: "caf\xc3\xa9", want: coreetag.Strong("caf\xc3\xa9")},
+		{name: "bare trimmed", in: " abc ", want: coreetag.Strong("abc")},
+		{name: "empty", in: "", err: coreetag.ErrMissing},
+		{name: "blank", in: "   ", err: coreetag.ErrInvalidTag},
+		{name: "empty opaque tag", in: `""`, err: coreetag.ErrInvalidTag},
+		{name: "unclosed", in: `"abc`, err: coreetag.ErrInvalidTag},
+		{name: "trailing content", in: `"abc"x`, err: coreetag.ErrInvalidTag},
+		{name: "lowercase weak prefix", in: `w/"abc"`, err: coreetag.ErrInvalidTag},
+		{name: "weak prefix without quotes", in: `W/abc`, err: coreetag.ErrInvalidTag},
+		{name: "bare with space", in: "a b", err: coreetag.ErrInvalidTag},
+		{name: "bare with quote", in: `a"b`, err: coreetag.ErrInvalidTag},
+		{name: "bare with control", in: "a\x01b", err: coreetag.ErrInvalidTag},
+		{name: "quoted with control", in: "\"a\x7fb\"", err: coreetag.ErrInvalidTag},
+		{name: "strict quotes refuse bare", in: "abc", opts: []etag.Option{etag.WithStrictQuotes(true)}, err: coreetag.ErrInvalidTag},
+		{name: "strict quotes accept quoted", in: `"abc"`, opts: []etag.Option{etag.WithStrictQuotes(true)}, want: coreetag.Strong("abc")},
+		{name: "too long", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`, err: coreetag.ErrInvalidTag},
 		{name: "max length unlimited", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`,
-			opts: []etag.Option{etag.WithMaxLength(0)}, want: etag.Strong(strings.Repeat("a", etag.DefaultMaxLength))},
-		{name: "custom max length", in: `"abcd"`, opts: []etag.Option{etag.WithMaxLength(5)}, err: etag.ErrInvalid},
+			opts: []etag.Option{etag.WithMaxLength(0)}, want: coreetag.Strong(strings.Repeat("a", etag.DefaultMaxLength))},
+		{name: "custom max length", in: `"abcd"`, opts: []etag.Option{etag.WithMaxLength(5)}, err: coreetag.ErrInvalidTag},
 		{name: "negative max length keeps default", in: `"` + strings.Repeat("a", etag.DefaultMaxLength) + `"`,
-			opts: []etag.Option{etag.WithMaxLength(-1)}, err: etag.ErrInvalid},
+			opts: []etag.Option{etag.WithMaxLength(-1)}, err: coreetag.ErrInvalidTag},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestParse(t *testing.T) {
 func TestParseRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	for _, tag := range []etag.Tag{etag.Strong("x"), etag.Weak("x"), etag.FromRevision[int64](42), etag.FromRevision[uint64](math.MaxUint64)} {
+	for _, tag := range []coreetag.Tag{coreetag.Strong("x"), coreetag.Weak("x"), etag.FromRevision[int64](42), etag.FromRevision[uint64](math.MaxUint64)} {
 		got, err := etag.Parse(tag.String())
 		require.NoError(t, err)
 		require.Equal(t, tag, got)
@@ -83,10 +83,10 @@ func TestParseRoundTrip(t *testing.T) {
 func TestSentinelsAreCoreSentinels(t *testing.T) {
 	t.Parallel()
 
-	require.ErrorIs(t, etag.ErrMissing, coreetag.ErrMissing)
-	require.ErrorIs(t, etag.ErrInvalid, coreetag.ErrInvalidTag)
-	require.ErrorIs(t, etag.ErrMismatch, coreetag.ErrMismatch)
-	require.ErrorIs(t, etag.ErrNotRevision, coreetag.ErrNotVersion)
+	require.ErrorIs(t, coreetag.ErrMissing, coreetag.ErrMissing)
+	require.ErrorIs(t, coreetag.ErrInvalidTag, coreetag.ErrInvalidTag)
+	require.ErrorIs(t, coreetag.ErrMismatch, coreetag.ErrMismatch)
+	require.ErrorIs(t, coreetag.ErrNotVersion, coreetag.ErrNotVersion)
 }
 
 func TestFromRevision(t *testing.T) {
@@ -110,17 +110,17 @@ func TestRevision(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(math.MaxUint64), u)
 
-	refused := []etag.Tag{
-		{}, etag.Strong("7"), etag.Weak("07"), etag.Weak("-1"), etag.Weak("+1"), etag.Weak("1a"),
-		etag.Weak("18446744073709551616"),
+	refused := []coreetag.Tag{
+		{}, coreetag.Strong("7"), coreetag.Weak("07"), coreetag.Weak("-1"), coreetag.Weak("+1"), coreetag.Weak("1a"),
+		coreetag.Weak("18446744073709551616"),
 	}
 	for _, tag := range refused {
 		_, err = etag.Revision[uint64](tag)
-		require.ErrorIs(t, err, etag.ErrNotRevision, "tag %q", tag)
+		require.ErrorIs(t, err, coreetag.ErrNotVersion, "tag %q", tag)
 	}
 
 	_, err = etag.Revision[int64](etag.FromRevision[uint64](math.MaxInt64 + 1))
-	require.ErrorIs(t, err, etag.ErrNotRevision, "beyond int64")
+	require.ErrorIs(t, err, coreetag.ErrNotVersion, "beyond int64")
 }
 
 func TestComparison(t *testing.T) {
@@ -128,13 +128,13 @@ func TestComparison(t *testing.T) {
 
 	// RFC 9110 §8.8.3.2 comparison table.
 	tests := []struct {
-		a, b         etag.Tag
+		a, b         coreetag.Tag
 		strong, weak bool
 	}{
-		{a: etag.Weak("1"), b: etag.Weak("1"), strong: false, weak: true},
-		{a: etag.Weak("1"), b: etag.Weak("2"), strong: false, weak: false},
-		{a: etag.Weak("1"), b: etag.Strong("1"), strong: false, weak: true},
-		{a: etag.Strong("1"), b: etag.Strong("1"), strong: true, weak: true},
+		{a: coreetag.Weak("1"), b: coreetag.Weak("1"), strong: false, weak: true},
+		{a: coreetag.Weak("1"), b: coreetag.Weak("2"), strong: false, weak: false},
+		{a: coreetag.Weak("1"), b: coreetag.Strong("1"), strong: false, weak: true},
+		{a: coreetag.Strong("1"), b: coreetag.Strong("1"), strong: true, weak: true},
 	}
 	for _, tt := range tests {
 		require.Equal(t, tt.strong, tt.a.StrongMatch(tt.b), "%s strong %s", tt.a, tt.b)

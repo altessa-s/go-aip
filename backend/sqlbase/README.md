@@ -667,7 +667,7 @@ errors.Is no longer reaches it (`context.DeadlineExceeded` from a destination's 
 | `ErrScope`         | A scope key is undeclared, not pinned or does not normalize, or the parent key differs from `Request.Parent`                                    |
 | `ErrTimeout`       | The `WithListMaxTime` cap or a driver timeout expired: a field error on `filter` when one was sent, else wrapped with `coreerrs.ErrUnavailable` |
 | `ErrCorruptRecord` | A stored row does not scan into the page type or its sort values do not normalize (a server-side fault)                                         |
-| `ErrInvalidSchema` | `listing.ErrInvalidSchema`, re-exported: an invalid engine configuration, or a request order the engine cannot serve                            |
+| `listing.ErrInvalidSchema` |  an invalid engine configuration, or a request order the engine cannot serve                            |
 
 ### Cursor configuration
 

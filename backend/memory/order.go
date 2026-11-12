@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-aip/orderby"
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -26,7 +27,7 @@ type Comparator func(a, b map[string]any) int
 // OrderTranslator converts an [orderby.Spec] into a [Comparator]. It is safe for concurrent use after construction.
 type OrderTranslator struct {
 	config    *orderby.TranslatorContext
-	telemetry *orderby.Telemetry
+	telemetry *metrics.TranslateTimer
 	encoding  evaluator.ValueEncoding
 	maxWork   int
 }

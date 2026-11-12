@@ -4,12 +4,6 @@
 
 package mongo_test
 
-// The MongoDB cases of the cross-backend regressions of the filter package
-// (filter/*_test.go). They live here because this translator is a separate
-// module: the root module must not require the MongoDB driver, so its
-// cross-backend tables cover every other backend and this file covers MongoDB
-// with the same expressions and expectations.
-
 import (
 	"slices"
 	"testing"
@@ -24,6 +18,7 @@ import (
 	"github.com/altessa-s/go-aip/filter/parser"
 
 	filterfuncs "github.com/altessa-s/go-aip/filter/functions"
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 type loweredPredicate struct{ filter.Node }
@@ -375,11 +370,11 @@ func TestUntrustedInput_RejectsMatches(t *testing.T) {
 		{"safe case-insensitive literal", `name.matches("(?i)a\\.b")`, safe, nil},
 		{"safe anchored classes", `name.matches("^[a-z]+-[0-9]{2,4}.*x$")`, safe, nil},
 		{"safe alternation of literals", `name.matches("^(foo|bar)$")`, safe, nil},
-		{"safe rejects repeated alternation", `name.matches("(a|aa)+$")`, safe, filter.ErrInvalidRegex},
-		{"safe rejects nested quantifier", `name.matches("(a+)+b")`, safe, filter.ErrInvalidRegex},
-		{"safe rejects repeated group", `name.matches("(ab)*c")`, safe, filter.ErrInvalidRegex},
-		{"safe rejects bounded repeat of group", `name.matches("(a.*){5}")`, safe, filter.ErrInvalidRegex},
-		{"trusted holds the safe subset", `name.matches("(a|aa)+$")`, []filter.PolicyOption{filter.WithAllowedFields("name")}, filter.ErrInvalidRegex},
+		{"safe rejects repeated alternation", `name.matches("(a|aa)+$")`, safe, regexanchor.ErrInvalidRegex},
+		{"safe rejects nested quantifier", `name.matches("(a+)+b")`, safe, regexanchor.ErrInvalidRegex},
+		{"safe rejects repeated group", `name.matches("(ab)*c")`, safe, regexanchor.ErrInvalidRegex},
+		{"safe rejects bounded repeat of group", `name.matches("(a.*){5}")`, safe, regexanchor.ErrInvalidRegex},
+		{"trusted holds the safe subset", `name.matches("(a|aa)+$")`, []filter.PolicyOption{filter.WithAllowedFields("name")}, regexanchor.ErrInvalidRegex},
 		{"trusted unsafe opt-out", `name.matches("(a|aa)+$")`, []filter.PolicyOption{filter.WithAllowedFields("name"), filter.WithUnsafeRegex(true)}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

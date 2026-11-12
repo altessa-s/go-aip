@@ -61,10 +61,6 @@ type options struct {
 	pathValidation PathValidationMode
 	pathReporter   func(*fieldmask.ValidationError) `opt:"PathValidationReporter"`
 
-	// WithEmptyMaskImplied is retained for source compatibility and has no effect.
-	//
-	// Deprecated: AIP-134 requires a provided empty mask to be a no-op. Omit the mask to imply populated fields.
-	emptyMaskImplied bool `optval:"param"`
 	// WithStrict makes [ApplyMask] check the mask as [ValidateStrict] does: every path is enforced whatever [WithPathValidation]
 	// says, and every refusal is a *[StrictError] matching [ErrInvalidUpdateMask]. ApplyMask and Prepare read it.
 	strict bool `optval:"param"`

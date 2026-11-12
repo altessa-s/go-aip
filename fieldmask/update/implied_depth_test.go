@@ -33,8 +33,8 @@ func requireDepthRefusal(t *testing.T, err error, msgAndArgs ...any) {
 // an Account whose parent chain is 5,000 levels deep: the synthesis of the
 // implied mask stops at the path depth limit, the deepest path standing for
 // the subtree below, which is then refused for its depth — never erased or
-// built at a cost cubic in its depth — by ApplyMask (omitted, and empty with
-// WithEmptyMaskImplied), Apply and ValidateStrict, each within a small
+// built at a cost cubic in its depth — by ApplyMask with an omitted mask,
+// Apply and ValidateStrict, each within a small
 // allocation bound.
 //
 // Not parallel: it reads the process-wide allocation counter, which parallel

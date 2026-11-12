@@ -4,8 +4,6 @@
 
 package update
 
-//go:generate optgen generate --type=patchOptions --option-type=PatchOption --output=patch_options_gen.go
-
 import (
 	"context"
 	"errors"
@@ -19,6 +17,7 @@ import (
 	"github.com/altessa-s/go-aip/etag"
 	"github.com/altessa-s/go-aip/fieldmask"
 
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -85,7 +84,7 @@ type Patch[E any, P proto.Message, V any] struct {
 // With [WithAllowMissing](true), a Read error matching [coreerrs.ErrNotFound]
 // creates the resource instead (AIP-134 allow_missing): the precondition must
 // accept a missing resource ([Precondition.Missing]; [Int64Precondition] and
-// [TagPrecondition] refuse an etag sent for one as [etag.ErrMismatch], a
+// [TagPrecondition] refuse an etag sent for one as [coreetag.ErrMismatch], a
 // [coreerrs.ErrConflict]), the update mask is ignored entirely, including
 // invalid paths, and Create receives a copy of the original request without its
 // OUTPUT_ONLY values. A bound [DeferredPlan] supplies that input after the
@@ -363,7 +362,7 @@ type Precondition[E, V any] interface {
 // [etag.FromRevision], W/"<version>". Its revision is optional: a request
 // without an etag carries no precondition (a nil revision) unless Required
 // is set, and Save then stores without a version check. A present etag must
-// name the stored version, else the update is [etag.ErrMismatch], a
+// name the stored version, else the update is [coreetag.ErrMismatch], a
 // [coreerrs.ErrConflict] (ABORTED for the API).
 type Int64Precondition[E any] struct {
 	// Field is the API path of the etag field errors name, such as
@@ -397,7 +396,7 @@ func (p Int64Precondition[E]) Parse(tag string) (*int64, error) {
 	return &v, nil
 }
 
-// Check rejects a stale version with [etag.ErrMismatch]; a nil revision
+// Check rejects a stale version with [coreetag.ErrMismatch]; a nil revision
 // accepts any.
 func (p Int64Precondition[E]) Check(entity E, expected *int64) error {
 	if p.Version == nil {
@@ -405,17 +404,17 @@ func (p Int64Precondition[E]) Check(entity E, expected *int64) error {
 	}
 
 	if expected != nil && p.Version(entity) != *expected {
-		return etag.ErrMismatch
+		return coreetag.ErrMismatch
 	}
 
 	return nil
 }
 
 // Missing accepts a missing resource only without a revision: an etag names
-// a version the missing resource does not have, [etag.ErrMismatch].
+// a version the missing resource does not have, [coreetag.ErrMismatch].
 func (p Int64Precondition[E]) Missing(expected *int64) error {
 	if expected != nil {
-		return etag.ErrMismatch
+		return coreetag.ErrMismatch
 	}
 
 	return nil
@@ -423,22 +422,22 @@ func (p Int64Precondition[E]) Missing(expected *int64) error {
 
 // TagPrecondition is the AIP-154 preset for opaque etags, such as content
 // tags from [etag.FromMessage] or tags stored with the resource. Its
-// revision is the parsed [etag.Tag], the zero Tag when the request sends no
+// revision is the parsed [coreetag.Tag], the zero Tag when the request sends no
 // etag (no precondition unless the Rule requires one). Rule configures the
 // field name, whether the etag is required and the [etag.Comparison]
 // ([etag.CompareExact] by default); Etag returns the current tag of a stored
-// entity. A sent etag that does not match it is [etag.ErrMismatch], a
+// entity. A sent etag that does not match it is [coreetag.ErrMismatch], a
 // [coreerrs.ErrConflict]. Save receives the parsed tag to enforce
 // atomically.
 type TagPrecondition[E any] struct {
 	Rule etag.Precondition
-	Etag func(E) etag.Tag
+	Etag func(E) coreetag.Tag
 }
 
 // Parse decodes the etag with [etag.Precondition.Parse].
-func (p TagPrecondition[E]) Parse(tag string) (etag.Tag, error) {
+func (p TagPrecondition[E]) Parse(tag string) (coreetag.Tag, error) {
 	if p.Etag == nil {
-		return etag.Tag{}, ErrInvalidPatch
+		return coreetag.Tag{}, ErrInvalidPatch
 	}
 
 	return p.Rule.Parse(tag)
@@ -446,7 +445,7 @@ func (p TagPrecondition[E]) Parse(tag string) (etag.Tag, error) {
 
 // Check matches the parsed etag against the current tag of entity with
 // [etag.Precondition.Match]; the zero Tag accepts any.
-func (p TagPrecondition[E]) Check(entity E, expected etag.Tag) error {
+func (p TagPrecondition[E]) Check(entity E, expected coreetag.Tag) error {
 	if p.Etag == nil {
 		return ErrInvalidPatch
 	}
@@ -455,7 +454,7 @@ func (p TagPrecondition[E]) Check(entity E, expected etag.Tag) error {
 }
 
 // Missing accepts a missing resource only without an etag: the missing
-// resource has no current tag, so a sent one is [etag.ErrMismatch].
-func (p TagPrecondition[E]) Missing(expected etag.Tag) error {
-	return p.Rule.Match(expected, etag.Tag{})
+// resource has no current tag, so a sent one is [coreetag.ErrMismatch].
+func (p TagPrecondition[E]) Missing(expected coreetag.Tag) error {
+	return p.Rule.Match(expected, coreetag.Tag{})
 }

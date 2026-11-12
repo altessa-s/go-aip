@@ -11,12 +11,14 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/internal/testhelpers"
+
+	metrics "github.com/altessa-s/go-aip/metrics"
 )
 
 func TestNewTelemetry(t *testing.T) {
 	t.Parallel()
 
-	var disabled *filter.Telemetry
+	var disabled *metrics.TranslateTimer
 	disabled.Start()()
 	require.Nil(t, filter.NewTelemetry(nil, "x"))
 

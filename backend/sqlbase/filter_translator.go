@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -34,7 +35,7 @@ const MatchNone = "1 = 0"
 //
 // A FilterTranslator is safe for concurrent Translate and TranslateInline calls.
 type FilterTranslator struct {
-	telemetry *filter.Telemetry
+	telemetry *metrics.TranslateTimer
 	config    *filter.Policy
 	dialect   FilterDialect
 	encode    func(any) (any, error)

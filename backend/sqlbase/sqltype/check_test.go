@@ -18,6 +18,8 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase/sqltype"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 var (
@@ -195,7 +197,7 @@ func TestCheckErrors(t *testing.T) {
 		{expr: `name.matches("a")`},
 		{expr: `name.matches("bad")`, err: errRegex},
 		{expr: `name.matches(name)`, err: errUnsupported},
-		{expr: `name.matches("(")`, err: filter.ErrInvalidRegex},
+		{expr: `name.matches("(")`, err: regexanchor.ErrInvalidRegex},
 		{expr: `name.substring(1) == "a"`},
 		{expr: `name.substring(1, 2) == "a"`},
 		{expr: `name.substring(-1) == "a"`, err: filter.ErrInvalidExpression},
@@ -341,8 +343,8 @@ func TestCheckPortableRegex(t *testing.T) {
 		{pattern: "^a[bc]+$", err: filter.ErrUnsupportedOperation},
 		{pattern: "(?i)é", err: filter.ErrUnsupportedOperation},
 		{pattern: `\bx`, err: filter.ErrUnsupportedOperation},
-		{pattern: "(?i)(", err: filter.ErrInvalidRegex},
-		{pattern: "(", err: filter.ErrInvalidRegex},
+		{pattern: "(?i)(", err: regexanchor.ErrInvalidRegex},
+		{pattern: "(", err: regexanchor.ErrInvalidRegex},
 		// The reported alternation chains: POSIX syntax, but outside the portable subset filter.Validate applies.
 		{pattern: strings.Repeat("(a|a)", 25) + "$", err: filter.ErrUnsupportedOperation},
 		{pattern: strings.Repeat("(.|a)", 25) + "$", err: filter.ErrUnsupportedOperation},

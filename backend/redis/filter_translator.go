@@ -9,6 +9,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -24,7 +25,7 @@ import (
 type FilterTranslator struct {
 	predicateRenderer func(filter.Node) (string, bool, error)
 	strictSchema      bool
-	telemetry         *filter.Telemetry
+	telemetry         *metrics.TranslateTimer
 	literalEncoder    func(any) (any, error)
 	config            *filter.Policy
 	schema            *coremaps.ImmutableMap[string, FieldType]

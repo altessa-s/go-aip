@@ -14,6 +14,8 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // mustTranslator builds a translator and fails the test on any
@@ -281,7 +283,7 @@ func TestTranslator_MatchesRejectsOversizedPattern(t *testing.T) {
 	node := filtertest.MustParseFilter(t, `name.matches("aaaaaaaaaaaaaaaaaaaa")`)
 
 	_, _, err := trans.Translate(node)
-	require.ErrorIs(t, err, filter.ErrInvalidRegex)
+	require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
 }
 
 func TestTranslator_Has(t *testing.T) {

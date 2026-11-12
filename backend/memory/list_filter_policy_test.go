@@ -14,6 +14,8 @@ import (
 	"github.com/altessa-s/go-aip/backend/memory"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
+
+	pagetoken "github.com/altessa-s/go-aip/pagination/pagetoken"
 )
 
 func TestFilterTimestampPrecision(t *testing.T) {
@@ -46,7 +48,7 @@ func TestTokenErrorFormatter(t *testing.T) {
 
 	marker := errors.New("formatted")
 	schema, err := listing.NewSchema([]listing.Field{{Name: "id", Kind: filter.FieldKindString}}, []string{"id"}, listing.NewProfile(listing.WithErrorFormatter(func(f, reason string, cause error) error {
-		require.Equal(t, listing.FieldPageToken, f)
+		require.Equal(t, pagetoken.TokenField, f)
 		return errors.Join(marker, cause)
 	})))
 	require.NoError(t, err)

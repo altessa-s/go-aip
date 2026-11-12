@@ -76,7 +76,7 @@ if compare != nil {
 | `WithOrderOptions`       | nil                    | Storage options: mapping, KeyResolver, denied storage fields, tie-breakers            |
 | `WithOrderCollector`     | nil                    | Records the translation duration as `orderby_memory_translate_duration_seconds`       |
 | `WithOrderValueEncoding` | nil                    | Read driver types and structs through an `evaluator.ValueEncoding`                    |
-| `WithOrderMaxDataBudget` | `DefaultMaxDataBudget` | Work the encoding may spend reading one sort value; beyond it the value is unsortable |
+| `WithOrderMaxDataBudget` | `evaluator.DefaultMaxDataBudget` | Work the encoding may spend reading one sort value; beyond it the value is unsortable |
 
 `WithOrderMaxDataBudget` is charged for every conversion `evaluator.StoredValue` makes (a typed slice or map copied, a document's keys);
 non-positive values are ignored. Pointer chains are followed at most 32 hops; a deeper or cyclic value, or one the budget cannot read, is
@@ -184,7 +184,7 @@ two-valued.
 ### Cursor configuration
 
 `NewListEngine[T, ID]` accepts an identity callback returning any supported scalar. The position codec (`WithListPositionCodec`) drives
-sorting, SlicePager seeks and token serialization together; the default scalar codec and `DefaultTimestampPrecision` preserve typed
+sorting, SlicePager seeks and token serialization together; the default scalar codec and `listing.TimestampPrecision` preserve typed
 identities, and timestamp sort values are truncated to the configured resolution (`WithListTimestampPrecision`, positive). Changing the
 precision, codec semantics or the tie-breaker invalidates existing tokens.
 
@@ -210,14 +210,14 @@ to one request. The caller's slice is never modified.
 
 | Option                       | Default                           | Behavior                                                                        |
 |------------------------------|-----------------------------------|---------------------------------------------------------------------------------|
-| `WithListMaxDataBudget`      | `DefaultMaxDataBudget`            | Bound work reading, converting and comparing data in one evaluation             |
+| `WithListMaxDataBudget`      | `evaluator.DefaultMaxDataBudget`            | Bound work reading, converting and comparing data in one evaluation             |
 | `WithListMaxMaterialized`    | 0                                 | Rows held in the page heap (at most page size + 1); zero is unlimited           |
 | `WithListMaxScanned`         | 0                                 | Input items per request; zero is unlimited                                      |
 | `WithListMaxWork`            | `DefaultMaxWork`                  | Scans, field reads, predicate visits and sorting per request; zero is unlimited |
 | `WithListPositionCodec`      | `pagetoken.ScalarPositionCodec{}` | Replace position normalization, comparison and wire encoding together           |
 | `WithListProfile`            | the `listing/evaluation` profile  | Replace portable evaluation; it must agree with the schema contract             |
 | `WithListTiebreakField`      | `""`                              | Use a public field path as the identity instead of the callback                 |
-| `WithListTimestampPrecision` | `DefaultTimestampPrecision`       | Cursor timestamp resolution; storage must use this resolution                   |
+| `WithListTimestampPrecision` | `listing.TimestampPrecision`       | Cursor timestamp resolution; storage must use this resolution                   |
 | `WithListValueEncoding`      | nil                               | Adapt stored representations for field traversal and native/MongoDB evaluation  |
 
 ## API
@@ -240,8 +240,6 @@ to one request. The caller's slice is never modified.
 
 | Constant                    | Value                                                                                        |
 |-----------------------------|----------------------------------------------------------------------------------------------|
-| `DefaultMaxDataBudget`      | `evaluator.DefaultMaxDataBudget`: one sort value (order) or one evaluation and lookup (list) |
-| `DefaultTimestampPrecision` | `listing.TimestampPrecision`: the list cursor resolution                                     |
 | `DefaultMaxWork`            | `1 << 24` work units per list request (`WithListMaxWork(0)` lifts it)                        |
 
 The request work limit is on by default; the scan and materialization limits are off (0); the data budgets are always on.

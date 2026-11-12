@@ -20,6 +20,7 @@ import (
 	filtereval "github.com/altessa-s/go-aip/filter/evaluator"
 	filterfuncs "github.com/altessa-s/go-aip/filter/functions"
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // TestUntrustedInput_RequiresAllowlist guards against regressing the
@@ -113,7 +114,7 @@ func TestAllowlistRequiredByDefault(t *testing.T) {
 // TestUntrustedInput_RejectsMatches pins S-6: a client regex runs on the database's backtracking engine (MongoDB PCRE,
 // PostgreSQL ~, MariaDB REGEXP), where `(a|aa)+$` over a large collection pins the CPU. Under [filter.WithUntrustedInput]
 // every translator and the evaluator reject matches() with [filter.ErrFunctionNotAllowed]; [filter.WithSafeRegex] admits a
-// pattern whose repetitions apply to single characters only and rejects any other with [filter.ErrInvalidRegex].
+// pattern whose repetitions apply to single characters only and rejects any other with [regexanchor.ErrInvalidRegex].
 func TestUntrustedInput_RejectsMatches(t *testing.T) {
 	t.Parallel()
 
@@ -133,11 +134,11 @@ func TestUntrustedInput_RejectsMatches(t *testing.T) {
 		{"safe case-insensitive literal", `name.matches("(?i)a\\.b")`, safe, nil},
 		{"safe anchored classes", `name.matches("^[a-z]+-[0-9]{2,4}.*x$")`, safe, nil},
 		{"safe alternation of literals", `name.matches("^(foo|bar)$")`, safe, nil},
-		{"safe rejects repeated alternation", `name.matches("(a|aa)+$")`, safe, filter.ErrInvalidRegex},
-		{"safe rejects nested quantifier", `name.matches("(a+)+b")`, safe, filter.ErrInvalidRegex},
-		{"safe rejects repeated group", `name.matches("(ab)*c")`, safe, filter.ErrInvalidRegex},
-		{"safe rejects bounded repeat of group", `name.matches("(a.*){5}")`, safe, filter.ErrInvalidRegex},
-		{"trusted holds the safe subset", `name.matches("(a|aa)+$")`, []filter.PolicyOption{filter.WithAllowedFields("name")}, filter.ErrInvalidRegex},
+		{"safe rejects repeated alternation", `name.matches("(a|aa)+$")`, safe, regexanchor.ErrInvalidRegex},
+		{"safe rejects nested quantifier", `name.matches("(a+)+b")`, safe, regexanchor.ErrInvalidRegex},
+		{"safe rejects repeated group", `name.matches("(ab)*c")`, safe, regexanchor.ErrInvalidRegex},
+		{"safe rejects bounded repeat of group", `name.matches("(a.*){5}")`, safe, regexanchor.ErrInvalidRegex},
+		{"trusted holds the safe subset", `name.matches("(a|aa)+$")`, []filter.PolicyOption{filter.WithAllowedFields("name")}, regexanchor.ErrInvalidRegex},
 		{"trusted unsafe opt-out", `name.matches("(a|aa)+$")`, []filter.PolicyOption{filter.WithAllowedFields("name"), filter.WithUnsafeRegex(true)}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,6 +1,9 @@
 # Field formats
 
-[fieldinfo](../fieldinfo/) applies the `google.api.field_info` annotation of AIP-202: the standard format of a string field (`UUID4`, `IPV4`,
+Standard formats use `annotations.FieldInfo_Format` and the `annotations.FieldInfo_*` constants from
+`google.golang.org/genproto/googleapis/api/annotations`.
+
+[fieldinfo](../fieldinfo/) applies the `google.api.field_info` annotation of AIP-202: the standard format of a string field (`annotations.FieldInfo_UUID4`, `IPV4`,
 `IPV6`, `IPV4_OR_IPV6`) and the referenced types of a generic `google.protobuf.Any` field. [fieldbehavior](fieldbehavior.md) checks the formats in
 the same walk as its AIP-203 rules.
 
@@ -48,7 +51,7 @@ if err := fieldinfo.Normalize(req.GetHost()); err != nil {
 }
 
 // Compare by value, never as text.
-same, err := fieldinfo.Equal(fieldinfo.IPv6, stored.GetAddress(), req.GetHost().GetAddress())
+same, err := fieldinfo.Equal(annotations.FieldInfo_IPV6, stored.GetAddress(), req.GetHost().GetAddress())
 ```
 
 In one pass with the AIP-203 rules:

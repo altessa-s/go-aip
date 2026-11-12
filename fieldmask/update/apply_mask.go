@@ -29,7 +29,7 @@ import (
 //
 // A nil raw mask implies populated leaves; empty mutable messages contribute
 // no path. A provided mask with no paths is a no-op that leaves msg untouched; "*" alone is a full
-// replacement. [WithEmptyMaskImplied] is deprecated and has no effect. A mask
+// replacement. A mask
 // whose paths are all dropped is interim without stored state: completion may
 // restore deferred writes, so always complete a [Prepare] plan. OUTPUT_ONLY input is
 // cleared. Never store msg itself as the resource after this filtering step.

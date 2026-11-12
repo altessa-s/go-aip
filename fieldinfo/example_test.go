@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldinfo"
 
 	testpb "github.com/altessa-s/go-aip/internal/proto/gen/fieldinfotest/v1"
+	annotations "google.golang.org/genproto/googleapis/api/annotations"
 )
 
 func ExampleValidate() {
@@ -54,7 +55,7 @@ func ExampleNormalize() {
 }
 
 func ExampleEqual() {
-	same, err := fieldinfo.Equal(fieldinfo.IPv6, "2001:0DB8:0::0", "2001:db8::")
+	same, err := fieldinfo.Equal(annotations.FieldInfo_IPV6, "2001:0DB8:0::0", "2001:db8::")
 	fmt.Println(same, err)
 	// Output: true <nil>
 }

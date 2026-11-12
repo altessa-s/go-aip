@@ -62,7 +62,7 @@ func TestTokenErrorFormatter(t *testing.T) {
 	marker := errors.New("formatted")
 	schema, err := listing.NewSchema([]listing.Field{{Name: "id", Kind: filter.FieldKindString}}, []string{"id"},
 		listing.NewProfile(listing.WithErrorFormatter(func(field, reason string, cause error) error {
-			require.Equal(t, listing.FieldPageToken, field)
+			require.Equal(t, pagetoken.TokenField, field)
 			require.NotEmpty(t, reason)
 
 			return errors.Join(marker, cause)

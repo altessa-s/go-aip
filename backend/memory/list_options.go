@@ -14,8 +14,8 @@ import (
 
 //go:generate optgen generate --type=listOptions --option-type=ListEngineOption --option-prefix=List --output=list_options_gen.go
 
-// DefaultTimestampPrecision is the listing cursor resolution.
-const DefaultTimestampPrecision = listing.TimestampPrecision
+// defaultTimestampPrecision is the listing cursor resolution.
+const defaultTimestampPrecision = listing.TimestampPrecision
 
 // DefaultMaxWork is the default request work budget of a list: one unit per scanned item, field step, predicate visit, unit of
 // compared data and sort step. It serves the small collections the list engine is for, bounding what one request can cost on a
@@ -26,12 +26,12 @@ type listOptions struct {
 	// tiebreakField overrides the identity callback with a public field path.
 	tiebreakField string
 	// timestampPrecision is the cursor timestamp resolution; storage must use this resolution.
-	timestampPrecision time.Duration `optgen:"default=DefaultTimestampPrecision"`
+	timestampPrecision time.Duration `optgen:"default=defaultTimestampPrecision"`
 	// positionCodec controls position normalization, comparison and encoding.
 	positionCodec pagetoken.PositionCodec `optgen:"default=pagetoken.ScalarPositionCodec{},notnil"`
 
 	// maxDataBudget bounds each field read and predicate evaluation.
-	maxDataBudget int `optgen:"default=DefaultMaxDataBudget" optval:"positive"`
+	maxDataBudget int `optgen:"default=evaluator.DefaultMaxDataBudget" optval:"positive"`
 	// profile replaces portable evaluation; it must agree with the schema contract.
 	profile evaluator.Profile
 	// maxWork bounds scans, field reads, predicate visits, and sorting per request (DefaultMaxWork); zero is unlimited.

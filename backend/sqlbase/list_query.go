@@ -187,7 +187,7 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 
 		resolved, first, e := l.tokens.Resolve(req.PageToken, binds)
 		if e != nil {
-			return page.Page[T]{}, l.schema.FormatError(listing.FieldPageToken, pagetoken.Classify(e).String(), e)
+			return page.Page[T]{}, l.schema.FormatError(pagetoken.TokenField, pagetoken.Classify(e).String(), e)
 		}
 
 		if !first {
@@ -299,7 +299,7 @@ func (l *ListEngine[T]) buildWhere(filterSQL string, args []any, pins []pin, key
 	if pos != nil {
 		pred, vals, err := l.opts.dialect.CursorPredicate(keysOrder, *pos, l.opts.tableAlias, l.opts.idType, l.opts.decimalFormat)
 		if err != nil {
-			return "", nil, l.schema.FormatError(listing.FieldPageToken, pagetoken.Classify(err).String(), err)
+			return "", nil, l.schema.FormatError(pagetoken.TokenField, pagetoken.Classify(err).String(), err)
 		}
 
 		clause(l.opts.dialect.Bind(pred, len(args)+1))

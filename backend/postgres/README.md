@@ -11,14 +11,13 @@ Everything go-aip renders and evaluates for PostgreSQL, in one package:
 | Filter           | `NewFilterTranslator(policy, opts ...FilterOption) (*FilterTranslator, error)`                                       | A `WHERE` clause from a `filter.Node` (AIP-160)                               |
 | Schema filter    | `NewFilterTranslatorWithSchema(policy, schema, opts ...FilterOption) (*SchemaFilterTranslator, error)`               | A typed `WHERE` clause (NUMERIC, arrays, JSONB) matching in-memory evaluation |
 | Schema / profile | `NewSchema(fields, opts ...SchemaOption) (*Schema, error)`                                                           | Typed schema, compiled `Program` and the `filter/evaluator` profile           |
-| Order            | `NewOrderTranslator(policy, opts ...OrderOption) (*sqlbase.OrderTranslator, error)`                                  | The body of `ORDER BY` from an `orderby.Spec` (AIP-132)                       |
-| Projection       | `NewProjectionTranslator(policy, opts ...ProjectionOption) (*sqlbase.ProjectionTranslator, error)`                   | The `SELECT` column list from a `projection.Spec` (AIP-157)                   |
-| List engine      | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...ListEngineOption) (*sqlbase.ListEngine[T], error)` | Keyset pages over a PostgreSQL table (AIP-132, AIP-158)                       |
+| Order            | `NewOrderTranslator(policy, opts ...sqlbase.OrderOption) (*sqlbase.OrderTranslator, error)`                                  | The body of `ORDER BY` from an `orderby.Spec` (AIP-132)                       |
+| Projection       | `NewProjectionTranslator(policy, opts ...sqlbase.ProjectionOption) (*sqlbase.ProjectionTranslator, error)`                   | The `SELECT` column list from a `projection.Spec` (AIP-157)                   |
+| List engine      | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...sqlbase.ListEngineOption) (*sqlbase.ListEngine[T], error)` | Keyset pages over a PostgreSQL table (AIP-132, AIP-158)                       |
 | List dialect     | `ListDialect{}`                                                                                                      | The PostgreSQL `sqlbase.ListDialect` used by `NewListEngine`                  |
 
 Every translator constructor takes the resource's shared, client-facing policy (built once in API names and reused by every backend) followed by the
-storage options that bind it to PostgreSQL column names. `OrderOption`, `ProjectionOption` and `ListEngineOption` are aliases of the sqlbase option
-types; their `With…` functions stay in sqlbase (`sqlbase.WithOrderOptions`, `sqlbase.WithProjectionOptions`, `sqlbase.WithList…`). The order, projection
+storage options that bind it to PostgreSQL column names. The options use `sqlbase.OrderOption`, `sqlbase.ProjectionOption` and `sqlbase.ListEngineOption`; their `With…` functions stay in sqlbase (`sqlbase.WithOrderOptions`, `sqlbase.WithProjectionOptions`, `sqlbase.WithList…`). The order, projection
 and list-engine constructors are the dialect-generic [`sqlbase`](../sqlbase/README.md) ones with the PostgreSQL dialect fixed; use
 `sqlbase.NewOrderTranslator` / `sqlbase.NewProjectionTranslator` with an application `sqlbase.ColumnResolver` for trusted storage expressions, and
 `sqlbase.NewListEngine` with a dialect that embeds `ListDialect` to override selected listing behavior.
@@ -571,8 +570,7 @@ if cols == "" {
 `NewListEngine[T](q, codec, schema, table, columns, dest, opts...)` is
 `sqlbase.NewListEngine(q, codec, schema, table, columns, dest, ListDialect{}, opts...)`: keyset pages over a PostgreSQL table with the backend-neutral
 [`listing`](../../listing/README.md) contract. The application owns the table and its data; the engine emits parameterized queries and order indexes.
-`dest` returns Scan destinations in the same order as `columns`; a nil codec serves a single page only. `ListEngineOption` is an alias of
-`sqlbase.ListEngineOption`; the options (`sqlbase.WithListColumns`, `WithListScopeKeys`, `WithListParentKey`, `WithListIDColumn`, `WithListIDType`,
+`dest` returns Scan destinations in the same order as `columns`; a nil codec serves a single page only. The `sqlbase.ListEngineOption` options (`sqlbase.WithListColumns`, `WithListScopeKeys`, `WithListParentKey`, `WithListIDColumn`, `WithListIDType`,
 `WithListTimestampPrecision`, `WithListMaxTime`, …) are documented with the [sqlbase listing engine](../sqlbase/README.md#listing-engine).
 
 `MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
@@ -638,13 +636,10 @@ page, err := list.List(ctx, "widgets.List", req, sqlbase.Scope{"tenant_id": req.
 | `JSONNull`                      | JSON null, distinct from SQL NULL                                                                     |
 | `OrderDialect`                  | The PostgreSQL `sqlbase.OrderDialect`, for `sqlbase.NewOrderTranslator` or a resolver                 |
 | `NewOrderTranslator`            | `sqlbase.OrderTranslator` with the PostgreSQL dialect                                                 |
-| `OrderOption`                   | Alias of `sqlbase.OrderOption`                                                                        |
 | `ProjectionDialect`             | The PostgreSQL `sqlbase.ProjectionDialect`                                                            |
 | `NewProjectionTranslator`       | `sqlbase.ProjectionTranslator` with the PostgreSQL dialect                                            |
-| `ProjectionOption`              | Alias of `sqlbase.ProjectionOption`                                                                   |
 | `NewListEngine`                 | `sqlbase.ListEngine` with `ListDialect`                                                               |
 | `MustNewListEngine`             | Panicking `NewListEngine` for package-level declarations fixed in code                                |
-| `ListEngineOption`              | Alias of `sqlbase.ListEngineOption`                                                                   |
 | `ListDialect`                   | The PostgreSQL `sqlbase.ListDialect`                                                                  |
 
 ## Related packages

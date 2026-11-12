@@ -259,7 +259,7 @@ func TestCheckSchemaRejectsMissingColumn(t *testing.T) {
 	require.NoError(t, err)
 	l, err := sqlbase.NewListEngine[row](db, nil, schema, "widgets", []string{"id"}, func(r *row) []any { return []any{&r.ID} }, postgres.ListDialect{})
 	require.NoError(t, err)
-	require.ErrorIs(t, l.CheckSchema(t.Context(), db), sqlbase.ErrInvalidSchema)
+	require.ErrorIs(t, l.CheckSchema(t.Context(), db), listing.ErrInvalidSchema)
 }
 
 func TestCheckSchemaValidatesProjectionAndScopeColumns(t *testing.T) {
@@ -294,7 +294,7 @@ func TestCheckSchemaValidatesProjectionAndScopeColumns(t *testing.T) {
 
 			l, err := sqlbase.NewListEngine[row](db, nil, schema, "widgets", []string{tc.projection}, func(r *row) []any { return []any{&r.ID} }, postgres.ListDialect{}, opts...)
 			require.NoError(t, err)
-			require.ErrorIs(t, l.CheckSchema(t.Context(), db), sqlbase.ErrInvalidSchema)
+			require.ErrorIs(t, l.CheckSchema(t.Context(), db), listing.ErrInvalidSchema)
 		})
 	}
 }
@@ -315,7 +315,7 @@ func TestCheckSchemaValidatesTextScopeCollation(t *testing.T) {
 	})
 	l, err := sqlbase.NewListEngine[row](db, nil, schema, "widgets", []string{"id"}, func(r *row) []any { return []any{&r.ID} }, postgres.ListDialect{}, sqlbase.WithListScopeKeys("tenant_id"), sqlbase.WithListParentKey("tenant_id"))
 	require.NoError(t, err)
-	require.ErrorIs(t, l.CheckSchema(t.Context(), db), sqlbase.ErrInvalidSchema)
+	require.ErrorIs(t, l.CheckSchema(t.Context(), db), listing.ErrInvalidSchema)
 }
 
 func TestQueryTimeoutClassification(t *testing.T) {

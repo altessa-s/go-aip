@@ -18,6 +18,8 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func coverageSchema(tb testing.TB) *sqlbase.Schema {
@@ -277,7 +279,7 @@ func TestSchemaRejectedExpressions(t *testing.T) {
 		{`name.contains(tags)`, filter.ErrFieldTypeMismatch},
 		{`name.contains("a", "b")`, filter.ErrFieldTypeMismatch},
 		{`name.matches(name)`, filter.ErrUnsupportedOperation},
-		{`name.matches("(")`, filter.ErrInvalidRegex},
+		{`name.matches("(")`, regexanchor.ErrInvalidRegex},
 		{`n in [[1], 2]`, filter.ErrFieldTypeMismatch},
 		{`n in [[1], [2, 3]]`, filter.ErrFieldTypeMismatch},
 		{`n in [1, "a"]`, filter.ErrFieldTypeMismatch},
@@ -533,7 +535,7 @@ func TestSchemaPortableContract(t *testing.T) {
 		{`name.matches("\\d")`, filter.ErrUnsupportedOperation},
 		{`name.matches("(?i)é")`, filter.ErrUnsupportedOperation},
 		{`name.matches("(?i)abc")`, nil},
-		{`name.matches("(")`, filter.ErrInvalidRegex},
+		{`name.matches("(")`, regexanchor.ErrInvalidRegex},
 		{`name.contains("a", "b")`, filter.ErrInvalidExpression},
 		{`1 == 1`, filter.ErrInvalidExpression},
 	} {

@@ -15,7 +15,6 @@ state belongs to the caller or an explicitly constructed instance; consumers sho
 
 | Constant              | Meaning                                                                                                                |
 |-----------------------|------------------------------------------------------------------------------------------------------------------------|
-| `MaxSize`             | 256: the number of compiled patterns a cache keeps, as `filter.DefaultRegexCacheSize`                                  |
 | `MaxUnboundedRepeats` | MaxUnboundedRepeats is the number of unbounded repetitions (*, +, {n,}) a safe pattern may hold.                       |
 | `MaxRepeats`          | MaxRepeats is the number of repetitions of a variable count (*, +, ?, {n,m} with n < m, {n,}) a safe pattern may hold. |
 | `MaxRepeatCount`      | MaxRepeatCount is the largest bound of a counted repetition ({n}, {n,m}, {n,}) in a safe pattern.                      |

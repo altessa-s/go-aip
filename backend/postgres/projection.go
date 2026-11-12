@@ -9,11 +9,6 @@ import (
 	"github.com/altessa-s/go-aip/projection"
 )
 
-// ProjectionOption configures [NewProjectionTranslator]. It is
-// [sqlbase.ProjectionOption]; the options are [sqlbase.WithProjectionOptions]
-// and [sqlbase.WithProjectionCollector].
-type ProjectionOption = sqlbase.ProjectionOption
-
 // ProjectionDialect returns the PostgreSQL SELECT-list dialect: double-quoted `col` or `table.col` parts of at most 63
 // bytes, metrics labeled "postgres", and no exclusion projection. A dotted client path must be declared
 // ([sqlbase.QualifiedNamesDialect]). Pass it to [sqlbase.NewProjectionTranslator] or delegate an application
@@ -32,6 +27,6 @@ func ProjectionDialect() sqlbase.ProjectionDialect {
 // [projection.WithAllowedFields]. [sqlbase.WithProjectionOptions] sets mapping,
 // denied storage fields and required fields; [sqlbase.WithProjectionCollector]
 // records metrics.
-func NewProjectionTranslator(policy *projection.Policy, opts ...ProjectionOption) (*sqlbase.ProjectionTranslator, error) {
+func NewProjectionTranslator(policy *projection.Policy, opts ...sqlbase.ProjectionOption) (*sqlbase.ProjectionTranslator, error) {
 	return sqlbase.NewProjectionTranslator(policy, ProjectionDialect(), opts...)
 }

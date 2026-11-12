@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -39,7 +40,7 @@ var orderingOps = map[filter.Operator]string{filter.OpGT: opGt, filter.OpGTE: op
 // state.
 type FilterTranslator struct {
 	predicateRenderer func(filter.Node) (bson.M, bool, error)
-	telemetry         *filter.Telemetry
+	telemetry         *metrics.TranslateTimer
 	literalEncoder    func(any) (any, error)
 	config            *filter.Policy
 	semantics         *Schema

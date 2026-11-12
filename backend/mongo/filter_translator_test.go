@@ -17,6 +17,7 @@ import (
 
 	filterfuncs "github.com/altessa-s/go-aip/filter/functions"
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func bsonToJSON(m bson.M) string {
@@ -315,7 +316,7 @@ func TestTranslator_MatchesRegexValidation(t *testing.T) {
 	t.Run("invalid regex", func(t *testing.T) {
 		node := filtertest.MustParseFilter(t, `name.matches("[invalid")`)
 		_, err := trans.Translate(node)
-		require.ErrorIs(t, err, filter.ErrInvalidRegex)
+		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
 	})
 
 	t.Run("too long regex", func(t *testing.T) {
@@ -325,7 +326,7 @@ func TestTranslator_MatchesRegexValidation(t *testing.T) {
 		// it reaches the translator.
 		trans := mustTranslator(t)
 		_, err := trans.regexPassthrough(string(make([]byte, 1025)))
-		require.ErrorIs(t, err, filter.ErrInvalidRegex)
+		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex)
 	})
 
 	t.Run("WithMaxRegexLength is honored", func(t *testing.T) {
@@ -335,7 +336,7 @@ func TestTranslator_MatchesRegexValidation(t *testing.T) {
 		// apply.
 		trans := mustTranslator(t, filter.WithMaxRegexLength(10))
 		_, err := trans.regexPassthrough(string(make([]byte, 64)))
-		require.ErrorIs(t, err, filter.ErrInvalidRegex,
+		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex,
 			"WithMaxRegexLength(10) must reject 64-byte pattern")
 	})
 }

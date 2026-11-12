@@ -42,7 +42,6 @@ var backendSentinels = map[string]backendSentinel{
 	},
 	// Server configuration faults: a storage column or table name the dialect cannot quote.
 	"backend/sqlbase.ErrInvalidColumnName": {sqlbase.ErrInvalidColumnName, code.Code_INTERNAL, apierror.ReasonInternal},
-	"backend/sqlbase.ErrInvalidSchema":     {sqlbase.ErrInvalidSchema, code.Code_INTERNAL, apierror.ReasonInternal},
 	"backend/sqlbase.ErrInvalidTableName":  {sqlbase.ErrInvalidTableName, code.Code_INTERNAL, apierror.ReasonInternal},
 	// Server-side faults, a scope that does not pin the parent and a stored row that does not read: INTERNAL as unknown errors.
 	"backend/sqlbase.ErrScope":         {sqlbase.ErrScope, code.Code_INTERNAL, apierror.ReasonInternal},

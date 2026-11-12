@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldpolicy"
 	"github.com/altessa-s/go-aip/projection"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -26,7 +27,7 @@ const (
 // concurrent use after construction.
 type ProjectionTranslator struct {
 	config   *projection.TranslatorContext
-	duration *projection.Telemetry
+	duration *metrics.TranslateTimer
 }
 
 // NewProjectionTranslator creates a MongoDB projection translator bound to policy, the

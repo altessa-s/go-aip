@@ -56,7 +56,7 @@ func (l *ListEngine[D]) mapError(ctx, queryCtx context.Context, err error, filte
 	}
 
 	if failure := pagetoken.Classify(err); failure != pagetoken.FailureNone {
-		return l.schema.FormatError(listing.FieldPageToken, failure.String(), err)
+		return l.schema.FormatError(pagetoken.TokenField, failure.String(), err)
 	}
 
 	if errors.Is(err, context.DeadlineExceeded) || mongo.IsTimeout(err) {

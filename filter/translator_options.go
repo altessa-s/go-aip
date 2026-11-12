@@ -28,17 +28,12 @@ type translatorOptions struct {
 	fieldMapping *coremaps.ImmutableMap[string, string] `optfn:"FieldMapping=coremaps.NewImmutableMap[string, string]"`
 }
 
-// TranslatorContext is what [NewTranslatorContext] returns, as in orderby and projection: a [Policy] bound to the
-// storage names of one backend. Unlike theirs it is the Policy type itself, so a translator takes the bound policy
-// wherever a *Policy is accepted.
-type TranslatorContext = Policy
-
 // NewTranslatorContext binds policy to one backend: it returns a copy of policy that also applies the translator
 // options (the storage mapping). policy itself is never modified, so one policy built per resource serves every
 // translator and evaluator; the copy shares its compiled regex cache. It fails with [ErrPolicyRequired] for a nil
 // policy: a translator never runs without the field rules of a policy, and a policy that accepts untrusted input
 // always carries an allow-list or field access policy.
-func NewTranslatorContext(policy *Policy, opts ...TranslatorOption) (*TranslatorContext, error) {
+func NewTranslatorContext(policy *Policy, opts ...TranslatorOption) (*Policy, error) {
 	if policy == nil {
 		return nil, coreerrs.Wrap(ErrPolicyRequired, "nil filter policy")
 	}

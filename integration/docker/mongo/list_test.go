@@ -230,7 +230,7 @@ func TestScoped(t *testing.T) {
 	// The token under another parent, correctly scoped: the parent binds it.
 	_, err = l.List(t.Context(), listingtest.Subject, listing.Request{PageSize: 4, Parent: "owner-1", PageToken: p.NextPageToken},
 		bson.D{{Key: "owner", Value: "owner-1"}})
-	require.Equal(t, listing.FieldPageToken, listingtest.FieldOf(err))
+	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err))
 
 	// A store that pins the scope to another value than the parent fails before querying instead of reading another parent's
 	// items.
@@ -250,7 +250,7 @@ func TestTokenBindsTheScope(t *testing.T) {
 
 	req.PageToken = p.NextPageToken
 	_, err = l.List(t.Context(), listingtest.Subject, req, bson.D{{Key: "owner", Value: "owner-0"}})
-	require.Equal(t, listing.FieldPageToken, listingtest.FieldOf(err))
+	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err))
 }
 
 // TestMapScopePages pages a scope of multi-entry maps, nested: the driver encodes a map in a varying order, so every page must

@@ -16,7 +16,7 @@
 //
 //	if err := fieldinfo.Validate(req.GetHost()); err != nil { return err } // *ViolationError, INVALID_ARGUMENT
 //	if err := fieldinfo.Normalize(req.GetHost()); err != nil { return err } // validated and normalized in place
-//	same, err := fieldinfo.Equal(fieldinfo.IPv6, stored, given)
+//	same, err := fieldinfo.Equal(annotations.FieldInfo_IPV6, stored, given)
 //
 // See README.md for the complete guide, limits, errors, and extension contracts.
 package fieldinfo

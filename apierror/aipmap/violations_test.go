@@ -126,7 +126,7 @@ func TestFieldInfoValueError(t *testing.T) {
 
 	m := newMapper(t)
 
-	verr := fieldinfo.ValidateValue(fieldinfo.UUID4, "nope")
+	verr := fieldinfo.ValidateValue(annotations.FieldInfo_UUID4, "nope")
 	require.Error(t, verr)
 
 	e := m.Map(verr)

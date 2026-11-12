@@ -9,11 +9,6 @@ import (
 	"github.com/altessa-s/go-aip/projection"
 )
 
-// ProjectionOption configures [NewProjectionTranslator]. It is
-// [sqlbase.ProjectionOption]; the options are [sqlbase.WithProjectionOptions]
-// and [sqlbase.WithProjectionCollector].
-type ProjectionOption = sqlbase.ProjectionOption
-
 // ProjectionDialect returns the ClickHouse SELECT-list dialect: backtick-quoted parts of at most 255 bytes, metrics
 // labeled "clickhouse", and an exclusion — every column but the denied ones — rendered as `* EXCEPT (col, …)`. A dotted
 // client path must be declared ([sqlbase.QualifiedNamesDialect]), since its dot may name a joined table. Pass it to
@@ -29,6 +24,6 @@ func ProjectionDialect() sqlbase.ProjectionDialect {
 // bytes, and an exclusion rendered as `* EXCEPT (col, …)`.
 // [sqlbase.WithProjectionOptions] sets mapping, denied storage fields and
 // required fields; [sqlbase.WithProjectionCollector] records metrics.
-func NewProjectionTranslator(policy *projection.Policy, opts ...ProjectionOption) (*sqlbase.ProjectionTranslator, error) {
+func NewProjectionTranslator(policy *projection.Policy, opts ...sqlbase.ProjectionOption) (*sqlbase.ProjectionTranslator, error) {
 	return sqlbase.NewProjectionTranslator(policy, ProjectionDialect(), opts...)
 }

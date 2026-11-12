@@ -13,48 +13,49 @@ import (
 
 	"github.com/altessa-s/go-aip/etag"
 
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 func TestPreconditionCheck(t *testing.T) {
 	t.Parallel()
 
-	cur := etag.Strong("abc")
-	weakCur := etag.Weak("abc")
+	cur := coreetag.Strong("abc")
+	weakCur := coreetag.Weak("abc")
 
 	tests := []struct {
 		name    string
 		opts    []etag.Option
 		sent    string
-		current etag.Tag
+		current coreetag.Tag
 		err     error
 		reason  string
 	}{
 		{name: "absent etag is no precondition", sent: "", current: cur},
-		{name: "absent etag on a missing resource", sent: "", current: etag.Tag{}},
+		{name: "absent etag on a missing resource", sent: "", current: coreetag.Tag{}},
 		{name: "matching strong", sent: `"abc"`, current: cur},
 		{name: "matching bare", sent: "abc", current: cur},
 		{name: "matching weak echoed", sent: `W/"abc"`, current: weakCur},
-		{name: "stale", sent: `"old"`, current: cur, err: etag.ErrMismatch},
-		{name: "etag for a missing resource", sent: `"abc"`, current: etag.Tag{}, err: etag.ErrMismatch},
-		{name: "exact refuses a weak rewrite of a strong tag", sent: `W/"abc"`, current: cur, err: etag.ErrMismatch},
-		{name: "exact refuses a strong rewrite of a weak tag", sent: `"abc"`, current: weakCur, err: etag.ErrMismatch},
+		{name: "stale", sent: `"old"`, current: cur, err: coreetag.ErrMismatch},
+		{name: "etag for a missing resource", sent: `"abc"`, current: coreetag.Tag{}, err: coreetag.ErrMismatch},
+		{name: "exact refuses a weak rewrite of a strong tag", sent: `W/"abc"`, current: cur, err: coreetag.ErrMismatch},
+		{name: "exact refuses a strong rewrite of a weak tag", sent: `"abc"`, current: weakCur, err: coreetag.ErrMismatch},
 		{name: "strong comparison refuses weak tags", opts: []etag.Option{etag.WithComparison(etag.CompareStrong)},
-			sent: `W/"abc"`, current: weakCur, err: etag.ErrMismatch},
+			sent: `W/"abc"`, current: weakCur, err: coreetag.ErrMismatch},
 		{name: "strong comparison accepts strong tags", opts: []etag.Option{etag.WithComparison(etag.CompareStrong)},
 			sent: `"abc"`, current: cur},
 		{name: "weak comparison ignores weakness", opts: []etag.Option{etag.WithComparison(etag.CompareWeak)},
 			sent: `"abc"`, current: weakCur},
 		{name: "weak comparison refuses another value", opts: []etag.Option{etag.WithComparison(etag.CompareWeak)},
-			sent: `W/"x"`, current: weakCur, err: etag.ErrMismatch},
+			sent: `W/"x"`, current: weakCur, err: coreetag.ErrMismatch},
 		{name: "unknown comparison is exact", opts: []etag.Option{etag.WithComparison(etag.Comparison(99))},
-			sent: `"abc"`, current: weakCur, err: etag.ErrMismatch},
+			sent: `"abc"`, current: weakCur, err: coreetag.ErrMismatch},
 		{name: "required etag missing", opts: []etag.Option{etag.WithRequired(true), etag.WithField("book.etag")},
-			sent: "", current: cur, err: etag.ErrMissing, reason: etag.ReasonRequired},
+			sent: "", current: cur, err: coreetag.ErrMissing, reason: etag.ReasonRequired},
 		{name: "malformed", opts: []etag.Option{etag.WithField("book.etag")},
-			sent: `"abc`, current: cur, err: etag.ErrInvalid, reason: etag.ReasonInvalid},
+			sent: `"abc`, current: cur, err: coreetag.ErrInvalidTag, reason: etag.ReasonInvalid},
 		{name: "bare refused by strict quotes", opts: []etag.Option{etag.WithStrictQuotes(true)},
-			sent: "abc", current: cur, err: etag.ErrInvalid, reason: etag.ReasonInvalid},
+			sent: "abc", current: cur, err: coreetag.ErrInvalidTag, reason: etag.ReasonInvalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,10 +102,10 @@ func TestPreconditionMatch(t *testing.T) {
 
 	var p etag.Precondition
 
-	require.NoError(t, p.Match(etag.Tag{}, etag.Tag{}))
-	require.NoError(t, p.Match(etag.Tag{}, etag.Strong("x")))
-	require.NoError(t, p.Match(etag.Strong("x"), etag.Strong("x")))
-	require.ErrorIs(t, p.Match(etag.Strong("x"), etag.Tag{}), etag.ErrMismatch)
+	require.NoError(t, p.Match(coreetag.Tag{}, coreetag.Tag{}))
+	require.NoError(t, p.Match(coreetag.Tag{}, coreetag.Strong("x")))
+	require.NoError(t, p.Match(coreetag.Strong("x"), coreetag.Strong("x")))
+	require.ErrorIs(t, p.Match(coreetag.Strong("x"), coreetag.Tag{}), coreetag.ErrMismatch)
 }
 
 func TestPreconditionParseRevision(t *testing.T) {
@@ -122,14 +123,14 @@ func TestPreconditionParseRevision(t *testing.T) {
 		{name: "absent", sent: ""},
 		{name: "revision", sent: `W/"7"`, rev: 7, ok: true},
 		{name: "max usable revision", sent: etag.FromRevision[int64](math.MaxInt64 - 1).String(), rev: math.MaxInt64 - 1, ok: true},
-		{name: "required", opts: []etag.Option{etag.WithRequired(true)}, err: etag.ErrMissing, reason: etag.ReasonRequired},
-		{name: "zero needs singleton", sent: `W/"0"`, err: etag.ErrNotRevision, reason: etag.ReasonInvalid},
+		{name: "required", opts: []etag.Option{etag.WithRequired(true)}, err: coreetag.ErrMissing, reason: etag.ReasonRequired},
+		{name: "zero needs singleton", sent: `W/"0"`, err: coreetag.ErrNotVersion, reason: etag.ReasonInvalid},
 		{name: "zero for a singleton", opts: []etag.Option{etag.WithSingleton(true)}, sent: `W/"0"`, rev: 0, ok: true},
-		{name: "max int64 would overflow", sent: etag.FromRevision[int64](math.MaxInt64).String(), err: etag.ErrNotRevision, reason: etag.ReasonInvalid},
-		{name: "strong", sent: `"7"`, err: etag.ErrNotRevision, reason: etag.ReasonInvalid},
-		{name: "bare number", sent: `7`, err: etag.ErrNotRevision, reason: etag.ReasonInvalid},
-		{name: "not canonical", sent: `W/"07"`, err: etag.ErrNotRevision, reason: etag.ReasonInvalid},
-		{name: "malformed", sent: `W/"7`, err: etag.ErrInvalid, reason: etag.ReasonInvalid},
+		{name: "max int64 would overflow", sent: etag.FromRevision[int64](math.MaxInt64).String(), err: coreetag.ErrNotVersion, reason: etag.ReasonInvalid},
+		{name: "strong", sent: `"7"`, err: coreetag.ErrNotVersion, reason: etag.ReasonInvalid},
+		{name: "bare number", sent: `7`, err: coreetag.ErrNotVersion, reason: etag.ReasonInvalid},
+		{name: "not canonical", sent: `W/"07"`, err: coreetag.ErrNotVersion, reason: etag.ReasonInvalid},
+		{name: "malformed", sent: `W/"7`, err: coreetag.ErrInvalidTag, reason: etag.ReasonInvalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

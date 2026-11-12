@@ -16,10 +16,6 @@ const dialectName = "clickhouse"
 // subcolumns can be addressed part by part.
 var identifiers = sqlbase.Identifiers{Quote: '`', MaxIdentLen: sqlbase.ClickHouseMaxIdentLen}
 
-// OrderOption configures [NewOrderTranslator]. It is [sqlbase.OrderOption]; the
-// options are [sqlbase.WithOrderOptions] and [sqlbase.WithOrderCollector].
-type OrderOption = sqlbase.OrderOption
-
 // OrderDialect returns the ClickHouse ORDER BY dialect: backtick-quoted parts of at most 255 bytes, NULLS FIRST/LAST,
 // and `COLLATE 'locale'` after them. The locale is a string literal there, so it must be a plain locale identifier
 // (letters, digits, '_' and '-', starting with a letter, at most 64 bytes). A dot addresses a Nested or JSON subcolumn part
@@ -40,6 +36,6 @@ func OrderDialect() sqlbase.OrderDialect {
 // `COLLATE 'locale'`. [sqlbase.WithOrderOptions] binds the policy to storage
 // names and [sqlbase.WithOrderCollector] records metrics. Returns
 // [orderby.ErrPolicyRequired] for a nil policy.
-func NewOrderTranslator(policy *orderby.Policy, opts ...OrderOption) (*sqlbase.OrderTranslator, error) {
+func NewOrderTranslator(policy *orderby.Policy, opts ...sqlbase.OrderOption) (*sqlbase.OrderTranslator, error) {
 	return sqlbase.NewOrderTranslator(policy, OrderDialect(), opts...)
 }

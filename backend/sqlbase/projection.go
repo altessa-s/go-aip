@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-aip/projection"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -19,7 +20,7 @@ import (
 type ProjectionTranslator struct {
 	config   *projection.TranslatorContext
 	dialect  ProjectionDialect
-	duration *projection.Telemetry
+	duration *metrics.TranslateTimer
 }
 
 // NewProjectionTranslator creates a projection translator for dialect bound to policy,

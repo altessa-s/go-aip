@@ -7,6 +7,7 @@ package meili
 import (
 	"github.com/altessa-s/go-aip/orderby"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -15,7 +16,7 @@ import (
 // safe for concurrent use after construction.
 type OrderTranslator struct {
 	config    *orderby.TranslatorContext
-	telemetry *orderby.Telemetry
+	telemetry *metrics.TranslateTimer
 }
 
 // NewOrderTranslator creates a new Meilisearch sort translator bound to policy, the client-facing

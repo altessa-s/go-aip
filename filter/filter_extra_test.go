@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-aip/filter"
 
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 func TestNodeKinds(t *testing.T) {
@@ -153,7 +154,7 @@ func TestEvaluator_InWithNonComparableValues(t *testing.T) {
 	}
 }
 
-// matches() keeps ErrInvalidRegex for both a pattern over the length cap and a
+// matches() keeps regexanchor.ErrInvalidRegex for both a pattern over the length cap and a
 // pattern that does not compile, now that it skips ValidateRegex.
 func TestEvaluator_MatchesInvalidRegex(t *testing.T) {
 	t.Parallel()
@@ -165,6 +166,6 @@ func TestEvaluator_MatchesInvalidRegex(t *testing.T) {
 		node, err := p.Parse(t.Context(), expr)
 		require.NoError(t, err, expr)
 		_, err = eval.Evaluate(node, data)
-		require.ErrorIs(t, err, filter.ErrInvalidRegex, expr)
+		require.ErrorIs(t, err, regexanchor.ErrInvalidRegex, expr)
 	}
 }

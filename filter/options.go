@@ -84,7 +84,7 @@ type options struct {
 	// repetitions in a row (with only optional or empty-width parts between) whose characters overlap, such as .*.* — a
 	// backtracking engine runs such a pattern in time polynomial in the input, of a bounded degree. It also spells out what the
 	// engines read differently: every literal { is escaped and no octal escape is written \1 to \7. Any other pattern fails with
-	// [ErrInvalidRegex]. A literal pattern, such as the one functions.TextSearch builds, is always safe. [NewPolicy] fails with
+	// [regexanchor.ErrInvalidRegex]. A literal pattern, such as the one functions.TextSearch builds, is always safe. [NewPolicy] fails with
 	// [ErrInvalidOptions] when it is combined with [WithUntrustedInput].
 	unsafeRegex bool `optval:"param"`
 	// portableContract (WithPortableContract) makes [Validate] enforce the rules every listing backend reads alike: bare

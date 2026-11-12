@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 
+	pagetoken "github.com/altessa-s/go-aip/pagination/pagetoken"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -128,7 +129,7 @@ func testRestrictionTokenBinding(t *testing.T, newList Factory, arrays bool, cfg
 				return
 			}
 
-			require.Equal(t, listing.FieldPageToken, FieldOf(err), "error %v", err)
+			require.Equal(t, pagetoken.TokenField, FieldOf(err), "error %v", err)
 		})
 	}
 

@@ -11,6 +11,8 @@ import (
 
 	"github.com/altessa-s/go-aip/internal/testhelpers"
 	"github.com/altessa-s/go-aip/orderby"
+
+	metrics "github.com/altessa-s/go-aip/metrics"
 )
 
 func TestCheckNativeOrdering(t *testing.T) {
@@ -58,7 +60,7 @@ func TestCheckNativeOrdering(t *testing.T) {
 func TestTelemetry(t *testing.T) {
 	t.Parallel()
 
-	var disabled *orderby.Telemetry
+	var disabled *metrics.TranslateTimer
 	disabled.Start()()
 	require.Nil(t, orderby.NewTelemetry(nil, "x"))
 

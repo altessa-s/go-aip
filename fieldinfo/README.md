@@ -1,11 +1,14 @@
 # fieldinfo
 
 ```go
-import "github.com/altessa-s/go-aip/fieldinfo"
+import (
+    "github.com/altessa-s/go-aip/fieldinfo"
+    "google.golang.org/genproto/googleapis/api/annotations"
+)
 ```
 
 Package `fieldinfo` applies the `google.api.field_info` annotation of [AIP-202](https://google.aip.dev/202) to protobuf payloads. It reads the
-format a string field declares (`UUID4`, `IPV4`, `IPV6`, `IPV4_OR_IPV6`), validates values against the RFC behind each format, normalizes them the
+format a string field declares (`annotations.FieldInfo_UUID4`, `IPV4`, `IPV6`, `IPV4_OR_IPV6`), validates values against the RFC behind each format, normalizes them the
 way AIP-202 allows, compares them by value instead of as text, and walks a whole message to report every invalid value with its field path. The
 [guide](../docs/fieldinfo.md) maps every AIP-202 rule to its function. [`fieldbehavior`](../fieldbehavior/README.md) runs the same checks in its
 AIP-203 walk, so one pass validates field behaviors and formats.
@@ -20,7 +23,7 @@ descriptors, so dynamic descriptors are never retained without limit. `FormatOf(
 
 | Format         | Accepted                                                                                                           | Normalized form                                                                            |
 |----------------|--------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| `UUID4`        | 8-4-4-4-12 hexadecimal digits of either case, version nibble `4`, RFC 9562 variant (`8`, `9`, `a`, `b`)            | lowercase                                                                                  |
+| `annotations.FieldInfo_UUID4`        | 8-4-4-4-12 hexadecimal digits of either case, version nibble `4`, RFC 9562 variant (`8`, `9`, `a`, `b`)            | lowercase                                                                                  |
 | `IPV4`         | four dot-separated decimal octets of 1–3 digits, each ≤ 255; leading zeros accepted and read as decimal            | leading zeros stripped: `001.022.233.040` → `1.22.233.40`                                  |
 | `IPV6`         | any RFC 4291 text form of either case, `::` compression, embedded dotted IPv4 tail; no zone (`%eth0`), no brackets | RFC 5952: `2001:0DB8:0::0` → `2001:db8::`; mapped IPv4 keeps its tail (`::ffff:192.0.2.1`) |
 | `IPV4_OR_IPV6` | an `IPV6` value when the input holds a colon, an `IPV4` value otherwise                                            | per family                                                                                 |
@@ -106,7 +109,7 @@ before it is parsed. Work is linear in the populated size of the message.
 
 | Symbol                                                         | Purpose                                                                                                                |
 |----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| `Format`, `Unspecified`, `UUID4`, `IPv4`, `IPv6`, `IPv4OrIPv6` | The `google.api.FieldInfo.Format` enum and its values                                                                  |
+| `annotations.FieldInfo_Format`, `annotations.FieldInfo_FORMAT_UNSPECIFIED`, `annotations.FieldInfo_UUID4`, `annotations.FieldInfo_IPV4`, `annotations.FieldInfo_IPV6`, `annotations.FieldInfo_IPV4_OR_IPV6` | The `google.api.FieldInfo.Format` enum and its values                                                                  |
 | `Known(f)`                                                     | Whether this release validates format `f`                                                                              |
 | `Info`, `Lookup(fd)`, `FormatOf(fd)`                           | The decoded annotation of a field (`Format`, `ReferencedTypes`); the format alone                                      |
 | `ValidateValue`, `NormalizeValue`, `Equal`                     | One value: validate, normalize, compare by normalized form                                                             |

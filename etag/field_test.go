@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-aip/etag"
 
 	pb "github.com/altessa-s/go-aip/internal/proto/gen/etagtest/v1"
+	coreetag "github.com/altessa-s/go-atlas-core/encoding/etag"
 )
 
 func TestGet(t *testing.T) {
@@ -47,11 +48,11 @@ func TestStamp(t *testing.T) {
 	require.NoError(t, etag.Stamp(b, etag.FromRevision[int64](4)))
 	require.Equal(t, `W/"4"`, b.GetEtag())
 
-	require.NoError(t, etag.Stamp(b, etag.Tag{}))
+	require.NoError(t, etag.Stamp(b, coreetag.Tag{}))
 	require.Empty(t, b.GetEtag(), "the zero tag clears the field")
 
-	require.ErrorIs(t, etag.Stamp(nil, etag.Strong("x")), etag.ErrNilMessage)
-	require.ErrorIs(t, etag.Stamp((*pb.Book)(nil), etag.Strong("x")), etag.ErrNilMessage)
-	require.ErrorIs(t, etag.Stamp(&pb.Malformed{}, etag.Strong("x")), etag.ErrNoField)
-	require.ErrorIs(t, etag.Stamp(&pb.Lists{}, etag.Strong("x")), etag.ErrNoField)
+	require.ErrorIs(t, etag.Stamp(nil, coreetag.Strong("x")), etag.ErrNilMessage)
+	require.ErrorIs(t, etag.Stamp((*pb.Book)(nil), coreetag.Strong("x")), etag.ErrNilMessage)
+	require.ErrorIs(t, etag.Stamp(&pb.Malformed{}, coreetag.Strong("x")), etag.ErrNoField)
+	require.ErrorIs(t, etag.Stamp(&pb.Lists{}, coreetag.Strong("x")), etag.ErrNoField)
 }

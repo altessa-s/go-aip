@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-aip/filter"
 
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // TranslateFunc translates a filter with one configured translator and renders the backend output as a string, so that the
@@ -248,7 +249,7 @@ var sentinels = []struct {
 	{"filter.ErrEnumValueNotAllowed", filter.ErrEnumValueNotAllowed},
 	{"filter.ErrFieldNotAllowed", filter.ErrFieldNotAllowed},
 	{"filter.ErrFunctionNotAllowed", filter.ErrFunctionNotAllowed},
-	{"filter.ErrInvalidRegex", filter.ErrInvalidRegex},
+	{"regexanchor.ErrInvalidRegex", regexanchor.ErrInvalidRegex},
 	{"filter.ErrMaxDepthExceeded", filter.ErrMaxDepthExceeded},
 	{"filter.ErrMaxOperationsExceeded", filter.ErrMaxOperationsExceeded},
 	{"filter.ErrEmptyExpression", filter.ErrEmptyExpression},

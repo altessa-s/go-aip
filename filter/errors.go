@@ -6,8 +6,6 @@ package filter
 
 import (
 	"errors"
-
-	"github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // Sentinel errors for the filter package.
@@ -58,9 +56,6 @@ var (
 
 	// ErrEmptyExpression indicates an empty or whitespace-only expression was provided.
 	ErrEmptyExpression = errors.New("expression cannot be empty")
-
-	// ErrInvalidRegex indicates a regex pattern that is invalid or too complex.
-	ErrInvalidRegex = regexanchor.ErrInvalidRegex
 
 	// ErrMaxOperationsExceeded indicates the expression requires more operations
 	// than the configured limit allows.

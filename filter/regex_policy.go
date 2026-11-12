@@ -9,6 +9,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter/internal/regexcache"
 
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -35,7 +36,7 @@ func (o *Policy) checkRegexCall(n *CallNode) error {
 	lit, ok := n.Args[0].(*LiteralNode)
 	if !ok || lit == nil {
 		if o.untrustedInput {
-			return coreerrs.Wrap(ErrInvalidRegex, "matches() on untrusted input takes a string literal pattern")
+			return coreerrs.Wrap(regexanchor.ErrInvalidRegex, "matches() on untrusted input takes a string literal pattern")
 		}
 
 		return nil
@@ -54,36 +55,36 @@ func (o *Policy) checkRegexCall(n *CallNode) error {
 // CompileRegex applies the matches() policy to pattern and returns it compiled, from the cache when it holds it. Under
 // [WithUntrustedInput] without [WithSafeRegex] no pattern passes ([ErrFunctionNotAllowed]). A pattern longer than the regex length
 // limit ([WithMaxRegexLength]), one that does not compile, or — unless [WithUnsafeRegex] — one outside the safe subset
-// ([regexcache.Safe]) fails with [ErrInvalidRegex]. The subset is judged once per cached pattern.
+// ([regexcache.Safe]) fails with [regexanchor.ErrInvalidRegex]. The subset is judged once per cached pattern.
 func (o *Policy) CompileRegex(pattern string) (Regex, error) {
 	if o.untrustedInput && !o.safeRegex {
 		return Regex{}, coreerrs.Wrap(ErrFunctionNotAllowed, "matches() on untrusted input")
 	}
 
 	if maxLen := o.MaxRegexLength(); len(pattern) > maxLen {
-		return Regex{}, coreerrs.Wrapf(ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLen)
+		return Regex{}, coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLen)
 	}
 
 	if o.regexValidator != nil && !o.unsafeRegex {
 		if err := o.regexValidator(pattern); err != nil {
-			return Regex{}, coreerrs.Wrapf(ErrInvalidRegex, "%w", err)
+			return Regex{}, coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "%w", err)
 		}
 	}
 
 	if o.regexCompiler != nil {
 		if !o.unsafeRegex && o.regexValidator == nil {
 			if err := regexcache.Safe(pattern); err != nil {
-				return Regex{}, coreerrs.Wrapf(ErrInvalidRegex, "%w", err)
+				return Regex{}, coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "%w", err)
 			}
 		}
 
 		matcher, err := o.regexCompiler(pattern)
 		if err != nil {
-			return Regex{}, coreerrs.Wrapf(ErrInvalidRegex, "%w", err)
+			return Regex{}, coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "%w", err)
 		}
 
 		if nilcheck.IsNil(matcher) {
-			return Regex{}, ErrInvalidRegex
+			return Regex{}, regexanchor.ErrInvalidRegex
 		}
 
 		return Regex{compiled: matcher}, nil
@@ -91,7 +92,7 @@ func (o *Policy) CompileRegex(pattern string) (Regex, error) {
 
 	p, err := o.regexCache.Lookup(pattern)
 	if err != nil {
-		return Regex{}, coreerrs.Wrapf(ErrInvalidRegex, "%w", err)
+		return Regex{}, coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "%w", err)
 	}
 
 	if o.unsafeRegex || o.regexValidator != nil {
@@ -99,7 +100,7 @@ func (o *Policy) CompileRegex(pattern string) (Regex, error) {
 	}
 
 	if err = p.Safe(); err != nil {
-		return Regex{}, coreerrs.Wrapf(ErrInvalidRegex, "%w (WithUnsafeRegex lifts the safe subset)", err)
+		return Regex{}, coreerrs.Wrapf(regexanchor.ErrInvalidRegex, "%w (WithUnsafeRegex lifts the safe subset)", err)
 	}
 
 	return Regex{compiled: p.Regexp()}, nil

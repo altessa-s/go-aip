@@ -254,7 +254,7 @@ func (m *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 // pageError reports a page token failure as an InvalidArgument pageToken field error and any other paging failure as internal.
 func (m *ListEngine[T]) pageError(subject string, err error) error {
 	if failure := pagetoken.Classify(err); failure != pagetoken.FailureNone {
-		return m.schema.FormatError(listing.FieldPageToken, failure.String(), err)
+		return m.schema.FormatError(pagetoken.TokenField, failure.String(), err)
 	}
 
 	return coreerrs.Wrapf(err, "memory: page %s", subject)

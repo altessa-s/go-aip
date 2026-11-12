@@ -14,6 +14,8 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 )
 
 // TestSafeRegex_Subset pins S2-2: every matches() pattern is held to the safe subset, with or without [filter.WithUntrustedInput],
@@ -40,26 +42,26 @@ func TestSafeRegex_Subset(t *testing.T) {
 		{"unbounded repetitions apart", `^\\d+\\.\\d+$`, nil},
 		{"adjacent disjoint repetitions", `^[a-z]*[0-9]+$`, nil},
 		{"counted repetition at the bound", `^a{100}$`, nil},
-		{"repeated alternation", `(a|aa)+$`, filter.ErrInvalidRegex},
-		{"nested quantifier", `(a+)+b`, filter.ErrInvalidRegex},
-		{"three unbounded repetitions", `x+y+z+`, filter.ErrInvalidRegex},
-		{"too many variable repetitions", `a?b?c?d?e?`, filter.ErrInvalidRegex},
-		{"adjacent overlapping repetitions", `.*.*x`, filter.ErrInvalidRegex},
-		{"many adjacent dots", `.*.*.*.*.*x`, filter.ErrInvalidRegex},
-		{"overlap of a class and its member", `a+a*`, filter.ErrInvalidRegex},
-		{"overlap across an optional part", `\\d+\\.?\\d*`, filter.ErrInvalidRegex},
-		{"overlap across an empty-width assertion", `\\w+\\b\\w+`, filter.ErrInvalidRegex},
-		{"overlap inside groups", `(a*)(a+)`, filter.ErrInvalidRegex},
-		{"counted bound above the cap", `a{1,101}`, filter.ErrInvalidRegex},
-		{"large counted repetitions", `.{1,1000}.{1,1000}`, filter.ErrInvalidRegex},
+		{"repeated alternation", `(a|aa)+$`, regexanchor.ErrInvalidRegex},
+		{"nested quantifier", `(a+)+b`, regexanchor.ErrInvalidRegex},
+		{"three unbounded repetitions", `x+y+z+`, regexanchor.ErrInvalidRegex},
+		{"too many variable repetitions", `a?b?c?d?e?`, regexanchor.ErrInvalidRegex},
+		{"adjacent overlapping repetitions", `.*.*x`, regexanchor.ErrInvalidRegex},
+		{"many adjacent dots", `.*.*.*.*.*x`, regexanchor.ErrInvalidRegex},
+		{"overlap of a class and its member", `a+a*`, regexanchor.ErrInvalidRegex},
+		{"overlap across an optional part", `\\d+\\.?\\d*`, regexanchor.ErrInvalidRegex},
+		{"overlap across an empty-width assertion", `\\w+\\b\\w+`, regexanchor.ErrInvalidRegex},
+		{"overlap inside groups", `(a*)(a+)`, regexanchor.ErrInvalidRegex},
+		{"counted bound above the cap", `a{1,101}`, regexanchor.ErrInvalidRegex},
+		{"large counted repetitions", `.{1,1000}.{1,1000}`, regexanchor.ErrInvalidRegex},
 		{"alternations in a row", `^(?:jan|feb|mar)-(?:mon|tue|wed)$`, nil},
 		// NEW-1: chains of alternations without a quantifier, which the Go parser folds into single characters.
-		{"chain of capturing two-way groups", strings.Repeat(`(a|a)`, 25) + "$", filter.ErrInvalidRegex},
-		{"chain of folded two-way groups", strings.Repeat(`(?:a|a)`, 25) + "$", filter.ErrInvalidRegex},
-		{"chain of dot or a", strings.Repeat(`(?:.|a)`, 25) + "$", filter.ErrInvalidRegex},
-		{"chain of word or digit", strings.Repeat(`(?:\\w|\\d)`, 25) + "$", filter.ErrInvalidRegex},
-		{"chain of optional characters", strings.Repeat(`(?:a|)`, 25) + strings.Repeat("a", 25) + "$", filter.ErrInvalidRegex},
-		{"chain of factored three-way groups", "^" + strings.Repeat(`(?:a|ab|abc)`, 16) + "$", filter.ErrInvalidRegex},
+		{"chain of capturing two-way groups", strings.Repeat(`(a|a)`, 25) + "$", regexanchor.ErrInvalidRegex},
+		{"chain of folded two-way groups", strings.Repeat(`(?:a|a)`, 25) + "$", regexanchor.ErrInvalidRegex},
+		{"chain of dot or a", strings.Repeat(`(?:.|a)`, 25) + "$", regexanchor.ErrInvalidRegex},
+		{"chain of word or digit", strings.Repeat(`(?:\\w|\\d)`, 25) + "$", regexanchor.ErrInvalidRegex},
+		{"chain of optional characters", strings.Repeat(`(?:a|)`, 25) + strings.Repeat("a", 25) + "$", regexanchor.ErrInvalidRegex},
+		{"chain of factored three-way groups", "^" + strings.Repeat(`(?:a|ab|abc)`, 16) + "$", regexanchor.ErrInvalidRegex},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -85,7 +85,7 @@ suite, so a new case makes every backend declare its behavior:
 Shared rows (`SharedConformanceCases()`), with one outcome for every backend: a field outside the allow-list, a denied field (as an operand and as
 a function argument) — `ErrFieldNotAllowed`; an enum value outside the declared set — `ErrEnumValueNotAllowed`; a literal of the wrong kind and
 an element literal of the wrong kind for an array — `ErrFieldTypeMismatch`; an invalid, an unsafe and a too long regular expression —
-`ErrInvalidRegex`; `matches()` without `WithSafeRegex` under untrusted input — `ErrFunctionNotAllowed`; depth and operation limits —
+`regexanchor.ErrInvalidRegex`; `matches()` without `WithSafeRegex` under untrusted input — `ErrFunctionNotAllowed`; depth and operation limits —
 `ErrMaxDepthExceeded`, `ErrMaxOperationsExceeded`. A backend lists a shared case in `Expect` only with `Known` set, to pin a deviation.
 
 ### Golden renderings and semantic checks

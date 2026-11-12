@@ -128,7 +128,7 @@ func TestListCustomProfileNeedsExplicitUnlimitedWork(t *testing.T) {
 	t.Parallel()
 
 	schema := listingtest.NewSchema(t)
-	profile, err := evaluation.New(schema, evaluation.NewReader(nil, memory.DefaultMaxDataBudget))
+	profile, err := evaluation.New(schema, evaluation.NewReader(nil, evaluator.DefaultMaxDataBudget))
 	require.NoError(t, err)
 
 	unbound := memory.WithListProfile(unboundProfile{profile})
@@ -186,7 +186,7 @@ func TestListChecksPageTokenBeforeScanning(t *testing.T) {
 
 			_, err = list.List(t.Context(), listingtest.Subject, tc.req, ws)
 			require.Error(t, err)
-			require.Equal(t, listing.FieldPageToken, listingtest.FieldOf(err))
+			require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err))
 			require.Zero(t, reads.Load(), "no item is read for a rejected page token")
 		})
 	}

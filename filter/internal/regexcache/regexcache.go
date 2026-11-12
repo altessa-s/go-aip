@@ -11,9 +11,6 @@ import (
 	"github.com/altessa-s/go-aip/internal/lru"
 )
 
-// MaxSize is the number of compiled patterns the cache keeps.
-const MaxSize = 256
-
 // Cache owns a bounded working set and its counters. A zero size disables caching.
 type Cache struct {
 	cache  lru.Cacher[string, *Pattern]

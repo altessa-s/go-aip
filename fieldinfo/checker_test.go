@@ -21,6 +21,7 @@ import (
 
 	testpb "github.com/altessa-s/go-aip/internal/proto/gen/fieldinfotest/v1"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	annotations "google.golang.org/genproto/googleapis/api/annotations"
 )
 
 const (
@@ -369,12 +370,12 @@ func TestLookup(t *testing.T) {
 		field string
 		want  fieldinfo.Info
 	}{
-		{"uid", fieldinfo.Info{Format: fieldinfo.UUID4}},
-		{"ipv4_address", fieldinfo.Info{Format: fieldinfo.IPv4}},
-		{"ipv6_address", fieldinfo.Info{Format: fieldinfo.IPv6}},
-		{"ip_address", fieldinfo.Info{Format: fieldinfo.IPv4OrIPv6}},
-		{"peers", fieldinfo.Info{Format: fieldinfo.IPv6}},
-		{"raw_address", fieldinfo.Info{Format: fieldinfo.IPv4}},
+		{"uid", fieldinfo.Info{Format: annotations.FieldInfo_UUID4}},
+		{"ipv4_address", fieldinfo.Info{Format: annotations.FieldInfo_IPV4}},
+		{"ipv6_address", fieldinfo.Info{Format: annotations.FieldInfo_IPV6}},
+		{"ip_address", fieldinfo.Info{Format: annotations.FieldInfo_IPV4_OR_IPV6}},
+		{"peers", fieldinfo.Info{Format: annotations.FieldInfo_IPV6}},
+		{"raw_address", fieldinfo.Info{Format: annotations.FieldInfo_IPV4}},
 		{"display_name", fieldinfo.Info{}},
 		{"payload", fieldinfo.Info{ReferencedTypes: []string{"Interface", "*"}}},
 	}

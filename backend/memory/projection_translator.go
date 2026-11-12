@@ -6,6 +6,8 @@ package memory
 
 import (
 	"github.com/altessa-s/go-aip/projection"
+
+	metrics "github.com/altessa-s/go-aip/metrics"
 )
 
 // ProjectionTranslator converts a [projection.Spec] into a [Projection] applied to
@@ -13,7 +15,7 @@ import (
 // construction.
 type ProjectionTranslator struct {
 	config   *projection.TranslatorContext
-	duration *projection.Telemetry
+	duration *metrics.TranslateTimer
 }
 
 // NewProjectionTranslator creates an in-memory projection translator bound to policy,

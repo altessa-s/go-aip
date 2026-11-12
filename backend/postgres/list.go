@@ -10,10 +10,6 @@ import (
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
 )
 
-// ListEngineOption configures [NewListEngine]. It is [sqlbase.ListEngineOption];
-// the options are the sqlbase WithList… functions.
-type ListEngineOption = sqlbase.ListEngineOption
-
 // NewListEngine constructs a keyset list engine over a PostgreSQL table. It is
 // [sqlbase.NewListEngine] with [ListDialect] fixed: PostgreSQL syntax, storage
 // validation, schema checks and index management, and the schema filter
@@ -22,7 +18,7 @@ type ListEngineOption = sqlbase.ListEngineOption
 // sqlbase WithList… options configure columns, scope keys, identity, precision
 // and limits.
 func NewListEngine[T any](q sqlbase.Querier, codec pagetoken.Signer, schema *listing.Schema, table string, columns []string,
-	dest func(*T) []any, opts ...ListEngineOption,
+	dest func(*T) []any, opts ...sqlbase.ListEngineOption,
 ) (*sqlbase.ListEngine[T], error) {
 	return sqlbase.NewListEngine(q, codec, schema, table, columns, dest, ListDialect{}, opts...)
 }

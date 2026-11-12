@@ -111,7 +111,7 @@ token is the first page. Tokens of one engine are not valid on another; a store 
 - `pagetoken.TokenFieldError(err)` maps every token failure (`pagetoken.Classify`) to a field error on `pageToken`: `expired` for a genuine token
   past its TTL, `malformed` for a bad, tampered or foreign token (other list, parent, filter, order or key) and for a token sent to a list
   without a codec. The page-token error stays in the chain (`errors.Is(err, pagetoken.ErrExpiredToken)`).
-- `FieldPageSize` and `FieldPageToken` are `pagetoken.SizeField` and `pagetoken.TokenField`.
+- `pagetoken.SizeField` and `pagetoken.TokenField` are `pagetoken.SizeField` and `pagetoken.TokenField`.
 
 Tests build codecs with fixed keys through [`pagination/pagetoken/pagetokentest`](../pagination/pagetoken/pagetokentest); expiry tests drive
 `pagetoken.WithClock`.
@@ -399,8 +399,8 @@ Engine identity options use storage terminology: the MongoDB engine uses `WithLi
 
 | Constant         | Meaning              |
 |------------------|----------------------|
-| `FieldPageSize`  | pagetoken.SizeField  |
-| `FieldPageToken` | pagetoken.TokenField |
+| `pagetoken.SizeField`  | pagetoken.SizeField  |
+| `pagetoken.TokenField` | pagetoken.TokenField |
 | `FieldFilter`    | "filter"             |
 | `FieldOrderBy`   | "orderBy"            |
 | `FieldParent`    | "parent"             |

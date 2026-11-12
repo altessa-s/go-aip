@@ -38,6 +38,7 @@ import (
 	"github.com/altessa-s/go-aip/state"
 	"github.com/altessa-s/go-aip/unreachable"
 
+	regexanchor "github.com/altessa-s/go-aip/filter/regexanchor"
 	testpb "github.com/altessa-s/go-aip/internal/proto/gen/fieldmasktest/v1"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -84,7 +85,7 @@ func TestRules(t *testing.T) {
 		{filter.ErrFieldNotAllowed, invalid, aipmap.ReasonFilterNotAllowed},
 		{filter.ErrMaxOperationsExceeded, invalid, aipmap.ReasonFilterTooComplex},
 		{filter.ErrParseFailed, invalid, aipmap.ReasonInvalidFilter},
-		{filter.ErrInvalidRegex, invalid, aipmap.ReasonInvalidFilter},
+		{regexanchor.ErrInvalidRegex, invalid, aipmap.ReasonInvalidFilter},
 		{filter.ErrDataLimitExceeded, exhausted, aipmap.ReasonWorkBudgetExceeded},
 		{orderby.ErrFieldNotAllowed, invalid, aipmap.ReasonOrderByNotAllowed},
 		{listing.ErrUnreadableSortField, invalid, aipmap.ReasonOrderByNotAllowed},

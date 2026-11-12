@@ -10,12 +10,12 @@ Everything go-aip renders for MariaDB lives in this one package. Each kind of re
 |----------------------------|--------------------------------------------------------------------------------------|---------------------------------------------------|
 | Filter (AIP-160), scalar   | `NewFilterTranslator(policy, opts ...FilterOption)`                                  | `WHERE` body with `?` placeholders, or inline SQL |
 | Filter, listing contract   | `NewFilterTranslatorWithSchema(policy, schema *Schema, opts ...FilterOption)`        | `WHERE` body over a `Schema` in contract mode     |
-| Order (AIP-132 `order_by`) | `NewOrderTranslator(policy, opts ...OrderOption)`                                    | `ORDER BY` body                                   |
-| Projection (read mask)     | `NewProjectionTranslator(policy, opts ...ProjectionOption)`                          | `SELECT` column list                              |
-| Listing engine             | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...ListEngineOption)` | keyset-paginated `listing` engine                 |
+| Order (AIP-132 `order_by`) | `NewOrderTranslator(policy, opts ...sqlbase.OrderOption)`                                    | `ORDER BY` body                                   |
+| Projection (read mask)     | `NewProjectionTranslator(policy, opts ...sqlbase.ProjectionOption)`                          | `SELECT` column list                              |
+| Listing engine             | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...sqlbase.ListEngineOption)` | keyset-paginated `listing` engine                 |
 
 The order, projection and listing constructors are the dialect-generic ones of [`sqlbase`](../sqlbase/README.md) with the MariaDB dialect fixed
-(`OrderDialect`, `ProjectionDialect`, `ListDialect`, all owned by this package). Their option types are aliases of the `sqlbase` ones, so the
+(`OrderDialect`, `ProjectionDialect`, `ListDialect`, all owned by this package). Their option types come from `sqlbase`, so the
 options are `sqlbase.WithOrderOptions` / `sqlbase.WithOrderCollector`, `sqlbase.WithProjectionOptions` / `sqlbase.WithProjectionCollector` and the
 `sqlbase.WithList…` options. Use the generic `sqlbase` constructors directly for an application `sqlbase.ColumnResolver` or a customized
 `ListDialect`. Each kind's semantics, limits and errors are documented in its `sqlbase` section; the rest of this guide covers the filter
@@ -392,7 +392,7 @@ Schema options (`SchemaOption`, generated, read by `NewSchema`):
 | `WithSchemaTextCollation`      | `DefaultTextCollation`           | Collation of text array element declarations.                                                                      |
 | `WithSchemaTimestampPrecision` | `DefaultTimestampPrecision`      | Timestamp truncation; `DATETIME(n)` with the digits it needs (at most 6), zero keeps microseconds, negative fails. |
 
-Order, projection and listing options are the `sqlbase` ones (`OrderOption`, `ProjectionOption` and `ListEngineOption` are aliases):
+Order, projection and listing options are the `sqlbase` ones (`sqlbase.OrderOption`, `sqlbase.ProjectionOption` and `sqlbase.ListEngineOption`):
 `sqlbase.WithOrderOptions`, `sqlbase.WithOrderCollector`, `sqlbase.WithProjectionOptions`, `sqlbase.WithProjectionCollector` and the
 `sqlbase.WithList…` options. Metric names are those of `sqlbase` (`backend` label `mariadb` for the filter translator).
 
@@ -420,14 +420,11 @@ Order, projection and listing options are the `sqlbase` ones (`OrderOption`, `Pr
 | `FilterOption`                  | Functional option of both filter constructors.                                                                                                                                           |
 | `OrderDialect`                  | The MariaDB `sqlbase.OrderDialect` (backticks, emulated null placement, bare `COLLATE`).                                                                                                 |
 | `NewOrderTranslator`            | `sqlbase.NewOrderTranslator` with `OrderDialect()`; returns `*sqlbase.OrderTranslator`.                                                                                                  |
-| `OrderOption`                   | Alias of `sqlbase.OrderOption`.                                                                                                                                                          |
 | `ProjectionDialect`             | The MariaDB `sqlbase.ProjectionDialect` (backticks, no exclusion projection).                                                                                                            |
 | `NewProjectionTranslator`       | `sqlbase.NewProjectionTranslator` with `ProjectionDialect()`; returns `*sqlbase.ProjectionTranslator`.                                                                                   |
-| `ProjectionOption`              | Alias of `sqlbase.ProjectionOption`.                                                                                                                                                     |
 | `ListDialect`                   | The MariaDB dialect of `sqlbase.NewListEngine`: syntax, storage validation, schema checks, index DDL and the filter translator in contract mode. Embed it to override selected behavior. |
 | `NewListEngine`                 | `sqlbase.NewListEngine` with `ListDialect{}`; returns `*sqlbase.ListEngine[T]`.                                                                                                          |
 | `MustNewListEngine`             | Panicking `NewListEngine` for package-level declarations fixed in code; panics with an error that wraps the `NewListEngine` error.                                                       |
-| `ListEngineOption`              | Alias of `sqlbase.ListEngineOption`.                                                                                                                                                     |
 
 ## Related packages
 

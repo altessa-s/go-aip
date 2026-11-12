@@ -69,7 +69,7 @@ func TestValidate(t *testing.T) {
 	}{
 		{listing.Request{Parent: "p"}, ""},
 		{listing.Request{}, listing.FieldParent},
-		{listing.Request{Parent: "p", PageSize: -1}, listing.FieldPageSize},
+		{listing.Request{Parent: "p", PageSize: -1}, pagetoken.SizeField},
 		{listing.Request{Parent: "p", OrderBy: "owner"}, listing.FieldOrderBy},
 		{listing.Request{Parent: "p", Filter: `secret == 1`}, listing.FieldFilter},
 		{listing.Request{Parent: "p", Filter: `name == note`}, listing.FieldFilter},
@@ -96,7 +96,7 @@ func TestExpiredToken(t *testing.T) {
 	require.NoError(t, err)
 	expired := newWidgets(t, s, pagetokentest.Codec(t, pagetoken.WithTTL(time.Minute), pagetoken.WithClock(func() time.Time { return now.Add(time.Hour) })))
 	_, err = expired.List(t.Context(), listingtest.Subject, listing.Request{PageSize: 2, PageToken: p.NextPageToken}, ws)
-	require.Equal(t, listing.FieldPageToken, listingtest.FieldOf(err))
+	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err))
 	require.ErrorIs(t, err, pagetoken.ErrExpiredToken)
 }
 

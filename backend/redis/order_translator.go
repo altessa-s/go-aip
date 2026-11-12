@@ -7,6 +7,7 @@ package redis
 import (
 	"github.com/altessa-s/go-aip/orderby"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -22,7 +23,7 @@ type SortBy struct {
 // sort instruction. It is safe for concurrent use after construction.
 type OrderTranslator struct {
 	config    *orderby.TranslatorContext
-	telemetry *orderby.Telemetry
+	telemetry *metrics.TranslateTimer
 }
 
 // NewOrderTranslator creates a new RediSearch sort translator bound to policy, the client-facing

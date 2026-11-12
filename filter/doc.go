@@ -11,7 +11,7 @@
 // for contradictory options; evaluation beyond the evaluator's data budget fails with [ErrDataLimitExceeded].
 //
 // Backend translators implement the neutral ports declared here: Translator[Out] for rendering one query value (a SQL
-// translator returns its bind arguments as well), Compatibility for configured validation without I/O, and Telemetry for
+// translator returns its bind arguments as well), Compatibility for configured validation without I/O, and metrics.TranslateTimer for
 // translation duration.
 //
 // # Usage

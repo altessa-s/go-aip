@@ -8,6 +8,7 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 
+	metrics "github.com/altessa-s/go-aip/metrics"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -26,7 +27,7 @@ type FilterTranslator struct {
 // SchemaFilterTranslator renders schema-aware MariaDB predicates under the listing storage contract of a [Schema]
 // created with [WithSchemaContractMode]. It is safe for concurrent calls.
 type SchemaFilterTranslator struct {
-	telemetry *filter.Telemetry
+	telemetry *metrics.TranslateTimer
 	schema    *Schema
 	policy    *filter.Policy
 }

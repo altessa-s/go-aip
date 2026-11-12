@@ -16,12 +16,8 @@ type Translator[Out any] interface {
 // Unlike a static list of operators, it accounts for operand combinations.
 type Compatibility interface{ ValidateAST(Node) error }
 
-// Telemetry is the translation timer of one filter translator, created by [NewTelemetry]. A nil *Telemetry is
-// disabled.
-type Telemetry = metrics.TranslateTimer
-
 // NewTelemetry creates the translation timer of a filter translator, recorded as the histogram
 // filter_<backend>_translate_duration_seconds. A nil meter disables collection and returns nil, whose Start is a no-op.
-func NewTelemetry(m metrics.Meter, backend string) *Telemetry {
+func NewTelemetry(m metrics.Meter, backend string) *metrics.TranslateTimer {
 	return metrics.NewTranslateTimer(m, "filter_"+backend, "Duration of filter translation.")
 }

@@ -409,7 +409,7 @@ func testTokenBinding(t *testing.T, newList Factory, arrays bool, cfg *options) 
 				return
 			}
 
-			require.Equal(t, listing.FieldPageToken, FieldOf(err), "error %v", err)
+			require.Equal(t, pagetoken.TokenField, FieldOf(err), "error %v", err)
 		})
 	}
 }
@@ -423,7 +423,7 @@ func testRejectsRequests(t *testing.T, newList Factory, arrays bool, cfg *option
 		field string
 		cause error
 	}{
-		{name: "negative page size", req: listing.Request{PageSize: -1}, field: listing.FieldPageSize},
+		{name: "negative page size", req: listing.Request{PageSize: -1}, field: pagetoken.SizeField},
 		{name: "unsupported order", req: listing.Request{OrderBy: "priority"}, field: listing.FieldOrderBy},
 		{name: "unparsable filter", req: listing.Request{Filter: "name =="}, field: listing.FieldFilter, cause: filter.ErrParseFailed},
 		{name: "unknown field", req: listing.Request{Filter: `secret == "x"`}, field: listing.FieldFilter, cause: filter.ErrFieldNotAllowed},
@@ -456,7 +456,7 @@ func testRejectsRequests(t *testing.T, newList Factory, arrays bool, cfg *option
 		{name: "size of a float", req: listing.Request{Filter: `size(note) < 1.5`}, field: listing.FieldFilter},
 		{name: "size out of range", req: listing.Request{Filter: `size(tags) == 2147483648`}, field: listing.FieldFilter, cause: filter.ErrInvalidExpression},
 		{name: "global call on a literal", req: listing.Request{Filter: `startsWith("n")`}, field: listing.FieldFilter, cause: filter.ErrInvalidExpression},
-		{name: "malformed token", req: listing.Request{PageToken: "garbage"}, field: listing.FieldPageToken, cause: pagetoken.ErrInvalidToken},
+		{name: "malformed token", req: listing.Request{PageToken: "garbage"}, field: pagetoken.TokenField, cause: pagetoken.ErrInvalidToken},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -500,7 +500,7 @@ func testWithoutCodec(t *testing.T, newList Factory, arrays bool, cfg *options) 
 	first, err := tokened(t.Context(), Subject, listing.Request{PageSize: 5})
 	require.NoError(t, err)
 	_, err = l(t.Context(), Subject, listing.Request{PageSize: 5, PageToken: first.NextPageToken})
-	require.Equal(t, listing.FieldPageToken, FieldOf(err), "error %v", err)
+	require.Equal(t, pagetoken.TokenField, FieldOf(err), "error %v", err)
 }
 
 func testParentRequired(t *testing.T, newList Factory, arrays bool, cfg *options) {
