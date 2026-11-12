@@ -43,6 +43,19 @@ func sharedGraphs(levels int) map[string]any {
 	return map[string]any{"bson.A": arr, "[]any": list, "map": doc, "bson.M": m, "bson.D": elems, "[]bson.M": docs}
 }
 
+// visitContext counts the walk's periodic cancellation probes without relying
+// on machine speed or instrumentation overhead.
+type visitContext struct {
+	context.Context
+	checks int
+}
+
+func (c *visitContext) Err() error {
+	c.checks++
+
+	return c.Context.Err()
+}
+
 // TestValidateFilterRejectsSharedGraphs checks a compact graph sharing its parts, whose expansion holds far more values than
 // maxFilterNodes, fails fast in the walk and in FindPage instead of being expanded: the walk stops once it has spent its
 // maxFilterNodes visits, with bytes left, so it counted the shared parts at every reference and went no further.
@@ -54,19 +67,22 @@ func TestValidateFilterRejectsSharedGraphs(t *testing.T) {
 			t.Parallel()
 
 			filter := bson.D{{Key: "x", Value: value}}
-			start := time.Now()
+			ctx := &visitContext{Context: t.Context()}
 
-			w := newFilterWalk(t.Context(), nil)
+			w := newFilterWalk(ctx, nil)
 			require.ErrorIs(t, w.value(filter, 0), errFilterTooLarge)
 			require.Zero(t, w.left, "the visit budget stops the walk")
 			require.Positive(t, w.bytesLeft, "the byte budget does not")
+			require.Equal(t, maxFilterNodes/cancelCheckInterval, ctx.checks)
 
-			require.ErrorIs(t, ValidateFilter(t.Context(), filter, nil), errFilterTooLarge)
+			ctx.checks = 0
+			require.ErrorIs(t, ValidateFilter(ctx, filter, nil), errFilterTooLarge)
+			require.Equal(t, maxFilterNodes/cancelCheckInterval, ctx.checks)
 
-			_, err := FindPage[bson.M](t.Context(), nil, nil, Query{Filter: filter})
+			ctx.checks = 0
+			_, err := FindPage[bson.M](ctx, nil, nil, Query{Filter: filter})
 			require.ErrorIs(t, err, errFilterTooLarge)
-
-			requireQuick(t, time.Since(start), raceSlowdown*fastFail)
+			require.Equal(t, maxFilterNodes/cancelCheckInterval, ctx.checks)
 		})
 	}
 }
