@@ -176,8 +176,8 @@ supplies the projection policy options it can derive (`Schema.ProjectionOptions`
 ## Modules
 
 The root module holds the core packages; every storage backend is a Go module of its own, so an application requires only the backends it
-uses and never the dependencies of the others (mongo-driver for `backend/mongo`, gopher-lua for the tests of `backend/lua`). The root module
-requires no backend module.
+uses and never the dependencies of the others (mongo-driver and go-mongox for `backend/mongo`, gopher-lua for the tests of `backend/lua`). The
+root module requires no backend module.
 
 | Module                                           | Requires (go-aip)                                 | Released                    |
 |--------------------------------------------------|---------------------------------------------------|-----------------------------|

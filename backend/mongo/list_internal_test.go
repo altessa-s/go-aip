@@ -21,10 +21,11 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/time/civil"
 	"github.com/altessa-s/go-atlas-core/types/optional"
+	"github.com/altessa-s/go-mongox/bsonfilter"
+	"github.com/altessa-s/go-mongox/keyset"
 
 	"github.com/altessa-s/go-aip/apierror"
 	"github.com/altessa-s/go-aip/apierror/aipmap"
-	"github.com/altessa-s/go-aip/backend/mongo/internal/keyset"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/listing/listingtest"
@@ -111,7 +112,7 @@ func TestScopePinsUseTheListRegistry(t *testing.T) {
 }
 
 // TestScopeAdmitsOnlyFilterTypes checks a scope holding a value of a type a filter does not admit — a struct, a pointer, an
-// optional.Optional of a non-leaf, a value with its own BSON marshaling — fails with ErrScope wrapping keyset.ErrValueType before
+// optional.Optional of a non-leaf, a value with its own BSON marshaling — fails with ErrScope wrapping bsonfilter.ErrValueType before
 // it is encoded, as a pin or as any other scope element, while admitted pins pass.
 func TestScopeAdmitsOnlyFilterTypes(t *testing.T) {
 	t.Parallel()
@@ -137,7 +138,7 @@ func TestScopeAdmitsOnlyFilterTypes(t *testing.T) {
 		} {
 			err := list.checkScope(t.Context(), scope, "")
 			require.ErrorIs(t, err, ErrScope, "%s as %s", name, where)
-			require.ErrorIs(t, err, keyset.ErrValueType, "%s as %s", name, where)
+			require.ErrorIs(t, err, bsonfilter.ErrValueType, "%s as %s", name, where)
 		}
 	}
 
@@ -177,7 +178,7 @@ func TestScopeAdmitsRegisteredDates(t *testing.T) {
 
 	other, err := NewListEngine[listingtest.Widget](nil, nil, listingtest.NewSchema(t), WithListScopeKeys("day"))
 	require.NoError(t, err)
-	require.ErrorIs(t, other.checkScope(t.Context(), bson.D{{Key: "day", Value: date}}, ""), keyset.ErrValueType)
+	require.ErrorIs(t, other.checkScope(t.Context(), bson.D{{Key: "day", Value: date}}, ""), bsonfilter.ErrValueType)
 }
 
 // sharedGraph returns a small value whose encoding repeats its parts 2^levels times.
@@ -238,7 +239,7 @@ func TestScopeRefusesDangerousOperators(t *testing.T) {
 	} {
 		err := list.checkScope(t.Context(), scope, "")
 		require.ErrorIs(t, err, ErrScope, name)
-		require.ErrorIs(t, err, keyset.ErrDangerousOperator, name)
+		require.ErrorIs(t, err, bsonfilter.ErrDangerousOperator, name)
 	}
 }
 
@@ -505,7 +506,7 @@ func TestMapErrorHidesCausesWhenTheQueryEnds(t *testing.T) {
 				require.NotErrorIs(t, err, cause, label)
 				require.NotErrorIs(t, err, ErrCorruptRecord, label)
 				require.ErrorIs(t, apierror.HiddenCause(err), cause, label)
-				require.Contains(t, apierror.HiddenCause(err).Error(), "secret", label)
+				require.Same(t, failure, apierror.HiddenCause(err), label)
 
 				e := mapper.Map(err)
 				noSecret(t, e)

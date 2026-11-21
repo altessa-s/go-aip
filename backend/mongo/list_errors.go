@@ -12,8 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-mongox/keyset"
+
 	"github.com/altessa-s/go-aip/apierror"
-	"github.com/altessa-s/go-aip/backend/mongo/internal/keyset"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
 

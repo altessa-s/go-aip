@@ -16,7 +16,6 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/optional"
 
 	"github.com/altessa-s/go-aip/backend/mongo"
-	"github.com/altessa-s/go-aip/decimal128"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/listing/listingtest"
 )
@@ -29,35 +28,6 @@ const coefficientFailFast = time.Second
 // coefficient has digits+1 digits.
 func oneWithTrailingZeros(digits int64) decimal.Decimal {
 	return decimal.NewFromBigInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(digits), nil), -int32(digits))
-}
-
-// TestDecimalCodecRefusesOversizedCoefficients checks the codec, decimal128.Fits and decimal128.Canonical refuse a coefficient
-// beyond 4096 bits before folding its trailing zeros, fast, in every decimal type the codec encodes.
-func TestDecimalCodecRefusesOversizedCoefficients(t *testing.T) {
-	t.Parallel()
-
-	huge := oneWithTrailingZeros(200_000)
-
-	require.False(t, decimal128.Fits(huge))
-	_, ok := decimal128.Canonical(huge)
-	require.False(t, ok)
-	require.True(t, decimal128.Fits(oneWithTrailingZeros(1200)), "a coefficient within the bound still folds")
-
-	for name, v := range map[string]money{
-		"decimal":          {Amount: huge},
-		"pointer":          {Fee: &huge},
-		"null decimal":     {Discount: decimal.NullDecimal{Decimal: huge, Valid: true}},
-		"null decimal ptr": {NullFee: &decimal.NullDecimal{Decimal: huge, Valid: true}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			start := time.Now()
-			_, err := marshal(v)
-			require.ErrorIs(t, err, mongo.ErrDecimalOutOfRange)
-			requireQuick(t, time.Since(start), coefficientFailFast)
-		})
-	}
 }
 
 // TestScopeRefusesOversizedDecimals checks a scope holding a decimal with an oversized coefficient fails before it is encoded,

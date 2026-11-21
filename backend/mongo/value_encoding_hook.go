@@ -12,8 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas-core/types/optional"
-
-	"github.com/altessa-s/go-aip/backend/mongo/internal/bsonraw"
+	"github.com/altessa-s/go-mongox/bsonraw"
 
 	filtereval "github.com/altessa-s/go-aip/filter/evaluator"
 )

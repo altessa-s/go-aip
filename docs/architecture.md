@@ -18,8 +18,8 @@ The package list and the AIP coverage are in the [README](../README.md); the con
 
 The `internal/` packages of the root module (`behavior`, `literalvalue`, `lru`, `telemetry`, `typename`, `filter/internal/regexcache`,
 `maskpath`, `maskwalk`, `maskmerge`) are shared building blocks of the layers above and import no exported go-aip
-package except `metrics`. The `backend/mongo/internal` packages (`bsonbound`, `bsonraw`, `bsonstruct`, `indexes`, `keyset`) belong to the
-MongoDB backend and import the core packages it does.
+package except `metrics`. The MongoDB backend keeps BSON struct field lookup in `internal/bsonstruct` and uses go-mongox for BSON
+codecs, bounded writes, raw validation, filter preparation, keyset pagination and index creation.
 
 ### Dependency graph
 

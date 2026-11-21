@@ -643,7 +643,8 @@ millisecond by default); an unaligned date fails the page instead of issuing a t
 
 (1) Classified through `apierror.Classify`: the failure reads as and matches the category alone, so an `apierror.Mapper` classifies it by the
 category and a decoder that returns a page-token, deadline or field error does not turn a stored record into a client error; errors.Is and
-errors.As no longer reach the decode error (a decoder's `context.DeadlineExceeded` does not match), and `apierror.HiddenCause` returns it for logs.
+errors.As no longer reach the decode error (a decoder's `context.DeadlineExceeded` does not match). `apierror.HiddenCause` retains the typed
+error for logs. A go-mongox decode error exposes the decoder error through `Unwrap`. Its message omits the stored value.
 The whole decoding failure is classified, even when its chain already holds a classified error, so no cause joined with that one reaches the
 mapper.
 
@@ -687,6 +688,9 @@ or a `map[string]any` is read as it is, not through the registry's encoder for t
 value the registry encodes whole it is encoded as the driver writes it.
 
 ## Codecs
+
+The backend uses `github.com/altessa-s/go-mongox` for BSON codecs, bounded writes, raw BSON validation, filter preparation, keyset
+pagination and create-only indexes. Applications can configure the registry through the functions below.
 
 `NewRegistry()` returns a BSON registry with the driver's defaults and the codecs of the values go-aip and go-atlas-core define; install it on
 the client (`options.Client().SetRegistry(mongo.NewRegistry())`) so documents are stored the way the value encoding reads them.

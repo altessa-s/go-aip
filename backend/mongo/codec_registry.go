@@ -5,11 +5,9 @@
 package mongo
 
 import (
-	"reflect"
-
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/altessa-s/go-atlas-core/types/optional"
+	"github.com/altessa-s/go-mongox/bsoncodec"
 )
 
 // NewRegistry returns a private BSON registry with the driver's defaults and the codecs of the values go-aip and go-atlas-core
@@ -19,93 +17,48 @@ import (
 // additional codecs ([RegisterDateType]) before using the registry concurrently. Inner values use this registry, including
 // user-defined codecs.
 func NewRegistry() *bson.Registry {
-	defaults := bson.NewRegistry()
-	// Obtain the standard structural hooks from a separate registry so their
-	// lookup cache cannot shadow our replacements in the returned registry.
-	enc, _ := defaults.LookupEncoder(reflect.TypeFor[optional.Optional[int]]())
-	dec, _ := defaults.LookupDecoder(reflect.TypeFor[optional.Optional[int]]())
-	reg := bson.NewRegistry()
-	reg.RegisterInterfaceEncoder(reflect.TypeFor[bson.ValueMarshaler](), optionalCodecEncoder(enc))
-	reg.RegisterInterfaceDecoder(reflect.TypeFor[bson.ValueUnmarshaler](), optionalCodecDecoder(dec))
-	registerDecimal(reg)
-	registerCivil(reg)
-
-	return reg
+	return bsoncodec.NewRegistry()
 }
 
-// optionalCodecEncoder encodes an Optional[T] (or a pointer to one) as its inner
-// value, or null when absent, and hands every other ValueMarshaler to the
-// standard hook enc.
-func optionalCodecEncoder(enc bson.ValueEncoder) bson.ValueEncoderFunc {
-	return func(ec bson.EncodeContext, vw bson.ValueWriter, value reflect.Value) error {
-		v := value
-		if v.Kind() == reflect.Pointer && optional.IsOptionalType(v.Type().Elem()) {
-			if v.IsNil() {
-				return vw.WriteNull()
-			}
+// ErrInvalidDate is returned when a date that is not a valid calendar date
+// in years 0–9999 is encoded, or a stored string is not a YYYY-MM-DD date.
+var ErrInvalidDate = bsoncodec.ErrInvalidDate
 
-			v = v.Elem()
-		}
+// ErrNotADateType is returned by [RegisterDateType] for a type without the
+// calendar-date fields.
+var ErrNotADateType = bsoncodec.ErrNotADateType
 
-		if !optional.IsOptionalType(v.Type()) {
-			return enc.EncodeValue(ec, vw, value)
-		}
+// ErrDecimalOutOfRange is returned when a decimal.Decimal cannot be stored
+// exactly as a BSON Decimal128: more than 34 significant digits, or an
+// exponent outside [-6176, 6111]. The value is never rounded. A coefficient
+// of more than 4096 bits fails before its trailing zeros are folded, in time
+// independent of its size. The codec stores exactly the decimals that
+// go-aip/decimal128.Fits accepts, in the form decimal128.Canonical returns;
+// validate input with decimal128.Fits to refuse a value before it reaches the
+// store.
+var ErrDecimalOutOfRange = bsoncodec.ErrDecimalOutOfRange
 
-		inner, present := optional.GetReflect(v)
-		if !present {
-			return vw.WriteNull()
-		}
+// ErrDecimalNotFinite is returned when a stored Decimal128 is NaN or an
+// infinity, which decimal.Decimal cannot hold.
+var ErrDecimalNotFinite = bsoncodec.ErrDecimalNotFinite
 
-		encoder, err := ec.LookupEncoder(inner.Type())
-		if err != nil {
-			return err
-		}
-
-		return encoder.EncodeValue(ec, vw, inner)
+// RegisterDateType registers on reg the calendar-date codec for T: a struct
+// with the fields Year int, Month time.Month and Day int, such as
+// cloud.google.com/go/civil.Date, the go-atlas-core civil.Date (registered by
+// [NewRegistry]) or a service's own date type. A date is stored as its "YYYY-MM-DD" string —
+// nothing can shift it across a day boundary, and the strings sort in date
+// order. The zero date is stored as null, or as "" with
+// [WithDateZeroAsEmptyString]; both decode to the zero date. An invalid date
+// or a year outside 0–9999 fails with [ErrInvalidDate], as does one that T
+// rejects through a Valid() bool method; a BSON date is
+// rejected, since reading an instant as a calendar date would pick a zone.
+// Pointers to T are handled by the driver's pointer codec (nil <-> null).
+// A list engine using reg admits T, and optional.Optional[T], as a scope or
+// filter value. Register before the registry is used concurrently.
+func RegisterDateType[T any](reg *bson.Registry, opts ...DateOption) error {
+	if newDateOptions(opts...).zeroAsEmptyString {
+		return bsoncodec.RegisterDateType[T](reg, bsoncodec.WithDateZeroAsEmptyString())
 	}
-}
 
-// optionalCodecDecoder decodes null into an absent Optional[T] and any other value
-// into a present one (allocating a nil *Optional[T]), and hands every other
-// ValueUnmarshaler to the standard hook dec.
-func optionalCodecDecoder(dec bson.ValueDecoder) bson.ValueDecoderFunc {
-	return func(dc bson.DecodeContext, vr bson.ValueReader, value reflect.Value) error {
-		v := value
-		if v.Kind() == reflect.Pointer && optional.IsOptionalType(v.Type().Elem()) {
-			if v.IsNil() {
-				v.Set(reflect.New(v.Type().Elem()))
-			}
-
-			v = v.Elem()
-		}
-
-		if !optional.IsOptionalType(v.Type()) {
-			return dec.DecodeValue(dc, vr, value)
-		}
-
-		if vr.Type() == bson.TypeNull {
-			if err := vr.ReadNull(); err != nil {
-				return err
-			}
-
-			v.Set(optional.NoneReflect(v.Type()))
-
-			return nil
-		}
-
-		inner := reflect.New(optional.InnerType(v.Type())).Elem()
-
-		decoder, err := dc.LookupDecoder(inner.Type())
-		if err != nil {
-			return err
-		}
-
-		if err := decoder.DecodeValue(dc, vr, inner); err != nil {
-			return err
-		}
-
-		v.Set(optional.SomeReflect(v.Type(), inner))
-
-		return nil
-	}
+	return bsoncodec.RegisterDateType[T](reg)
 }

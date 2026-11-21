@@ -12,7 +12,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/altessa-s/go-aip/backend/mongo/internal/keyset"
+	"github.com/altessa-s/go-mongox/bsonfilter"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -22,7 +22,7 @@ import (
 // fails instead of reading the items of every parent. A pin is judged by its BSON encoding, as the driver sends it, so a
 // document, an array or null is never a pin, whatever its Go type. The context ending stops the check with its error, unwrapped.
 func (l *ListEngine[D]) checkScope(ctx context.Context, scope bson.D, parent string) error {
-	if err := keyset.ValidateFilter(ctx, scope, l.opts.registry); err != nil {
+	if err := bsonfilter.Validate(ctx, scope, l.opts.registry); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 			return err
 		}
@@ -61,7 +61,7 @@ var scalarPins = []bson.Type{
 // errNotAPin reports a scope value whose BSON type is not a scalar pin.
 var errNotAPin = errors.New("not an equality pin")
 
-// scopeValue encodes v, a value [keyset.ValidateFilter] admitted, as the driver would, with the engine's registry, and returns it
+// scopeValue encodes v, a value [bsonfilter.Validate] admitted, as the driver would, with the engine's registry, and returns it
 // when it is a scalar pin. The encoding is bounded, for a codec of the registry that expands.
 func (l *ListEngine[D]) scopeValue(v any) (bson.RawValue, error) {
 	raw, err := marshal(bson.D{{Key: "v", Value: v}}, l.opts.registry)

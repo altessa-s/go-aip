@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"reflect"
 
+	"github.com/shopspring/decimal"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -35,6 +36,9 @@ var (
 	vectorType   = reflect.TypeFor[bson.Vector]()
 	userinfoType = reflect.TypeFor[*url.Userinfo]()
 )
+
+// decimalType is encoded by storedRegistry as a Decimal128, which encodeWalk measures from its coefficient.
+var decimalType = reflect.TypeFor[decimal.Decimal]()
 
 // The interfaces through which a type encodes itself, hookInterfaces in the order the driver looks them up, and through which a
 // map key encodes itself as text.
