@@ -25,6 +25,8 @@ import (
 	driver "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
+// TestMigrationListToken checks a page token the engine issued before the go-mongox migration still resumes the next page, and the
+// seek predicate it sends matches the pinned BSON.
 func TestMigrationListToken(t *testing.T) {
 	t.Parallel()
 
@@ -51,9 +53,8 @@ func TestMigrationListToken(t *testing.T) {
 	})
 	require.NoError(t, xoptions.SetInternalClientOptions(clientOpts, "deployment", server))
 	client, err := driver.Connect(clientOpts)
-
 	require.NoError(t, err)
-	defer func() { require.NoError(t, client.Disconnect(t.Context())) }()
+	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.Background())) })
 
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	signer, err := pagetoken.New(bytes.Repeat([]byte{0x42}, 32), pagetoken.WithClock(func() time.Time { return now }))

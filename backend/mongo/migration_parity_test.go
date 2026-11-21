@@ -28,6 +28,7 @@ import (
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
 )
 
+// TestMigrationCodecBytes checks the registry encodes dates, optionals and decimals to the bytes the pre-migration codecs wrote.
 func TestMigrationCodecBytes(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +112,8 @@ func migrationBindings(tb testing.TB, scope bson.D) (pagetoken.Bindings, error) 
 	return capture.bindings, nil
 }
 
+// TestMigrationRawFilters checks scope validation admits the pinned raw filter bytes unchanged and refuses the pinned bad inputs with
+// the same sentinels as before the migration.
 func TestMigrationRawFilters(t *testing.T) {
 	t.Parallel()
 
@@ -152,6 +155,8 @@ func TestMigrationRawFilters(t *testing.T) {
 	}
 }
 
+// TestMigrationSignedTokens checks tokens signed before the migration resolve and reissue byte-identically, and a token bound to
+// a differently ordered embedded document is refused as a changed filter.
 func TestMigrationSignedTokens(t *testing.T) {
 	t.Parallel()
 
