@@ -5,18 +5,25 @@
 package mongo_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/event"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/xoptions"
 
 	"github.com/altessa-s/go-aip/backend/mongo"
 	"github.com/altessa-s/go-aip/filter"
+	"github.com/altessa-s/go-aip/filter/filtertest"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/listing/listingtest"
 
+	drivermongo "go.mongodb.org/mongo-driver/v2/mongo"
 	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -276,4 +283,74 @@ func TestEmptyOrderUsesIdentity(t *testing.T) {
 	l, err := mongo.NewListEngine[struct{}](nil, nil, s, mongo.WithListScopeKeys("tenant"))
 	require.NoError(t, err)
 	require.NotEmpty(t, l.Indexes())
+}
+
+// TestBindingsOfATranslatedFilterAreStable checks the MongoDB translator renders the same filter to the same BSON bytes on every
+// call, so the filter a page token is bound to binds again on the next page.
+func TestBindingsOfATranslatedFilterAreStable(t *testing.T) {
+	t.Parallel()
+
+	schema, err := mongo.NewSchema(mongo.WithSchemaZeroWhenAbsent(map[string]filter.FieldKind{"note": filter.FieldKindString}))
+	require.NoError(t, err)
+
+	tr, err := mongo.NewFilterTranslatorWithSchema(filtertest.MustPolicy(t, filter.WithAnyField(true)), schema)
+	require.NoError(t, err)
+
+	node := filtertest.MustParseFilter(t, `(rank > 3 || tags.size() <= 2) && note.startsWith("a") && !(kind in ["x", "y"])`)
+	first, err := tr.TranslateD(node)
+	require.NoError(t, err)
+
+	want, err := bson.Marshal(first)
+	require.NoError(t, err)
+
+	for range 20 {
+		again, err := tr.TranslateD(node)
+		require.NoError(t, err)
+
+		got, err := bson.Marshal(again)
+		require.NoError(t, err)
+		require.Equal(t, want, got, "the same filter binds the same token")
+	}
+}
+
+// TestEnsureIndexesReturnsServerConflicts checks EnsureIndexes returns either createIndexes conflict without attempting to drop or
+// recreate the index.
+func TestEnsureIndexesReturnsServerConflicts(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		code int
+	}{
+		{"IndexOptionsConflict", 85},
+		{"IndexKeySpecsConflict", 86},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			reply := bson.D{{Key: "ok", Value: 0}, {Key: "code", Value: tc.code}, {Key: "errmsg", Value: tc.name}}
+
+			var commands []string
+
+			opts := mongooptions.Client().SetMonitor(&event.CommandMonitor{
+				Started: func(_ context.Context, ev *event.CommandStartedEvent) {
+					commands = append(commands, ev.CommandName)
+				},
+			})
+			require.NoError(t, xoptions.SetInternalClientOptions(opts, "deployment", drivertest.NewMockDeployment(reply)))
+
+			client, err := drivermongo.Connect(opts)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, client.Disconnect(context.Background())) })
+
+			coll := client.Database("test").Collection("widgets")
+			engine, err := mongo.NewListEngine[listingtest.Widget](coll, nil, listingtest.NewSchema(t), widgetOptions()...)
+			require.NoError(t, err)
+
+			conflict, ok := errors.AsType[drivermongo.ServerError](engine.EnsureIndexes(t.Context()))
+			require.True(t, ok)
+			require.True(t, conflict.HasErrorCode(tc.code))
+			require.Equal(t, []string{"createIndexes"}, commands)
+		})
+	}
 }

@@ -13,8 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
+	"github.com/altessa-s/go-mongox/keyset"
 
-	"github.com/altessa-s/go-aip/backend/mongo/internal/keyset"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/pagination/page"

@@ -9,7 +9,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/altessa-s/go-aip/backend/mongo/internal/bsonbound"
+	"github.com/altessa-s/go-mongox/bsonbound"
+
 	"github.com/altessa-s/go-aip/filter"
 )
 

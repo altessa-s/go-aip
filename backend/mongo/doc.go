@@ -26,7 +26,7 @@
 // List engine: NewListEngine[D](collection, signer, schema, opts...) serves listing.Engine[D, bson.D] with keyset pages read by a
 // plain find; the request filter is translated per call and ANDed with the caller's scope, whose keys (WithListScopeKeys) are
 // pinned by equality and one of which may be bound to Request.Parent (WithListParentKey). Indexes and EnsureIndexes declare and
-// create the compound index of every sort pattern.
+// create the compound index of every sort pattern. The engine uses go-mongox for keyset pagination and create-only index management.
 //
 // Value encoding: ValueEncoding returns the evaluator.ValueEncoding of the driver, so an in-memory evaluator reads a bson.D, a
 // struct or a value with a custom BSON encoding as the document the driver stores.

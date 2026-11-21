@@ -7,7 +7,7 @@ package mongo
 import (
 	"reflect"
 
-	"github.com/altessa-s/go-aip/backend/mongo/internal/bsonraw"
+	"github.com/altessa-s/go-mongox/bsonraw"
 )
 
 // encodingHook returns the receiver and the interface through which the driver encodes rv when its type encodes itself, looking

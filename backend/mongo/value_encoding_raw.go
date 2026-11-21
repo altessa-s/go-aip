@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
-	"github.com/altessa-s/go-aip/backend/mongo/internal/bsonraw"
+	"github.com/altessa-s/go-mongox/bsonraw"
 )
 
 // This file guards the driver against raw BSON: the driver copies the raw BSON of bson.Raw, bson.RawValue, bsoncore.Document,
