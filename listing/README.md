@@ -188,7 +188,8 @@ differently across supported databases and cannot have portable filter semantics
 ordering still follow their usual policies. `Schema.CaseInsensitiveContainsFields()` returns a detached sorted slice.
 
 A nonempty selection binds the mapping revision, sorted field set and application contract ID into the page token. A token issued under another
-selection requires restarting at page one. The prefix `go-aip:contains:` is reserved for derived IDs.
+selection requires restarting at page one. Schema construction now rejects any caller-supplied `ContractID` beginning with `go-aip:contains:`, even with no fields
+selected. Callers using that prefix must choose a new ID and restart pagination.
 
 ## Sort patterns
 
