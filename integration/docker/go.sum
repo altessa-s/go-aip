@@ -18,8 +18,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/altessa-s/go-atlas-core v0.3.5 h1:DNnmNkYdEgPnhQun9kN/3F4Qgw+uvsqTFmK/VMZWVjM=
 github.com/altessa-s/go-atlas-core v0.3.5/go.mod h1:lDhYlaxQK66YpjRyyZHJUzQsgQkhEhzBZ3SXSaXuHQM=
-github.com/altessa-s/go-kryptos v0.1.4 h1:vSBKv5H+YcSZH+F7ll53lsDnLe7OIoicuBXdWRHsNNY=
-github.com/altessa-s/go-kryptos v0.1.4/go.mod h1:w+aEPFRxyDNvw/7zaMTCdOe02rFHxg3EhxLk8ZU5GYQ=
+github.com/altessa-s/go-kryptos v0.1.5 h1:uiB2snEOcxqlsVZA/svNxvMWu5vhZ5chncOYgIO5PMk=
+github.com/altessa-s/go-kryptos v0.1.5/go.mod h1:ukKhoTu7HV2ssx7GcbX+HhNBFGlpPqWV1vpbreR8Zw4=
 github.com/altessa-s/go-mongox v0.1.2 h1:zwK/ud0GK4B9g5N1jO7xGZuBR5mhwSY3nnksqJ3g8Pc=
 github.com/altessa-s/go-mongox v0.1.2/go.mod h1:t7CYy6cfNd6tdEnQUHg+31z71/z1xrTzq9Y1rQd8RGE=
 github.com/andybalholm/brotli v1.2.6 h1:ftYnfj6usCp+UGV5kSJ3+chpMQgU+gJf/AxsUQ52REI=
