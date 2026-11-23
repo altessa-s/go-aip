@@ -65,3 +65,13 @@ func (l *ListEngine[T]) mapEndedError(ctx, queryCtx context.Context, e error, fi
 
 	return l.mapError(ctx, queryCtx, e, filtered)
 }
+
+// scanError classifies an unreadable stored value or aggregate. Rows closed by the query
+// context ending report that end alone, even when a destination returns another error.
+func (l *ListEngine[T]) scanError(ctx, queryCtx context.Context, err error, filtered bool) error {
+	if queryCtx.Err() != nil {
+		return l.mapEndedError(ctx, queryCtx, err, filtered)
+	}
+
+	return apierror.Classify(ErrCorruptRecord, err)
+}
