@@ -172,7 +172,7 @@ For fields selected by `listing.WithCaseInsensitiveContainsFields`, the listing 
 substring matching. It searches each repeated string separately. The schema's contract ID binds the selection into every page token.
 
 The default evaluation profile comes from `listing/evaluation` and implements required, Optional, Array and Presence semantics.
-`WithListProfile` replaces it; custom profiles must agree with the schema's contract ID. Values are read through the memory evaluator and
+`WithListProfile` can replace it when the schema has no case-insensitive contains fields. A custom profile must agree with the schema's contract ID. Values are read through the memory evaluator and
 `pagetoken.NewSortValue`: pointers are dereferenced, named types use their underlying string/int/float/bool, slices are lists, and times
 have the cursor precision. Optional scalar fields use their kind's zero value when absent or null; an explicit zero remains zero. Pass
 `memory.WithListValueEncoding(mongo.ValueEncoding())` (the MongoDB value encoding of [`backend/mongo`](../mongo/README.md#value-encoding)) to read
