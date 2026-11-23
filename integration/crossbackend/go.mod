@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-aip v0.1.9
+	github.com/altessa-s/go-aip v0.1.10
 	github.com/altessa-s/go-aip/backend/clickhouse v0.1.9
 	github.com/altessa-s/go-aip/backend/lua v0.1.9
 	github.com/altessa-s/go-aip/backend/mariadb v0.1.9
