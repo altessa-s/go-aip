@@ -18,7 +18,7 @@ require (
 require (
 	cel.dev/cel-go v0.33.2 // indirect
 	cel.dev/expr v0.25.1 // indirect
-	github.com/altessa-s/go-kryptos v0.1.4 // indirect
+	github.com/altessa-s/go-kryptos v0.1.5 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/xdg-go/scram v1.4.0 // indirect

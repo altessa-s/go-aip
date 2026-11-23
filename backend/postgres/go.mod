@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/altessa-s/go-aip v0.1.9
 	github.com/altessa-s/go-aip/backend/sqlbase v0.1.9
-	github.com/altessa-s/go-atlas-core v0.3.3
+	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.12.1
 )
@@ -15,7 +15,7 @@ require (
 require (
 	cel.dev/cel-go v0.33.2 // indirect
 	cel.dev/expr v0.25.1 // indirect
-	github.com/altessa-s/go-kryptos v0.1.4 // indirect
+	github.com/altessa-s/go-kryptos v0.1.5 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect

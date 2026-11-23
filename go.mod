@@ -6,8 +6,8 @@ toolchain go1.27.4
 
 require (
 	cel.dev/cel-go v0.33.2
-	github.com/altessa-s/go-atlas-core v0.3.3
-	github.com/altessa-s/go-kryptos v0.1.4
+	github.com/altessa-s/go-atlas-core v0.3.5
+	github.com/altessa-s/go-kryptos v0.1.5
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688
