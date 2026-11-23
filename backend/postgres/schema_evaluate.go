@@ -116,11 +116,23 @@ func (p *Program) eval(e *expression, data map[string]any, b *budget, d evaluato
 			return jsonPredicate(a, c, b)
 		}
 
-		if e.Children[0].Array {
-			return arrayStringCall(e.Op, a, c, b, e.Matcher)
+		if e.Op == filter.OpContains && e.Children[0].Field.foldContains {
+			if needle, literal := p.foldedNeedles[e]; literal {
+				c = needle
+			} else if needle, ok := c.(string); ok {
+				if err := b.Spend(len(needle)); err != nil {
+					return nil, err
+				}
+
+				c = evaluator.SimpleLower15_1(needle)
+			}
 		}
 
-		return stringCall(e.Op, a, c, b, e.Matcher)
+		if e.Children[0].Array {
+			return arrayStringCall(e, a, c, b)
+		}
+
+		return stringCall(e, a, c, b)
 	}
 
 	if e.Op == filter.OpIn {
@@ -311,7 +323,7 @@ func logical(op filter.Operator, a, b any) any {
 // evaluator; a NULL argument of a non-NULL target is unknown.
 //
 //nolint:nilnil // A NULL argument is unknown.
-func stringCall(op filter.Operator, a, c any, b *budget, matcher filter.RegexMatcher) (any, error) {
+func stringCall(e *expression, a, c any, b *budget) (any, error) {
 	if a == nil {
 		return false, nil
 	}
@@ -334,15 +346,19 @@ func stringCall(op filter.Operator, a, c any, b *budget, matcher filter.RegexMat
 		return nil, err
 	}
 
-	switch op {
+	switch e.Op {
 	case filter.OpContains:
+		if e.Children[0].Field.foldContains {
+			x = evaluator.SimpleLower15_1(x)
+		}
+
 		return strings.Contains(x, y), nil
 	case filter.OpStartsWith:
 		return strings.HasPrefix(x, y), nil
 	case filter.OpEndsWith:
 		return strings.HasSuffix(x, y), nil
 	case filter.OpMatches:
-		return matcher.MatchString(x), nil
+		return e.Matcher.MatchString(x), nil
 	default:
 		return nil, unsupported()
 	}

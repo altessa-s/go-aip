@@ -11,6 +11,8 @@ import (
 
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/listing"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // defaultListCollation is the text collation the listing engine expects without sqlbase.WithListTextCollation: byte
@@ -36,6 +38,19 @@ type listSchemaChecker struct {
 }
 
 func checkListSchema(ctx context.Context, db *sql.DB, c sqlbase.ListSchemaConfig) (err error) {
+	if c.Schema != nil && len(c.Schema.CaseInsensitiveContainsFields()) > 0 {
+		var supported bool
+		if err = db.QueryRowContext(ctx, `SELECT pg_catalog.current_setting('server_version_num')::int / 10000 = 17
+			AND pg_catalog.current_setting('server_encoding') = 'UTF8'
+			AND pg_catalog.to_regcollation('pg_catalog.pg_c_utf8') IS NOT NULL`).Scan(&supported); err != nil {
+			return err
+		}
+
+		if !supported {
+			return coreerrs.Wrap(listing.ErrInvalidSchema, "case-insensitive contains requires PostgreSQL 17 with UTF8 encoding and pg_catalog.pg_c_utf8")
+		}
+	}
+
 	rows, err := db.QueryContext(ctx, `SELECT c.column_name, c.data_type, c.udt_name, c.collation_name, c.is_nullable,
 		CASE WHEN typ.typelem <> 0 THEN information_schema._pg_datetime_precision(typ.typelem, attr.atttypmod) ELSE c.datetime_precision END
 		FROM information_schema.columns AS c

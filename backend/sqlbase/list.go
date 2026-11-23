@@ -133,8 +133,7 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 	// The schema's policy authorizes the public names; the translator binds them to the columns.
 	binding := []filter.TranslatorOption{filter.WithFieldMapping(fieldCols)}
 
-	l.translator, err = cfg.dialect.NewTranslator(schema.FilterPolicy(), sem, binding, ListTranslatorConfig{TextCollation: cfg.textCollation,
-		DecimalFormat: cfg.decimalFormat, TimestampPrecision: cfg.timestampPrecision})
+	l.translator, err = l.newTranslator(sem, binding)
 	if err != nil {
 		return nil, coreerrs.Wrap(errors.Join(listing.ErrInvalidSchema, err), "filter translator")
 	}
@@ -154,6 +153,25 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 	l.compilePlans()
 
 	return l, nil
+}
+
+// newTranslator uses the dialect's optional contains capability only when the schema requests it.
+func (l *ListEngine[T]) newTranslator(fields *Schema, opts []filter.TranslatorOption) (ListFilterTranslator, error) {
+	config := ListTranslatorConfig{TextCollation: l.opts.textCollation, DecimalFormat: l.opts.decimalFormat, TimestampPrecision: l.opts.timestampPrecision}
+
+	names := l.schema.CaseInsensitiveContainsFields()
+	if len(names) == 0 {
+		return l.opts.dialect.NewTranslator(l.schema.FilterPolicy(), fields, opts, config)
+	}
+
+	d, ok := l.opts.dialect.(interface {
+		NewCaseInsensitiveContainsTranslator(*filter.Policy, *Schema, []filter.TranslatorOption, ListTranslatorConfig, []string) (ListFilterTranslator, error)
+	})
+	if !ok {
+		return nil, invalid("dialect does not support case-insensitive contains")
+	}
+
+	return d.NewCaseInsensitiveContainsTranslator(l.schema.FilterPolicy(), fields, opts, config, names)
 }
 
 // MustNewListEngine is [NewListEngine] for package-level declarations with static configuration: it returns the engine
