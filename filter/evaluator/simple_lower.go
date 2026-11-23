@@ -11,9 +11,35 @@ import (
 )
 
 // SimpleLower15_1 maps each Unicode scalar to its Unicode 15.1 simple lowercase equivalent.
-// It performs neither normalization nor multi-rune expansion.
+// It preserves invalid UTF-8 bytes and performs neither normalization nor multi-rune expansion.
 func SimpleLower15_1(text string) string {
-	return strings.Map(simpleLowerRune, text)
+	var out strings.Builder
+
+	start := 0
+
+	for i, r := range text {
+		lower := simpleLowerRune(r)
+		if lower == r {
+			continue
+		}
+
+		if start == 0 {
+			out.Grow(len(text))
+		}
+
+		out.WriteString(text[start:i])
+		out.WriteRune(lower)
+
+		start = i + utf8.RuneLen(r)
+	}
+
+	if start == 0 {
+		return text
+	}
+
+	out.WriteString(text[start:])
+
+	return out.String()
 }
 
 func simpleLowerRune(r rune) rune {

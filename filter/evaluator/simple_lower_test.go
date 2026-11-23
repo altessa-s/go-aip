@@ -22,6 +22,7 @@ func TestSimpleLower15_1(t *testing.T) {
 		{"A\u030A Å", "a\u030A å"},
 		{"𐐀", "𐐨"},
 		{"\u1c89", "\u1c89"}, // gained a lowercase mapping in Unicode 16
+		{"x\xffY\xe2\x82Ж\uFFFD", "x\xffy\xe2\x82ж\uFFFD"},
 		{"", ""},
 	} {
 		require.Equal(t, tc.lower, evaluator.SimpleLower15_1(tc.input))
