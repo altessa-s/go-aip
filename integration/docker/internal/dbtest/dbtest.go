@@ -23,6 +23,7 @@ import (
 // Images are the server images the helpers start.
 const (
 	PostgresImage   = "postgres:16"
+	Postgres17Image = "postgres:17"
 	MariaDBImage    = "mariadb:11"
 	ClickHouseImage = "clickhouse/clickhouse-server:26.8"
 	MongoImage      = "mongo:8.0"

@@ -18,6 +18,7 @@ go -C integration/docker test -race -tags integration_docker ./internal/dbtest/ 
 | Helper                   | Returns                                                                                                                                                  |
 |--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Postgres(tb)`           | `*sql.DB` (pgx `database/sql` driver) on a new database of a PostgreSQL 16 server                                                                        |
+| `Postgres17(tb)`         | A UTF8 database on PostgreSQL 17 for the pg_c_utf8 profile                                                                                               |
 | `MariaDB(tb)`            | `*sql.DB` (go-sql-driver/mysql) on a new database of a MariaDB 11 server                                                                                 |
 | `ClickHouse(tb)`         | `*sql.DB` (clickhouse-go v2, native protocol) on a new database of a ClickHouse 26.8 LTS server                                                          |
 | `Mongo(tb)`              | `*mongo.Database` (mongo-driver v2, a client with the `backend/mongo` registry) of a new database of a MongoDB 8.0 server                                |
@@ -50,12 +51,12 @@ func TestLive(t *testing.T) {
 
 | Server     | Image                               | Settings                                                                                                                                                                                                                                          |
 |------------|-------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| PostgreSQL | `postgres:16`                       | UTF-8 databases from `template0`, `timezone=UTC`, `fsync=off`, `max_connections=500`                                                                                                                                                              |
+| PostgreSQL | `postgres:16`, `postgres:17`        | UTF-8 databases from `template0`, `timezone=UTC`, `fsync=off`, `max_connections=500`                                                                                                                                                              |
 | MariaDB    | `mariadb:11`                        | databases default to `utf8mb4` / `utf8mb4_nopad_bin` (the listing storage contract), `default-time-zone=+00:00`, `max-connections=500`; DSN with `parseTime=true`, `loc=UTC`, `multiStatements=true`                                              |
 | MongoDB    | `mongo:8.0`                         | a standalone node (testcontainers `mongodb` module); clients store values with `mongo.NewRegistry()` (Decimal128 decimals, optional values, dates)                                                                                                |
 | ClickHouse | `clickhouse/clickhouse-server:26.8` | the LTS release; server time zone UTC; databases use the default `Atomic` engine and are dropped with `SYNC`; one statement per query; batch inserts through `BeginTx`, `PrepareContext("INSERT INTO t (…)")`, `ExecContext` per row and `Commit` |
 
-The images are the constants `PostgresImage`, `MariaDBImage`, `ClickHouseImage` and `MongoImage`. Columns that need another collation declare it
+The images are the constants `PostgresImage`, `Postgres17Image`, `MariaDBImage`, `ClickHouseImage` and `MongoImage`. Columns that need another collation declare it
 themselves; note that a MariaDB `JSON` column defaults to `utf8mb4_bin` whatever the database default, so a listing array column spells `JSON COLLATE
 utf8mb4_nopad_bin`.
 

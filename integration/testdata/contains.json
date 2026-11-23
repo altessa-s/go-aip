@@ -1,0 +1,22 @@
+{
+  "widgets": [
+    {"id": "a", "name": "ПрИвЕт", "tags": ["мир", "ПРИВЕТИК", "привет"], "score": "ЁЖИК"},
+    {"id": "b", "name": "Straße", "tags": ["при", "вет"]},
+    {"id": "c", "name": "ЁЖИК_%\\", "tags": [""]},
+    {"id": "d", "name": "", "tags": [], "score": ""}
+  ],
+  "cases": [
+    {"filter": "name.contains('иВе')", "folded": ["a"], "plain": []},
+    {"filter": "tags.contains('иВе')", "folded": ["a"], "plain": []},
+    {"filter": "tags.contains('привет')", "folded": ["a"], "plain": ["a"]},
+    {"filter": "!tags.contains('иВе')", "folded": ["b", "c", "d"], "plain": ["a", "b", "c", "d"]},
+    {"filter": "name.contains('ёж')", "folded": ["c"], "plain": []},
+    {"filter": "score.contains('ёж')", "folded": ["a"], "plain": []},
+    {"filter": "!score.contains('')", "folded": ["b", "c"], "plain": ["b", "c"]},
+    {"filter": "tags.contains('')", "folded": ["a", "b", "c"], "plain": ["a", "b", "c"]},
+    {"filter": "name.contains('STRASSE')", "folded": [], "plain": []},
+    {"filter": "name.contains('_%\\\\')", "folded": ["c"], "plain": ["c"]},
+    {"filter": "name.startsWith('ёж')", "folded": [], "plain": []},
+    {"filter": "name == 'привет'", "folded": [], "plain": []}
+  ]
+}

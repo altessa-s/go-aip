@@ -34,30 +34,36 @@ const (
 const maxConnections = "500"
 
 // postgres is PostgreSQL 16 through pgx's database/sql driver. Its databases use UTF-8 and the server runs in UTC.
-var postgres = &engine{
-	name:   "PostgreSQL",
-	driver: "pgx",
-	start: func(ctx context.Context) (testcontainers.Container, string, error) {
-		ctr, err := tcpostgres.Run(ctx, PostgresImage,
-			tcpostgres.WithDatabase(adminDB), tcpostgres.WithUsername(user), tcpostgres.WithPassword(password),
-			tcpostgres.BasicWaitStrategies(),
-			testcontainers.WithCmdArgs("-c", "max_connections="+maxConnections, "-c", "timezone=UTC"),
-		)
-		if ctr == nil {
-			return nil, "", err
-		}
+var postgres = postgresServer(PostgresImage)
 
-		if err != nil {
-			return ctr, "", err
-		}
+var postgres17 = postgresServer(Postgres17Image)
 
-		dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
+func postgresServer(image string) *engine {
+	return &engine{
+		name:   "PostgreSQL",
+		driver: "pgx",
+		start: func(ctx context.Context) (testcontainers.Container, string, error) {
+			ctr, err := tcpostgres.Run(ctx, image,
+				tcpostgres.WithDatabase(adminDB), tcpostgres.WithUsername(user), tcpostgres.WithPassword(password),
+				tcpostgres.BasicWaitStrategies(),
+				testcontainers.WithCmdArgs("-c", "max_connections="+maxConnections, "-c", "timezone=UTC"),
+			)
+			if ctr == nil {
+				return nil, "", err
+			}
 
-		return ctr, dsn, err
-	},
-	database: urlDatabase,
-	create:   "CREATE DATABASE %s ENCODING 'UTF8' TEMPLATE template0",
-	drop:     "DROP DATABASE IF EXISTS %s WITH (FORCE)",
+			if err != nil {
+				return ctr, "", err
+			}
+
+			dsn, err := ctr.ConnectionString(ctx, "sslmode=disable")
+
+			return ctr, dsn, err
+		},
+		database: urlDatabase,
+		create:   "CREATE DATABASE %s ENCODING 'UTF8' TEMPLATE template0",
+		drop:     "DROP DATABASE IF EXISTS %s WITH (FORCE)",
+	}
 }
 
 // mariadb is MariaDB 11 through go-sql-driver/mysql. Its databases default to utf8mb4 with the utf8mb4_nopad_bin collation the
@@ -141,6 +147,12 @@ func Postgres(tb testing.TB) *sql.DB {
 	tb.Helper()
 
 	return postgres.open(tb)
+}
+
+// Postgres17 returns an isolated UTF8 database on the certified pg_c_utf8 server.
+func Postgres17(tb testing.TB) *sql.DB {
+	tb.Helper()
+	return postgres17.open(tb)
 }
 
 // MariaDB returns a connection pool to a new, empty MariaDB database (utf8mb4, utf8mb4_nopad_bin) that is dropped when tb ends.
