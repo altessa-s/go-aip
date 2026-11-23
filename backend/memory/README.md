@@ -168,6 +168,9 @@ page, err := list.List(ctx, method, req, items)              // items already re
 | Paging         | `pagetoken.SlicePager` over the sorted matches, cursor = `pagetoken.Position` (typed sort values in MongoDB's order + id)       |
 | Token bindings | subject, canonical orderBy, canonical filter (`filter.Canonical`, so spelling does not matter), parent, schema contract ID      |
 
+For fields selected by `listing.WithCaseInsensitiveContainsFields`, the listing evaluation profile applies Unicode 15.1 simple lowercase before
+substring matching. It searches each repeated string separately. The schema's contract ID binds the selection into every page token.
+
 The default evaluation profile comes from `listing/evaluation` and implements required, Optional, Array and Presence semantics.
 `WithListProfile` replaces it; custom profiles must agree with the schema's contract ID. Values are read through the memory evaluator and
 `pagetoken.NewSortValue`: pointers are dereferenced, named types use their underlying string/int/float/bool, slices are lists, and times

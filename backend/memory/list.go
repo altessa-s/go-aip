@@ -203,6 +203,11 @@ func (m *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 
 	prepared, err := eval.Prepare(q.Filter)
 	if err != nil {
+		// The built-in profile charges folded needles during preparation. A custom profile owns its preparation errors.
+		if work.err != nil && nilcheck.IsNil(m.opts.profile) {
+			return page.Page[T]{}, work.err
+		}
+
 		return page.Page[T]{}, err
 	}
 

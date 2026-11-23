@@ -24,9 +24,11 @@ type FieldReader interface {
 // Required fields, zero-valued optional fields, arrays and nullable presence
 // fields retain the same semantics regardless of the backing store.
 type Profile struct {
-	schema *listing.Schema
-	reader FieldReader
-	budget evaluator.Budget
+	containsFields []string
+	maxCompileWork int
+	schema         *listing.Schema
+	reader         FieldReader
+	budget         evaluator.Budget
 }
 
 // BindBudget binds evaluation and field reads to a request-owned budget.
@@ -48,7 +50,12 @@ func New(schema *listing.Schema, reader FieldReader) (*Profile, error) {
 		return nil, listing.ErrInvalidSchema
 	}
 
-	return &Profile{schema: schema, reader: reader}, nil
+	maxWork := evaluator.DefaultMaxDataBudget
+	if r, ok := reader.(*Reader); ok {
+		maxWork = r.maxWork
+	}
+
+	return &Profile{schema: schema, reader: reader, containsFields: schema.CaseInsensitiveContainsFields(), maxCompileWork: maxWork}, nil
 }
 
 // ValidatePolicy satisfies evaluator.Profile. The schema owns contract validation.
@@ -75,8 +82,15 @@ func (p *Profile) CompileEvaluator(policy *filter.Policy, node filter.Node) (eva
 
 	compiled := &program{policy: policy, reader: p.reader, budget: p.budget, precision: p.schema.TimestampPrecision()}
 	if snapshot != nil {
-		c := compiler{schema: p.schema, policy: policy, matchers: matchers, refs: make(map[string]*fieldRef)}
+		c := compiler{
+			schema: p.schema, containsFields: p.containsFields, budget: readBudget{left: p.maxCompileWork, parent: p.budget},
+			policy: policy, matchers: matchers, refs: make(map[string]*fieldRef),
+		}
+
 		compiled.root = c.compile(snapshot)
+		if c.budget.exhausted {
+			return nil, filter.ErrDataLimitExceeded
+		}
 	}
 
 	return compiled, nil

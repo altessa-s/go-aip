@@ -35,6 +35,20 @@ func WithCallValidator(v func(*filter.CallNode) error) ProfileOption {
 	}
 }
 
+// WithCaseInsensitiveContainsFields sets the caseInsensitiveContainsFields option.
+//
+// caseInsensitiveContainsFields selects exact public text fields for Unicode 15.1 simple-lowercase contains.
+func WithCaseInsensitiveContainsFields(v ...string) ProfileOption {
+	v = slices.Clone(v)
+
+	return func(o *profileOptions) {
+		if len(v) == 0 {
+			return
+		}
+		o.caseInsensitiveContainsFields = v
+	}
+}
+
 // WithContractID sets the contractID option.
 //
 // contractID versions parser and semantic behavior in page-token bindings.

@@ -382,3 +382,30 @@ func TestExplicitIdentityField(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"a"}, p.Items)
 }
+
+func TestContainsProfileToken(t *testing.T) {
+	t.Parallel()
+	codec := pagetokentest.Codec(t, pagetoken.WithClock(func() time.Time { return time.Unix(1700000000, 0) }))
+	fields := []listing.Field{{Name: "id", Kind: filter.FieldKindString}, {Name: "name", Kind: filter.FieldKindString}}
+	list := func(names []string, token string) (string, error) {
+		profile := listing.NewProfile(listing.WithCaseInsensitiveContainsFields(names...))
+		schema := listing.MustSchema(fields, []string{"id"}, profile)
+		engine := memory.MustNewListEngine(codec, schema, func(id string) string { return id }, func(id string) map[string]any { return map[string]any{"id": id, "name": id} })
+		page, err := engine.List(t.Context(), "widgets", listing.Request{PageSize: 1, PageToken: token}, []string{"a", "b"})
+
+		return page.NextPageToken, err
+	}
+	defaultToken, err := list(nil, "")
+	require.NoError(t, err)
+	// Issued by the portable contract before case-insensitive contains was added.
+	const golden = "AQAAAYvP5WgApWFFJwzms769HdAStzlIZ69pRDQo9fvWOiNuPuB-Y2YIwHBRGHyl1HqnV4L8IGCiH3siayI6W3sicyI6ImEifV0sImkiOnsicyI6ImEifX2ecVgzsQtoY3p9eElbZQmie9gD5vt1ZtGKyL2direslA"
+	require.Equal(t, golden, defaultToken)
+	_, err = list([]string{"name"}, defaultToken)
+	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err))
+	token, err := list([]string{"name"}, "")
+	require.NoError(t, err)
+	_, err = list([]string{"id"}, token)
+	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err))
+	_, err = list([]string{"name", "name"}, token)
+	require.NoError(t, err)
+}

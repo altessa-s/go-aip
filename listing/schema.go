@@ -32,16 +32,18 @@ import (
 // or substring(). Custom functions may expand into matches() over declared
 // fields (functions.TextSearch quotes its argument).
 type Schema struct {
-	opts         *profileOptions
-	fields       *coremaps.ImmutableMap[string, compiledField]
-	filterParser FilterParser
-	orderParser  OrderParser
-	policy       *filter.Policy
-	orderPolicy  *orderby.Policy
-	orders       []Order                               // declared, then reversed, per pattern
-	byCanonical  *coremaps.ImmutableMap[string, Order] // canonical orderBy -> order
-	def          Order
-	defaults     []defaultEquality
+	opts                          *profileOptions
+	fields                        *coremaps.ImmutableMap[string, compiledField]
+	filterParser                  FilterParser
+	orderParser                   OrderParser
+	policy                        *filter.Policy
+	orderPolicy                   *orderby.Policy
+	orders                        []Order                               // declared, then reversed, per pattern
+	byCanonical                   *coremaps.ImmutableMap[string, Order] // canonical orderBy -> order
+	def                           Order
+	contractID                    string
+	caseInsensitiveContainsFields []string
+	defaults                      []defaultEquality
 }
 
 // NewSchema binds fields and patterns to a Profile; nil selects the portable
@@ -77,6 +79,10 @@ func NewSchema(fields []Field, patterns []string, profile *Profile) (*Schema, er
 	}
 
 	if err := s.compileFields(fields); err != nil {
+		return nil, err
+	}
+
+	if err := s.compileContainsFields(); err != nil {
 		return nil, err
 	}
 

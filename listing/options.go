@@ -42,6 +42,8 @@ type profileOptions struct {
 	filterOptions []filter.PolicyOption `optgen:"append" optval:"clone=eager"`
 	// builtinFunctions replaces the default CEL builtin allowlist; an empty slice disables builtins.
 	builtinFunctions []string `optgen:"default=defaultBuiltinFunctions()" optfn:"BuiltinFunctions=copyBuiltinFunctions"`
+	// caseInsensitiveContainsFields selects exact public text fields for Unicode 15.1 simple-lowercase contains.
+	caseInsensitiveContainsFields []string `optval:"clone=eager,notrim,nodup"`
 	// timestampPrecision truncates filter literals and defaults; zero preserves nanoseconds.
 	timestampPrecision time.Duration `optgen:"default=TimestampPrecision" optfn:"TimestampPrecision=timestampPrecision"`
 	// emptyFieldsAllowed permits a schema without filter fields. Configure filterOptions for its policy.

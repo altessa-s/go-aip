@@ -23,11 +23,9 @@ instances follow the budget's concurrency guarantees; unbound compiled programs 
 
 ## Compilation
 
-`CompileEvaluator` does everything that depends only on the filter and the schema once: it resolves every field, without copying
-the enum map that `Schema.Field` copies, and computes each field's zero value. It converts literal operands, list elements and
-decimal operands, and compiles `matches()` patterns. Evaluating a record then only reads and compares values. Each evaluation keeps
-its work budget on the stack, so it allocates nothing beyond the values it reads. Errors that depend on the shape of the AST are
-reported when the record is evaluated, at the same point and after the same reads and budget charges as before compilation.
+Compilation resolves field declarations and zero values, converts literal and decimal operands, and compiles `matches()` patterns. For selected contains
+fields it precomputes the Unicode 15.1 simple lowercase of literal needles. Evaluating a record charges input bytes before lowering each stored string.
+Each evaluation keeps its work budget on the stack and reports AST shape errors at the point of use.
 
 Comparisons avoid exact rational arithmetic when it is not needed. Two int64 values, two finite float64 values, or an int64 within
 ±2^53 and a finite float64 are compared directly. Larger integers, uint64 values and decimals take the exact path. Values that are
@@ -36,6 +34,9 @@ and without being boxed again. `Reader.Lookup` walks a dotted path without split
 and `map[string]string` directly, and without a storage encoding its work budget never leaves the stack.
 
 ## Limits
+
+Compiling selected contains calls charges the total input bytes of their literal needles before lowercase mapping. The built-in reader supplies its
+configured work limit. With a custom reader, compilation uses `evaluator.DefaultMaxDataBudget`. A bound request budget also applies.
 
 The reader bounds each lookup. The compiled program bounds predicate visits and existential array comparisons using the shared evaluator's data
 budget. Memory listing additionally bounds scanned and materialized records and sorting work. Storage encodings must charge their supplied budget.
