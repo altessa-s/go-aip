@@ -6,8 +6,7 @@ Proposed for review · 2026-11-23
 
 Atlas Service needs `totalSize` for a filtered collection, including on subsequent pages. Its
 `text.contains(q)` and `synonyms.contains(q)` filters must find mixed-case Cyrillic substrings.
-The approved requirements are in the consuming repository's `docs/PLAN.md`, stage 0b, and
-`docs/reviews/plan-r2-resolution.md`, finding 4. AIP-158 permits an optional
+AIP-158 permits an optional
 `int32 total_size` and permits documented estimates. Atlas requests a count of the matching rows. [AIP-158](https://google.aip.dev/158#guidance)
 
 ### Verified implementation at `4988f3c`
