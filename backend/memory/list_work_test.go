@@ -186,3 +186,31 @@ func TestStringPredicateBudget(t *testing.T) {
 		})
 	}
 }
+
+type failingRequestProfile struct{ *evaluation.Profile }
+
+func (p failingRequestProfile) BindBudget(b evaluator.Budget) evaluator.Profile {
+	b.Charge(100)
+	return p
+}
+
+func (p failingRequestProfile) CompileEvaluator(*filter.Policy, filter.Node) (evaluator.Program, error) {
+	return nil, filter.ErrUnsupportedOperation
+}
+
+func TestPrepareErrorAfterBudgetExhausted(t *testing.T) {
+	t.Parallel()
+	base := listingtest.NewSchema(t)
+	p, err := evaluation.New(base, evaluation.NewReader(nil, 0))
+	require.NoError(t, err)
+	custom, err := NewListEngine(nil, base, listingtest.ID, listingtest.Values, WithListProfile(failingRequestProfile{p}), WithListMaxWork(1))
+	require.NoError(t, err)
+	_, err = custom.List(t.Context(), "widgets", listing.Request{Filter: `name.contains("ABC")`}, nil)
+	require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
+
+	folding := listingtest.NewSchema(t, listing.WithCaseInsensitiveContainsFields("name"))
+	engine, err := NewListEngine(nil, folding, listingtest.ID, listingtest.Values, WithListMaxWork(1))
+	require.NoError(t, err)
+	_, err = engine.List(t.Context(), "widgets", listing.Request{Filter: `name.contains("ABC")`}, nil)
+	require.ErrorIs(t, err, ErrWorkBudget)
+}

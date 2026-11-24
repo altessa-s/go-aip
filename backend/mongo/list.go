@@ -66,6 +66,10 @@ func NewListEngine[D any](coll *mongo.Collection, codec pagetoken.Signer, schema
 		return nil, invalid("MongoDB list without a schema")
 	}
 
+	if len(schema.CaseInsensitiveContainsFields()) != 0 {
+		return nil, invalid("MongoDB does not support case-insensitive contains fields")
+	}
+
 	if schema.UnrestrictedOrder() || len(schema.Orders()) == 0 {
 		return nil, invalid("MongoDB requires declared nonempty sort patterns")
 	}

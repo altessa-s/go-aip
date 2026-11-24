@@ -95,3 +95,9 @@ func BenchmarkPreparedEvaluate_Matches(b *testing.B) {
 		})
 	})
 }
+
+func BenchmarkSimpleLower15_1(b *testing.B) {
+	for b.Loop() {
+		_ = evaluator.SimpleLower15_1("ПрИвЕт Hello ЁЖИК")
+	}
+}

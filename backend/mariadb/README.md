@@ -45,6 +45,9 @@ the [listing section of sqlbase](../sqlbase/README.md#listing-engine) for the en
 the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` (it is
 `sqlbase.MustNewListEngine` with `ListDialect` fixed) and wraps the `NewListEngine` error.
 
+The concrete SQL list engine provides an exact filtered total through `Count(ctx, req, scope)` on every page. See [exact SQL
+totals](../../docs/listing.md#exact-sql-totals).
+
 ## Filter
 
 Translates a `filter.Node` AST into a MariaDB SQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with `?` placeholders plus

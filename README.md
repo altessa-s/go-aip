@@ -97,6 +97,9 @@ Each backend is one package under `backend/` and a Go module of its own; its typ
 
 Each backend README lists what the backend can express.
 
+The SQL list engines support exact filtered totals. PostgreSQL 17 UTF8 and memory lists also support case-insensitive substring searches on selected
+public fields. See the [listing guide](docs/listing.md).
+
 ### Test kits
 
 Filter, order and projection translators run the shared conformance suites, listing engines run `listingtest`, and the SQL and MongoDB

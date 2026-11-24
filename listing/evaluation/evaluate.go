@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-aip/filter"
+	"github.com/altessa-s/go-aip/filter/evaluator"
 )
 
 // contractEvaluator is the state of one evaluation: the program's policy and reader and the record's budget. The budget is held
@@ -150,7 +151,7 @@ func (e *contractEvaluator) call(x *callExpr, data map[string]any) (truth, error
 // stringMatch applies the string function of x to one value, charging the length of both strings.
 func (e *contractEvaluator) stringMatch(x *callExpr, item any) bool {
 	text, ok := item.(string)
-	if !e.charge(len(text) + len(x.needle)) {
+	if !e.charge(len(text) + x.needleLength) {
 		return false
 	}
 
@@ -160,6 +161,10 @@ func (e *contractEvaluator) stringMatch(x *callExpr, item any) bool {
 
 	switch x.op {
 	case filter.OpContains:
+		if x.fold {
+			text = evaluator.SimpleLower15_1(text)
+		}
+
 		return strings.Contains(text, x.needle)
 	case filter.OpStartsWith:
 		return strings.HasPrefix(text, x.needle)

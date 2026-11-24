@@ -59,8 +59,8 @@ type ListEngine[T any] struct {
 // nil serves a single page and rejects a page token. A nil schema, id or
 // fields fails with [listing.ErrInvalidSchema]. Requests are bounded by
 // [DefaultMaxWork] unless [WithListMaxWork] sets another limit; a profile
-// replaced with [WithListProfile] must implement [RequestProfile] unless
-// the limit is lifted explicitly with WithListMaxWork(0).
+// supplied with [WithListProfile] requires a schema without case-insensitive contains fields
+// and must implement [RequestProfile] unless the limit is lifted explicitly with WithListMaxWork(0).
 func NewListEngine[T, ID any](
 	codec pagetoken.Signer, schema *listing.Schema, id func(T) ID, fields func(T) map[string]any, opts ...ListEngineOption,
 ) (*ListEngine[T], error) {
@@ -103,6 +103,8 @@ func NewListEngine[T, ID any](
 	selected := o.profile
 	if nilcheck.IsNil(selected) {
 		selected = profile
+	} else if len(schema.CaseInsensitiveContainsFields()) != 0 {
+		return nil, coreerrs.Wrap(listing.ErrInvalidSchema, "case-insensitive contains fields require the built-in evaluation profile")
 	}
 
 	if o.maxWork > 0 {
@@ -203,6 +205,11 @@ func (m *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 
 	prepared, err := eval.Prepare(q.Filter)
 	if err != nil {
+		// The built-in profile charges folded needles during preparation. A custom profile owns its preparation errors.
+		if work.err != nil && nilcheck.IsNil(m.opts.profile) {
+			return page.Page[T]{}, work.err
+		}
+
 		return page.Page[T]{}, err
 	}
 

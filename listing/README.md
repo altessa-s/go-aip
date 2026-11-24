@@ -181,6 +181,16 @@ Portable validation rejects empty `in` lists, null in `in`, ordered comparisons 
 outside the shared literal, anchor, and `.*` subset. Stored float fields must contain finite values only; NaN and infinities sort
 differently across supported databases and cannot have portable filter semantics.
 
+### Case-insensitive contains
+
+`WithCaseInsensitiveContainsFields("name", "tags")` selects declared plain string fields and string arrays by exact public name. On these fields
+`contains` lowercases both operands with the Unicode 15.1 simple mapping. It searches each array element independently. Filter access, equality and
+ordering still follow their usual policies. `Schema.CaseInsensitiveContainsFields()` returns a detached sorted slice.
+
+A nonempty selection binds the mapping revision, sorted field set and application contract ID into the page token. A token issued under another
+selection requires restarting at page one. Schema construction now rejects any caller-supplied `ContractID` beginning with `go-aip:contains:`, even with no fields
+selected. Callers using that prefix must choose a new ID and restart pagination.
+
 ## Sort patterns
 
 - A pattern is a complete key list with directions, in public names: `createTime desc`, `kind, name`. Free field combinations are not

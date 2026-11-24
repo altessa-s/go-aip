@@ -41,6 +41,12 @@ func TestIsolation(t *testing.T) {
 			want:     []string{"UTF8", "UTC", "true"},
 		},
 		{
+			name: "postgres17", open: dbtest.Postgres17, current: "SELECT current_database()",
+			exists:   "SELECT count(*) FROM pg_database WHERE datname = $1",
+			settings: "SELECT current_setting('server_encoding'), current_setting('server_version_num')::int / 10000",
+			want:     []string{"UTF8", "17"},
+		},
+		{
 			name: "mariadb", open: dbtest.MariaDB, current: "SELECT DATABASE()",
 			exists:   "SELECT count(*) FROM information_schema.schemata WHERE schema_name = ?",
 			settings: "SELECT @@character_set_database, @@collation_database, @@time_zone, CAST(SUBSTRING_INDEX(VERSION(), '.', 1) AS UNSIGNED) >= 11",

@@ -354,3 +354,10 @@ func TestEnsureIndexesReturnsServerConflicts(t *testing.T) {
 		})
 	}
 }
+
+func TestListRejectsFoldedContains(t *testing.T) {
+	t.Parallel()
+	s := listingtest.NewSchema(t, listing.WithCaseInsensitiveContainsFields("name"))
+	_, err := mongo.NewListEngine[listingtest.Widget](nil, nil, s)
+	require.ErrorIs(t, err, listing.ErrInvalidSchema)
+}

@@ -599,6 +599,21 @@ if err != nil {
 page, err := list.List(ctx, "widgets.List", req, sqlbase.Scope{"tenant_id": req.Parent})
 ```
 
+## Case-insensitive contains
+
+Select exact public names with `listing.WithCaseInsensitiveContainsFields("text", "synonyms")`. For standalone translation and evaluation, pass
+`WithSchemaCaseInsensitiveContainsFields` to `NewSchema`. Only a selected scalar text or text array receiver changes substring matching. The predicate
+uses `strpos` on both operands lowered under `pg_catalog.pg_c_utf8`, testing array elements individually. The evaluator uses the same Unicode 15.1
+simple lowercase mapping. Percent, underscore and backslash stay literal. Equality, ordering and cursor comparisons keep the field's collation.
+
+Run the list engine's `CheckSchema` before serving the enabled profile and before upgrading PostgreSQL. The preflight certifies exactly PostgreSQL 17
+with a UTF8 database and the built-in `pg_catalog.pg_c_utf8` collation. An upgrade to PostgreSQL 18 will fail `CheckSchema` until that major version
+is certified. On PostgreSQL 16, skipping `CheckSchema` makes every `contains` query on a selected field fail at execution because the collation is
+unavailable. The same requirements apply to standalone SQL translation.
+
+Scope-selective indexes can narrow the scan. Plain trigram and lower-expression B-tree indexes do
+not accelerate this `strpos` expression, and array membership indexes do not accelerate substring matching over `unnest`.
+
 ## Errors
 
 | Kind       | Error                                             | When                                                                                                                                                        |

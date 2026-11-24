@@ -17,8 +17,10 @@ import (
 
 // Program owns a validated expression. It is immutable and safe for concurrent use.
 type Program struct {
-	options            schemaOptions
-	root               *expression
+	options schemaOptions
+	root    *expression
+	// foldedNeedles caches selected literal needles while SQL keeps the original bind values.
+	foldedNeedles      map[*expression]string
 	jsonbStringCompare func(string, string) int
 	contract           bool
 }
@@ -65,9 +67,12 @@ func (s *Schema) compile(policy *filter.Policy, node filter.Node, contract bool)
 		return nil, err
 	}
 
-	resolveUnknownLists(root)
+	p := &Program{options: s.opts, root: root, jsonbStringCompare: s.opts.jsonbStringCompare, contract: contract}
+	if err := p.prepare(root, d.literals); err != nil {
+		return nil, err
+	}
 
-	return &Program{options: s.opts, root: root, jsonbStringCompare: s.opts.jsonbStringCompare, contract: contract}, nil
+	return p, nil
 }
 
 // CompileEvaluator compiles a filter to the evaluator-neutral program contract.
@@ -75,16 +80,33 @@ func (s *Schema) CompileEvaluator(policy *filter.Policy, node filter.Node) (eval
 	return s.Compile(policy, node)
 }
 
-// resolveUnknownLists runs after contextual inference, including for lists used
-// only by size(), where no comparison operand supplies an element type.
-func resolveUnknownLists(e *expression) {
+// prepare finishes contextual list inference and caches folded literal needles for evaluation.
+func (p *Program) prepare(e *expression, b *budget) error {
 	if e.Tag == filter.NodeKindList && e.Kind == sqlbase.Unknown {
 		sqltype.SetListKind(e, sqlbase.Text)
 	}
 
-	for _, child := range e.Children {
-		resolveUnknownLists(child)
+	if e.Op == filter.OpContains && e.Children[0].Field.foldContains {
+		if needle, ok := e.Children[1].Value.(string); ok {
+			if err := b.Spend(len(needle)); err != nil {
+				return err
+			}
+
+			if p.foldedNeedles == nil {
+				p.foldedNeedles = make(map[*expression]string)
+			}
+
+			p.foldedNeedles[e] = evaluator.SimpleLower15_1(needle)
+		}
 	}
+
+	for _, child := range e.Children {
+		if err := p.prepare(child, b); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // compiler is the PostgreSQL [sqltype.Dialect] of one compilation: every declared field and literal is accepted, and

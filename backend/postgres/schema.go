@@ -6,6 +6,7 @@ package postgres
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/altessa-s/go-aip/backend/sqlbase"
@@ -15,12 +16,13 @@ import (
 )
 
 type field struct {
-	column   string
-	kind     sqlbase.Kind
-	array    bool
-	presence bool
-	json     bool
-	path     []string
+	column       string
+	kind         sqlbase.Kind
+	array        bool
+	presence     bool
+	json         bool
+	path         []string
+	foldContains bool
 }
 
 // Schema combines neutral SQL fields with PostgreSQL execution options.
@@ -42,6 +44,21 @@ func NewSchema(fields *sqlbase.Schema, opts ...SchemaOption) (*Schema, error) {
 		return nil, coreerrs.Wrap(filter.ErrInvalidOptions, "invalid PostgreSQL semantic options")
 	}
 
+	o.caseInsensitiveContainsFields = slices.Clone(o.caseInsensitiveContainsFields)
+	slices.Sort(o.caseInsensitiveContainsFields)
+
+	o.caseInsensitiveContainsFields = slices.Compact(o.caseInsensitiveContainsFields)
+	for _, name := range o.caseInsensitiveContainsFields {
+		f, err := fields.Field(name)
+		if err != nil {
+			return nil, err
+		}
+
+		if f.Kind() != sqlbase.Text || f.IsJSONPath() {
+			return nil, coreerrs.Wrapf(filter.ErrInvalidOptions, "case-insensitive contains requires a text column for %q", name)
+		}
+	}
+
 	return &Schema{fields: fields, opts: *o}, nil
 }
 
@@ -54,17 +71,33 @@ func (s *Schema) ValidatePolicy(policy *filter.Policy) error {
 		return coreerrs.Wrap(filter.ErrInvalidOptions, "nil PostgreSQL schema")
 	}
 
-	return s.fields.ValidatePolicy(policy)
+	if err := s.fields.ValidatePolicy(policy); err != nil {
+		return err
+	}
+
+	for _, name := range s.opts.caseInsensitiveContainsFields {
+		if _, enum := policy.EnumValues(name); enum {
+			return coreerrs.Wrapf(filter.ErrInvalidOptions, "case-insensitive contains disallows enum field %q", name)
+		}
+	}
+
+	return nil
 }
 func (s *Schema) field(name string) (field, error) {
-	var fields *sqlbase.Schema
+	var (
+		fields       *sqlbase.Schema
+		foldContains bool
+	)
+
 	if s != nil {
 		fields = s.fields
+		_, foldContains = slices.BinarySearch(s.opts.caseInsensitiveContainsFields, name)
 	}
 
 	f, err := fields.Field(name)
 
-	return field{column: f.Column(), kind: f.Kind(), array: f.IsArray(), presence: f.HasPresence(), json: f.IsJSONPath(), path: f.Path()}, err
+	return field{column: f.Column(), kind: f.Kind(), array: f.IsArray(), presence: f.HasPresence(), json: f.IsJSONPath(), path: f.Path(),
+		foldContains: foldContains}, err
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

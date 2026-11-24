@@ -284,3 +284,43 @@ func TestDefaultEqualitiesDecimalAndBytes(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+func TestContainsFieldContract(t *testing.T) {
+	t.Parallel()
+
+	names := []string{"name", "id", "name"}
+	opt := listing.WithCaseInsensitiveContainsFields(names...)
+	names[0] = "missing"
+	schema := policySchema(t, opt)
+	got := schema.CaseInsensitiveContainsFields()
+	require.Equal(t, []string{"id", "name"}, got)
+	got[0] = "missing"
+
+	require.Equal(t, []string{"id", "name"}, schema.CaseInsensitiveContainsFields())
+	require.Equal(t, schema.ContractID(), policySchema(t, listing.WithCaseInsensitiveContainsFields("id", "name")).ContractID())
+	require.NotEqual(t, schema.ContractID(), policySchema(t, listing.WithCaseInsensitiveContainsFields("name")).ContractID())
+	require.NotEqual(t, schema.ContractID(), policySchema(t, opt, listing.WithContractID("v2")).ContractID())
+	require.Equal(t, listing.DefaultContractID, policySchema(t, listing.WithCaseInsensitiveContainsFields()).ContractID())
+
+	fields := []listing.Field{
+		{Name: "id", Kind: filter.FieldKindString},
+		{Name: "kind", Kind: filter.FieldKindString, Enum: map[string]any{"FOO": "foo"}},
+		{Name: "num", Kind: filter.FieldKindInt},
+	}
+
+	for _, name := range []string{"unknown", " id", "kind", "num"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := listing.NewSchema(fields, []string{"id"}, listing.NewProfile(listing.WithCaseInsensitiveContainsFields(name)))
+			require.ErrorIs(t, err, listing.ErrInvalidSchema)
+		})
+	}
+
+	_, err := listing.NewSchema(fields, []string{"id"}, listing.NewProfile(listing.WithContractID(schema.ContractID())))
+	require.ErrorIs(t, err, listing.ErrInvalidSchema)
+
+	restricted := policySchema(t, opt, listing.WithFilterOptions(filter.WithAllowedFields("id")))
+	_, err = restricted.Compile(t.Context(), listing.Request{Filter: `name.contains("x")`})
+	require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
+}

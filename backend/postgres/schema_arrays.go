@@ -256,7 +256,7 @@ func coerceArray(v any, k sqlbase.Kind, b *budget) (arrayValue, error) {
 // an empty array.
 //
 //nolint:nilnil // A NULL argument is unknown.
-func arrayStringCall(op filter.Operator, a, c any, b *budget, matcher filter.RegexMatcher) (any, error) {
+func arrayStringCall(e *expression, a, c any, b *budget) (any, error) {
 	if c == nil {
 		return nil, nil
 	}
@@ -275,7 +275,7 @@ func arrayStringCall(op filter.Operator, a, c any, b *budget, matcher filter.Reg
 			continue
 		}
 
-		result, err := stringCall(op, v, c, b, matcher)
+		result, err := stringCall(e, v, c, b)
 		if err != nil {
 			return nil, err
 		}
