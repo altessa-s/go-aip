@@ -55,8 +55,6 @@ body:
         - fieldinfo
         - fieldmask
         - fieldmask/extract
-        - fieldmask/internal/maskpath
-        - fieldmask/internal/maskwalk
         - fieldmask/update
         - fieldpolicy
         - filter
@@ -71,6 +69,9 @@ body:
         - internal/behavior
         - internal/literalvalue
         - internal/lru
+        - internal/maskmerge
+        - internal/maskpath
+        - internal/maskwalk
         - internal/proto
         - internal/telemetry
         - internal/testhelpers
