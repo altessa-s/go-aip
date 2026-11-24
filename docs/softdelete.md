@@ -51,9 +51,12 @@ toggled.
 caller then binds its page tokens to the restricted filter. `Visible` decides per item for a list read from memory without the listing
 engines.
 
-The restriction tests only `delete_time`: a soft-deleted resource past its purge time but not yet expunged still appears with
-`show_deleted`. A clock-dependent predicate (`purgeTime > now`) would change on every page and invalidate the page tokens; the expunge job
-(`PurgeDue`) removes such resources instead.
+For a finite restore window, also set `req.Cutoff = policy.Cutoff(at)`. The predicate is
+`deleteTime == null || purgeTime > at`. A tombstone disappears at its purge instant, even before physical deletion.
+Declare both fields as timestamps. The delete field uses `WithFilterField`; the purge field uses the lower camel case
+of `WithPurgeTimeField` (`expire_time` becomes `expireTime`). A tombstone without a purge time fails this predicate.
+Omit the cutoff for indefinite retention. Capture one instant for List and Count and refresh it on the next request.
+SQL and memory support the cutoff. MongoDB refuses it with `listing.ErrInvalidRestriction`.
 
 ## AIP-165 conformance
 

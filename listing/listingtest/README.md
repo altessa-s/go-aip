@@ -53,6 +53,7 @@ func TestConformance(t *testing.T) {
 | `MatchesContract`                            | Optional zero values, empty arrays, `size()`, timestamps, bools and string functions follow the shared proto3 contract |
 | `DefaultEqualities`                          | A default restriction applies until the filter refers to its field                                                     |
 | `Restriction`                                | `Request.Restriction` applies to a blank, narrowing or widening filter and after the default equalities, on every page |
+| `Cutoff`                                     | A changing cutoff preserves the cursor and filters each page. `WithCutoffRefusal(true)` requires explicit refusal. SQL suites also run `RunCutoffCount`. |
 | `RestrictionTokenBinding`                    | A token binds the restriction (another or none is refused); a refused restriction is `listing.ErrInvalidRestriction`   |
 | `OrdersTimestampsAtMillis`                   | Times below `listing.TimestampPrecision` tie and break by id                                                           |
 | `TokenBinding`                               | A token binds subject, parent, order and filter meaning — not its spelling or the page size                            |

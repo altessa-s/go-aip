@@ -202,6 +202,11 @@ func (l *ListEngine[D]) List(ctx context.Context, subject string, req listing.Re
 		return page.Page[D]{}, err
 	}
 
+	// FindPage binds its entire BSON filter. Older root modules cannot request a cutoff.
+	if c, ok := any(q).(interface{ Cutoff() filter.Node }); ok && c.Cutoff() != nil {
+		return page.Page[D]{}, fmt.Errorf("%w: MongoDB keyset pagination cannot apply an unbound cutoff", listing.ErrInvalidRestriction)
+	}
+
 	if err = l.checkScope(ctx, scope, req.Parent); err != nil {
 		return page.Page[D]{}, err
 	}

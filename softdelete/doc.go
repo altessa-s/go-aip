@@ -10,7 +10,8 @@
 // the retention), Undelete clears them, CheckGet returns a soft-deleted
 // resource unless configured otherwise, and Visible, Restriction and Restrict
 // apply the show_deleted rule of List to items in memory, as a
-// listing.Request restriction and to an AIP-160 filter AST.
+// listing.Request restriction and to an AIP-160 filter AST. Policy.Cutoff supplies
+// a separate List predicate for resources with a finite restore window.
 // Errors match the go-atlas-core canonical errors of their AIP status codes:
 // NOT_FOUND for a missing, purged or (on Delete) already deleted resource and
 // ALREADY_EXISTS for Undelete of a resource that is not deleted.

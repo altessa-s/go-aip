@@ -298,6 +298,7 @@ func TestFilteredCount(t *testing.T) {
 	engine, err := clickhouse.NewListEngine(db, nil, listingtest.NewSchema(t), "widgets", []string{"id"}, func(id *string) []any { return []any{id} },
 		sqlbase.WithListColumns(map[string]string{"createTime": "created_at"}))
 	require.NoError(t, err)
+	listingtest.RunCutoffCount(t, items, engine.Count, nil)
 
 	for _, tc := range []struct {
 		filter string

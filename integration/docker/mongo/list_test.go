@@ -102,7 +102,7 @@ func TestListEngineConformance(t *testing.T) {
 		l, _ := widgetList(t, s, codec, items)
 
 		return scoped(l, nil)
-	})
+	}, listingtest.WithCutoffRefusal(true))
 }
 
 // ids lists the _id of every document l selects for expr, ordered by id.

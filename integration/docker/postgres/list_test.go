@@ -111,3 +111,14 @@ func zero[T any](v *T) T {
 
 	return *v
 }
+
+func TestCutoffCount(t *testing.T) {
+	t.Parallel()
+	db := dbtest.Postgres(t)
+	items := listingtest.MakeWidgets(60)
+	storeWidgets(t, db, "widgets", items)
+	engine, err := postgres.NewListEngine(db, nil, listingtest.NewSchema(t), "widgets", widgetColumns, widgetDest,
+		sqlbase.WithListColumns(map[string]string{"createTime": "created_at"}))
+	require.NoError(t, err)
+	listingtest.RunCutoffCount(t, items, engine.Count, nil)
+}

@@ -57,7 +57,7 @@ string orderBy   = 4;  // a declared pattern or its full reversal; empty → the
 // response: repeated items; string nextPageToken; no totalSize
 ```
 
-`listing.Request{PageSize, PageToken, Filter, OrderBy, Parent, ReadMask, Restriction}` carries it (`Restriction` is set by the handler, never read
+`listing.Request{PageSize, PageToken, Filter, OrderBy, Parent, ReadMask, Restriction, Cutoff}` carries it (both predicates are set by the handler, never read
 from the message; see [Server restriction](#server-restriction)); a gRPC handler builds it from the request message with
 `listing.RequestFromProto(req)` (any message with the `ProtoRequest` getters; `parent` when it also has `GetParent`) and passes the gRPC full method
 (`xxxv1.XxxService_ListYyy_FullMethodName`) as the list subject down to the store, so tokens of different RPCs never cross. Every invalid request is
@@ -92,6 +92,16 @@ page, err := books.List(ctx, req)
 | Limits             | The combined filter must fit `WithMaxFilterDepth` / `WithMaxFilterOperations`; a client filter that only exceeds them with the restriction is a field error on `filter` (`filter.ErrMaxOperationsExceeded`). Leave headroom for the restriction. |
 | Paging             | Must be the same on every page of a walk: derive it from the request and the caller, never from the clock.                                                                                                                                       |
 | Engines            | Use operations every engine of the list translates (equalities, null tests, ranges); an engine translator's refusal is reported like a client filter's.                                                                                          |
+
+A handler may also set `Request.Cutoff` to a server predicate whose value advances between pages, such as a restore deadline.
+`Schema.Compile` clones and validates it under the restriction rules and returns it through `Query.Cutoff()`. A refusal,
+including a cutoff that pushes the whole expression over its limits, is `ErrInvalidRestriction` (INTERNAL).
+SQL List and Count and the memory engine apply the cutoff before pagination. MongoDB refuses it because its keyset
+reader binds the entire BSON predicate. Use matching root and backend releases when enabling cutoffs.
+
+The cutoff only removes rows. Keyset pagination resumes strictly after the same sort values and identity, even if
+the last returned row has since expired. Rows that remain eligible keep their positions. Use `Restriction` for
+tenant, caller, and request predicates whose change must invalidate the walk.
 
 The restriction uses the schema's filter policy, so it can only test fields a client may also filter on. That is safe — the conjunction only
 narrows — but a field the client must not name at all (denied with `WithFilterOptions`) cannot be restricted this way; scope it in the engine
@@ -281,7 +291,7 @@ cannot state the projection allow-list. Append `projection.WithAllowedFields` (a
 except the Hidden ones (AIP-157); when a view selects the fields instead, pass the selected paths as `Request.ReadMask`.
 
 An engine translates `Query.Filter` as a whole and binds its canonical form; it needs nothing else for `Request.Restriction`. An engine
-runs `listingtest.Run` in its tests (the `Restriction` and `RestrictionTokenBinding` scenarios cover the restriction).
+must also apply `Query.Cutoff()` to the rows it reads or refuse it as a server fault. The `listingtest.Run` suite checks both predicates.
 
 ## Tests
 

@@ -27,7 +27,7 @@ var ErrUnreadableSortField = errors.New("listing: sort field is not readable by 
 // error mapper treats it as RESOURCE_EXHAUSTED.
 var ErrWorkBudget = errors.New("listing: work budget exceeded")
 
-// ErrInvalidRestriction reports a [Request] Restriction the schema's filter
+// ErrInvalidRestriction reports a server restriction or cutoff the schema's filter
 // policy refuses (an undeclared field, a literal of the wrong kind, a
 // malformed AST). The restriction comes from the server, so it is a
 // configuration fault: it wraps [ErrInvalidSchema] (INTERNAL in an error

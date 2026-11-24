@@ -12,6 +12,15 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithCutoffRefusal sets the cutoffRefusal option.
+//
+// cutoffRefusal requires the engine to refuse even a valid cutoff as a server fault.
+func WithCutoffRefusal(v bool) Option {
+	return func(o *options) {
+		o.cutoffRefusal = v
+	}
+}
+
 // WithSchemaOptions appends to the schemaOptions option.
 //
 // schemaOptions configure fixture parsers and policies before scenario-specific settings.

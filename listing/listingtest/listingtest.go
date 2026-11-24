@@ -64,6 +64,7 @@ func run(t *testing.T, newList Factory, arrays bool, cfg *options) {
 		{"MatchesContract", testMatchesContract},
 		{"DefaultEqualities", testDefaultEqualities},
 		{"Restriction", testRestriction},
+		{"Cutoff", testCutoff},
 		{"RestrictionTokenBinding", testRestrictionTokenBinding},
 		{"OrdersTimestampsAtMillis", testOrdersTimestampsAtMillis},
 		{"TokenBinding", testTokenBinding},

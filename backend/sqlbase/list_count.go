@@ -15,7 +15,7 @@ import (
 
 // Count returns the exact number of matching rows in scope before pagination.
 // It applies List's request validation and ignores PageToken. To read the same
-// snapshot as List, use the same repeatable-read transaction and restriction.
+// snapshot as List, use the same repeatable-read transaction and the same request, including its cutoff instant.
 func (l *ListEngine[T]) Count(ctx context.Context, req listing.Request, scope Scope) (int64, error) {
 	p, err := l.prepare(ctx, req, scope)
 	if err != nil {

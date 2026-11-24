@@ -544,6 +544,9 @@ collision"). A dotted path into an array of documents (`items.name`) selects tha
 
 ## List engine
 
+The engine refuses `listing.Request.Cutoff` with `listing.ErrInvalidRestriction` because keyset tokens bind the complete BSON filter.
+
+
 A schema selecting case-insensitive contains fields is rejected with `listing.ErrInvalidSchema`. MongoDB's contains predicate uses case-sensitive
 literal substring matching.
 

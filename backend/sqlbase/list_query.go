@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
 
+	"github.com/altessa-s/go-aip/apierror"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/pagination/page"
@@ -178,6 +179,20 @@ func (l *ListEngine[T]) prepare(ctx context.Context, req listing.Request, scope 
 		p.filterSQL, p.args, err = l.translator.Translate(q.Filter)
 		if err != nil {
 			return preparedList{}, l.schema.TranslationError(err)
+		}
+	}
+
+	// Older root modules have no cutoff. Translate the conjunction as one tree
+	// so the dialect numbers filter, scope and cursor arguments consecutively.
+	if c, ok := any(q).(interface{ Cutoff() filter.Node }); ok && c.Cutoff() != nil {
+		rows := c.Cutoff()
+		if q.Filter != nil {
+			rows = &filter.BinaryOpNode{Op: filter.OpAnd, Left: q.Filter, Right: rows}
+		}
+
+		p.filterSQL, p.args, err = l.translator.Translate(rows)
+		if err != nil {
+			return preparedList{}, apierror.Classify(fmt.Errorf("%w: cannot translate cutoff", listing.ErrInvalidRestriction), err)
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
+	"github.com/altessa-s/go-aip/apierror"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/evaluator"
 	"github.com/altessa-s/go-aip/listing"
@@ -228,6 +229,18 @@ func (m *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 		scan.filter = prepared
 	}
 
+	// A query from an older root module has only its token-bound filter.
+	if c, ok := any(q).(interface{ Cutoff() filter.Node }); ok && c.Cutoff() != nil {
+		scan.cutoff, err = eval.Prepare(c.Cutoff())
+		if work.err != nil {
+			return page.Page[T]{}, work.err
+		}
+
+		if err != nil {
+			return page.Page[T]{}, apierror.Classify(fmt.Errorf("%w: cannot prepare cutoff", listing.ErrInvalidRestriction), err)
+		}
+	}
+
 	top := topRows[T]{compare: comparePositions(q.Order, m.opts.positionCodec, m.opts), work: &work, limit: size + 1,
 		maxMaterialized: m.opts.maxMaterialized}
 
@@ -280,8 +293,8 @@ type scan[T any] struct {
 	reader evaluation.FieldReader
 	work   *workBudget
 	// filter is the prepared request filter; nil matches every item.
-	filter *evaluator.Prepared
-	keys   []scanKey
+	filter, cutoff *evaluator.Prepared
+	keys           []scanKey
 	// idKind is the kind of the tie-breaker field, when one replaces the id callback.
 	idKind filter.FieldKind
 	// pos is the position of the last item, valid until the next call; a retained row copies it.
@@ -314,8 +327,12 @@ func (s *scan[T]) offer(it T, top *topRows[T], after pagetoken.Position, first b
 	}
 
 	values := s.m.fields(it)
-	if s.filter != nil {
-		ok, err := s.filter.Evaluate(values)
+	for _, predicate := range [...]*evaluator.Prepared{s.filter, s.cutoff} {
+		if predicate == nil {
+			continue
+		}
+
+		ok, err := predicate.Evaluate(values)
 
 		if s.work.err != nil {
 			return s.work.err
