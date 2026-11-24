@@ -5,10 +5,10 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-aip v0.1.11
-	github.com/altessa-s/go-aip/backend/clickhouse v0.1.11
-	github.com/altessa-s/go-aip/backend/mariadb v0.1.11
-	github.com/altessa-s/go-aip/backend/postgres v0.1.11
+	github.com/altessa-s/go-aip v0.1.12
+	github.com/altessa-s/go-aip/backend/clickhouse v0.1.12
+	github.com/altessa-s/go-aip/backend/mariadb v0.1.12
+	github.com/altessa-s/go-aip/backend/postgres v0.1.12
 	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.12.1
