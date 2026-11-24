@@ -5,11 +5,13 @@
 package evaluation
 
 import (
+	"slices"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"github.com/altessa-s/go-aip/filter"
+	"github.com/altessa-s/go-aip/filter/evaluator"
 	"github.com/altessa-s/go-aip/listing"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -56,11 +58,13 @@ type fieldRef struct {
 
 // callExpr is a function call on a field: has()/exists() or a string function.
 type callExpr struct {
-	err     error // structural error returned after the field is read (size(), arguments, operand)
-	ref     *fieldRef
-	matcher filter.Regex
-	needle  string
-	op      filter.Operator
+	err          error // structural error returned after the field is read (size(), arguments, operand)
+	ref          *fieldRef
+	matcher      filter.Regex
+	needleLength int // byte length before lowercase mapping, charged per comparison
+	fold         bool
+	needle       string
+	op           filter.Operator
 }
 
 // compareExpr is a comparison of a field, or of size() of a field, with a literal operand.
@@ -92,10 +96,12 @@ type inElement struct {
 
 // compiler resolves an AST into an [expr] tree.
 type compiler struct {
-	schema   *listing.Schema
-	policy   *filter.Policy
-	matchers map[string]filter.Regex
-	refs     map[string]*fieldRef
+	budget         readBudget
+	containsFields []string
+	schema         *listing.Schema
+	policy         *filter.Policy
+	matchers       map[string]filter.Regex
+	refs           map[string]*fieldRef
 }
 
 func (c *compiler) compile(node filter.Node) *expr {
@@ -170,10 +176,22 @@ func (c *compiler) compileCall(n *filter.CallNode) *expr {
 			break
 		}
 
-		x.needle, x.matcher = needle, c.matchers[needle]
+		x.needle, x.matcher, x.needleLength = needle, c.matchers[needle], len(needle)
+		if n.Op == filter.OpContains {
+			c.prepareContains(x, ident.Name)
+		}
 	}
 
 	return &expr{kind: exprCall, call: x}
+}
+
+func (c *compiler) prepareContains(x *callExpr, name string) {
+	_, x.fold = slices.BinarySearch(c.containsFields, name)
+	if !x.fold || !c.budget.Charge(x.needleLength) {
+		return
+	}
+
+	x.needle = evaluator.SimpleLower15_1(x.needle)
 }
 
 func (c *compiler) compileCompare(op filter.Operator, left, right filter.Node) *expr {

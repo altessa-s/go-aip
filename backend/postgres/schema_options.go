@@ -33,6 +33,9 @@ type schemaOptions struct {
 	// WithSchemaArrayAliasPrefix controls generated array element aliases: the prefix followed by a counter.
 	arrayAliasPrefix string `opt:"SchemaArrayAliasPrefix" optgen:"default=DefaultArrayAliasPrefix"`
 
+	// WithSchemaCaseInsensitiveContainsFields enables Unicode 15.1 simple lowercase substring matching for the named text columns.
+	caseInsensitiveContainsFields []string `opt:"SchemaCaseInsensitiveContainsFields" optval:"clone=eager,notrim,nodup"`
+
 	// WithSchemaMaxDataBudget bounds work spent compiling literal values.
 	maxDataBudget int `opt:"SchemaMaxDataBudget" optgen:"default=DefaultMaxDataBudget" optval:"positive"`
 	// WithSchemaContractMode renders against non-null, C-collated listing columns. It is the only contract switch:

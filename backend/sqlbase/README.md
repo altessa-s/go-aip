@@ -568,6 +568,12 @@ The application owns the table and its data; the engine emits parameterized quer
 values, and scanning. `List(ctx, subject, request, Scope)` requires every configured scope key; `WithListParentKey` explicitly binds a scope key to
 `Request.Parent`. `WithListMaxTime` defaults to ten seconds; zero uses the caller deadline. `WithListErrorMapper` replaces query-failure classification.
 
+For an exact total, call `Count(ctx, req, scope)` after List succeeds, passing the same request and authorized scope. Count applies the filter, default
+equalities, server restriction and pins to the whole collection, ignores the page token and returns an int64 (zero for no matches). Propagate errors and
+check the total fits before assigning an int32 response field. The caller's deadline can bound both statements together. Under READ COMMITTED, an
+intervening write can change the total. For agreement, run both calls through the same read-only REPEATABLE READ transaction with the same restriction
+and reference time. Scope or parent indexes may reduce count work, but an exact MVCC count can visit every qualifying entry and consult the heap.
+
 `MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
 the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` and wraps the
 `NewListEngine` error.

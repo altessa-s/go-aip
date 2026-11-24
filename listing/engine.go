@@ -55,4 +55,4 @@ type OrderParser interface {
 
 // ContractID returns the application-versioned contract used to bind page tokens.
 // Change it when changing parser, evaluation, or storage ordering semantics.
-func (s *Schema) ContractID() string { return s.opts.contractID }
+func (s *Schema) ContractID() string { return s.contractID }

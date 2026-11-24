@@ -8,6 +8,9 @@ Evaluates a [filter AST](../) over Go values. Shared evaluator instances and pre
 
 ## Contract
 
+`SimpleLower15_1(text)` applies Unicode 15.1 simple lowercase, including the one-code-point mapping of İ to i. Schema-aware profiles use it for
+opt-in literal substring matching. The native evaluator uses case-sensitive contains.
+
 `New(policy, opts...)` takes the shared `*filter.Policy` (built once per resource and shared with the translators) and evaluator `Option` values;
 `WithFilterOptions` maps the policy's API names to data keys. `Evaluate` validates the expression and evaluates one value,
 while `Prepare` snapshots and validates once for repeated execution. A nil filter matches every document.

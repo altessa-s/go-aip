@@ -289,3 +289,22 @@ func TestListEngineSchemaLive(t *testing.T) {
 		require.ErrorIs(t, newStore(t, db, "bad_missing", nil).CheckSchema(t.Context(), db), listing.ErrInvalidSchema)
 	})
 }
+
+func TestFilteredCount(t *testing.T) {
+	t.Parallel()
+	db := dbtest.ClickHouse(t)
+	items := listingtest.MakeWidgets(6)
+	storeWidgets(t, db, "widgets", items)
+	engine, err := clickhouse.NewListEngine(db, nil, listingtest.NewSchema(t), "widgets", []string{"id"}, func(id *string) []any { return []any{id} },
+		sqlbase.WithListColumns(map[string]string{"createTime": "created_at"}))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		filter string
+		total  int64
+	}{{"", 6}, {"priority == 0", 2}, {"priority == 10", 0}} {
+		n, err := engine.Count(t.Context(), listing.Request{PageSize: 1, Filter: tc.filter}, nil)
+		require.NoError(t, err)
+		require.Equal(t, tc.total, n)
+	}
+}

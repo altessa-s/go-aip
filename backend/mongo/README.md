@@ -544,6 +544,9 @@ collision"). A dotted path into an array of documents (`items.name`) selects tha
 
 ## List engine
 
+A schema selecting case-insensitive contains fields is rejected with `listing.ErrInvalidSchema`. MongoDB's contains predicate uses case-sensitive
+literal substring matching.
+
 `NewListEngine[D](coll, signer, schema, opts...)` is the MongoDB engine of the [`listing`](../../listing/README.md) contract (`listing.Engine[D,
 bson.D]`): `List(ctx, subject, req, scope)` compiles the request with the schema, translates its filter with the filter translator of this package, ANDs
 it with the caller's `scope` and reads one keyset page with a plain `find` (the sort, `limit` page size + 1, one batch), decoding the documents into

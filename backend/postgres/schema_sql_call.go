@@ -131,7 +131,7 @@ func (r *renderer) renderCallPredicate(e *expression, negated bool) (string, err
 	case !target.Array:
 		if op, pattern, ok := contractPattern(r, e); ok {
 			sql = "(" + a + " " + op + " " + pattern + ")"
-		} else if sql, err = renderStringCall(e.Op, a, c); err != nil {
+		} else if sql, err = renderStringCall(e, a, c); err != nil {
 			return "", err
 		}
 	default:
@@ -158,7 +158,7 @@ func (r *renderer) renderArrayStringCall(e *expression, a, c string, negated boo
 		element = "(" + alias + " COLLATE " + r.collation() + ")"
 	}
 
-	pred, err := renderStringCall(e.Op, element, c)
+	pred, err := renderStringCall(e, element, c)
 	if err != nil {
 		return "", err
 	}
@@ -209,9 +209,14 @@ func contractPattern(r *renderer, e *expression) (op, rendered string, ok bool) 
 	return op, "($" + strconv.Itoa(len(r.args)) + ")::text", true
 }
 
-func renderStringCall(op filter.Operator, a, c string) (string, error) {
-	switch op {
+func renderStringCall(e *expression, a, c string) (string, error) {
+	switch e.Op {
 	case filter.OpContains:
+		if e.Children[0].Field.foldContains {
+			a = "lower((" + a + ") COLLATE pg_catalog.pg_c_utf8)"
+			c = "lower((" + c + ") COLLATE pg_catalog.pg_c_utf8)"
+		}
+
 		return "(strpos(" + a + ", " + c + ") > 0)", nil
 	case filter.OpStartsWith:
 		return "starts_with(" + a + ", " + c + ")", nil

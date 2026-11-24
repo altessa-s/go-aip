@@ -15,7 +15,6 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
 
-	"github.com/altessa-s/go-aip/apierror"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/pagination/page"
@@ -145,34 +144,55 @@ func (l *ListEngine[T]) buildSelect(keysOrder []ListOrderKey) *listPlan {
 	return &listPlan{keys: keysOrder, selectSQL: sel.String(), orderSQL: ord.String()}
 }
 
+// preparedList holds the compiled collection predicate and order before any cursor is resolved.
+type preparedList struct {
+	query     listing.Query
+	plan      *listPlan
+	pins      []pin
+	scopeKey  string
+	filterSQL string
+	args      []any
+}
+
+func (l *ListEngine[T]) prepare(ctx context.Context, req listing.Request, scope Scope) (preparedList, error) {
+	p := preparedList{args: []any{}}
+
+	q, err := l.schema.CompileWithOrderValidator(ctx, req, func(o listing.Order) error {
+		plan, err := l.plan(o)
+		p.plan = plan
+
+		return err
+	})
+	if err != nil {
+		return preparedList{}, err
+	}
+
+	p.query = q
+
+	p.pins, p.scopeKey, err = l.canonicalScope(scope, req.Parent)
+	if err != nil {
+		return preparedList{}, err
+	}
+
+	if q.Filter != nil {
+		p.filterSQL, p.args, err = l.translator.Translate(q.Filter)
+		if err != nil {
+			return preparedList{}, l.schema.TranslationError(err)
+		}
+	}
+
+	return p, nil
+}
+
 // List returns a page restricted to scope and the request filter. The page
 // token binds the subject, parent, canonical filter, order and canonical scope.
 func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Request, scope Scope) (page.Page[T], error) {
-	var plan *listPlan
-
-	q, err := l.schema.CompileWithOrderValidator(ctx, req, func(o listing.Order) error {
-		var perr error
-
-		plan, perr = l.plan(o)
-
-		return perr
-	})
+	p, err := l.prepare(ctx, req, scope)
 	if err != nil {
 		return page.Page[T]{}, err
 	}
 
-	pins, scopeKey, err := l.canonicalScope(scope, req.Parent)
-	if err != nil {
-		return page.Page[T]{}, err
-	}
-
-	filterSQL, args := "", []any{}
-	if q.Filter != nil {
-		filterSQL, args, err = l.translator.Translate(q.Filter)
-		if err != nil {
-			return page.Page[T]{}, l.schema.TranslationError(err)
-		}
-	}
+	q, plan := p.query, p.plan
 
 	// The bindings need the canonical filter: they are computed only to resolve or issue a token.
 	var (
@@ -181,7 +201,7 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 	)
 
 	if req.PageToken != "" {
-		if binds, err = l.bindings(subject, req.Parent, scopeKey, q); err != nil {
+		if binds, err = l.bindings(subject, req.Parent, p.scopeKey, q); err != nil {
 			return page.Page[T]{}, err
 		}
 
@@ -195,7 +215,7 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 		}
 	}
 
-	where, args, err := l.buildWhere(filterSQL, args, pins, plan.keys, pos)
+	where, args, err := l.buildWhere(p.filterSQL, p.args, p.pins, plan.keys, pos)
 	if err != nil {
 		return page.Page[T]{}, err
 	}
@@ -213,15 +233,7 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 
 	items, last, hasMore, err := l.scanPage(rows, plan.keys, q.Size)
 	if err != nil {
-		// The query context ending closes the rows under the scan: that is a timeout or a cancellation, not a stored row, and the
-		// scan error stays hidden whatever it is.
-		if qctx.Err() != nil {
-			return page.Page[T]{}, l.mapEndedError(ctx, qctx, err, q.Filter != nil)
-		}
-
-		// A destination's Scan may return any error, a token or deadline sentinel included: it is still a stored row that does
-		// not read, which an API error mapper classifies as such and not by that cause.
-		return page.Page[T]{}, apierror.Classify(ErrCorruptRecord, err)
+		return page.Page[T]{}, l.scanError(ctx, qctx, err, q.Filter != nil)
 	}
 
 	if err = rows.Err(); err != nil {
@@ -231,7 +243,7 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 	out := page.Page[T]{Items: items}
 	// A list without a codec serves a single page: it issues no token.
 	if hasMore && l.codec != nil {
-		if out.NextPageToken, err = l.nextToken(last, binds, req.PageToken != "", subject, req.Parent, scopeKey, q); err != nil {
+		if out.NextPageToken, err = l.nextToken(last, binds, req.PageToken != "", subject, req.Parent, p.scopeKey, q); err != nil {
 			// A signer or position codec failing once the query context ended reports that end alone, as a scan does: its error,
 			// a field or API error included, stays hidden and selects no status.
 			if qctx.Err() != nil {

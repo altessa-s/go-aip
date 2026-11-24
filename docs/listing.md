@@ -82,6 +82,16 @@ Portable validation rejects empty membership lists, null membership elements, or
 contains, startsWith, endsWith, size, and timestamp; operators and the has macro remain grammar. Custom functions can expand to validated predicates.
 Timestamp literals and default equalities normalize to UTC at profile precision, one millisecond by default.
 
+### Case-insensitive contains
+
+For PostgreSQL 17 and the memory list engine, `listing.WithCaseInsensitiveContainsFields("title", "synonyms")` selects declared public string fields,
+including string arrays and nullable strings. Both operands of `contains` use Unicode 15.1 simple lowercase. Substrings are literal and match within one
+array element. Equality, order, regex, and cursor keys retain their configured semantics. Field access still comes from the filter policy.
+
+Run `CheckSchema` during PostgreSQL deployment preflight before enabling the profile. It requires PostgreSQL 17, UTF8, and `pg_catalog.pg_c_utf8`. Roll
+out the same field set on all replicas. The selected fields and mapping revision are bound into the schema contract ID, so clients restart pagination
+after a profile change.
+
 ## Orders, masks, and errors
 
 A request order must be a declared pattern or its full reversal. Prefixes and partial reversals are rejected. The first pattern is the default unless
@@ -177,6 +187,19 @@ Call CheckSchema before deployment and EnsureIndexes when provisioning SQL index
 applications own matching storage/index behavior. WithListSchemaCheckPolicy replaces individual named checks, including type, nullability, collation,
 timestamp precision, decimal domain, and indexability. WithListIndexNamer replaces deterministic index names. ClickHouse's EnsureIndexes adds minmax
 data skipping indexes; its primary index is the MergeTree sorting key, which should start with the scope keys and the dominant sort pattern.
+
+### Exact SQL totals
+
+When a response needs `total_size`, call `List` and then `Count(ctx, req, scope)` on the concrete SQL engine with the same authorized scope and
+restriction. Count returns the exact `int64` number of matching rows across all pages and ignores the page token. Propagate errors from either call and
+check for overflow before assigning an `int32` response field.
+
+A single caller deadline can bound both statements. At `READ COMMITTED` an intervening write can change the total. For a consistent page and total, use
+an engine backed by the same read-only `REPEATABLE READ` transaction and reuse the restriction and its reference time.
+
+Counting may scan every qualifying index entry and visit the heap. Measure plans with representative tenant, parent, and soft-delete filters. A
+selective scope index can reduce the scan. PostgreSQL `strpos` over `lower` and `unnest` cannot directly use a B-tree on `lower`, a plain trigram index,
+or an array membership GIN index.
 
 ## SQL dialect and engine setup
 

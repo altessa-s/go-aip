@@ -405,6 +405,9 @@ Docker this package translates every filter of the listing suite against its wid
 go -C integration/docker test -race -tags integration_docker ./clickhouse/
 ```
 
+The concrete SQL list engine provides an exact filtered total through `Count(ctx, req, scope)` on every page. See [exact SQL
+totals](../../docs/listing.md#exact-sql-totals).
+
 ## Order translator
 
 `NewOrderTranslator(policy, opts...)` is `sqlbase.NewOrderTranslator(policy, OrderDialect(), opts...)`. It binds the shared

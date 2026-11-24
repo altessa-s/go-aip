@@ -144,6 +144,17 @@ func TestListCustomProfileNeedsExplicitUnlimitedWork(t *testing.T) {
 	require.Len(t, got.Items, 3)
 }
 
+func TestListCustomProfileRejectsCaseInsensitiveContainsFields(t *testing.T) {
+	t.Parallel()
+
+	profile, err := evaluation.New(listingtest.NewSchema(t), evaluation.NewReader(nil, evaluator.DefaultMaxDataBudget))
+	require.NoError(t, err)
+
+	schema := listingtest.NewSchema(t, listing.WithCaseInsensitiveContainsFields("name"))
+	_, err = memory.NewListEngine(nil, schema, listingtest.ID, listingtest.Values, memory.WithListProfile(profile))
+	require.ErrorIs(t, err, listing.ErrInvalidSchema)
+}
+
 // TestListChecksPageTokenBeforeScanning checks a forged, tampered or foreign page token is rejected before any item is read.
 func TestListChecksPageTokenBeforeScanning(t *testing.T) {
 	t.Parallel()

@@ -140,13 +140,26 @@ func (ListDialect) CheckSchema(ctx context.Context, db *sql.DB, c sqlbase.ListSc
 func (ListDialect) NewTranslator(policy *filter.Policy, schema *sqlbase.Schema, opts []filter.TranslatorOption,
 	config sqlbase.ListTranslatorConfig,
 ) (sqlbase.ListFilterTranslator, error) {
-	semanticOpts := []SchemaOption{WithSchemaContractMode(true), WithSchemaTimestampPrecision(config.TimestampPrecision)}
+	return newListTranslator(policy, schema, opts, config)
+}
+
+// NewCaseInsensitiveContainsTranslator builds the listing translator with Unicode 15.1 simple lowercase contains on names.
+func (ListDialect) NewCaseInsensitiveContainsTranslator(policy *filter.Policy, fields *sqlbase.Schema, opts []filter.TranslatorOption,
+	config sqlbase.ListTranslatorConfig, names []string,
+) (sqlbase.ListFilterTranslator, error) {
+	return newListTranslator(policy, fields, opts, config, WithSchemaCaseInsensitiveContainsFields(names...))
+}
+
+func newListTranslator(policy *filter.Policy, fields *sqlbase.Schema, opts []filter.TranslatorOption,
+	config sqlbase.ListTranslatorConfig, semanticOpts ...SchemaOption,
+) (sqlbase.ListFilterTranslator, error) {
+	semanticOpts = append(semanticOpts, WithSchemaContractMode(true), WithSchemaTimestampPrecision(config.TimestampPrecision))
 	if config.TextCollation != "" {
 		// This schema is used for SQL rendering only; comparison runs in the database.
 		semanticOpts = append(semanticOpts, WithSchemaTextCollation(config.TextCollation), WithSchemaTextCompare(strings.Compare))
 	}
 
-	sem, err := NewSchema(schema, semanticOpts...)
+	sem, err := NewSchema(fields, semanticOpts...)
 	if err != nil {
 		return nil, err
 	}

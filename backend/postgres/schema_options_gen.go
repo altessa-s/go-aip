@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -30,6 +31,18 @@ func WithSchemaArrayAliasPrefix[T interface{ string | *string }](v T) SchemaOpti
 			return
 		}
 		o.arrayAliasPrefix = transformedValue
+	}
+}
+
+// WithSchemaCaseInsensitiveContainsFields enables Unicode 15.1 simple lowercase substring matching for the named text columns.
+func WithSchemaCaseInsensitiveContainsFields(v ...string) SchemaOption {
+	v = slices.Clone(v)
+
+	return func(o *schemaOptions) {
+		if len(v) == 0 {
+			return
+		}
+		o.caseInsensitiveContainsFields = v
 	}
 }
 
