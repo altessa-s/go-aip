@@ -49,6 +49,13 @@ type ListEngine[D any] struct {
 	presence, arrays map[string]bool
 }
 
+// caseInsensitiveContainsSchema is a listing schema that can select fields for case-insensitive contains. The engine asks through
+// this interface, not through the schema type, because a release of this module also builds against a root module released before
+// the option existed; such a schema selects no field, so there is nothing to refuse.
+type caseInsensitiveContainsSchema interface {
+	CaseInsensitiveContainsFields() []string
+}
+
 // NewListEngine returns the list engine of coll under schema. codec signs the page tokens; nil serves a single page and rejects
 // a page token.
 //
@@ -66,7 +73,7 @@ func NewListEngine[D any](coll *mongo.Collection, codec pagetoken.Signer, schema
 		return nil, invalid("MongoDB list without a schema")
 	}
 
-	if len(schema.CaseInsensitiveContainsFields()) != 0 {
+	if folding, ok := any(schema).(caseInsensitiveContainsSchema); ok && len(folding.CaseInsensitiveContainsFields()) != 0 {
 		return nil, invalid("MongoDB does not support case-insensitive contains fields")
 	}
 
