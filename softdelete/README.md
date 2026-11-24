@@ -88,8 +88,12 @@ strings: it returns a new root `node && deleteTime == null` (or the predicate al
 tokens to the restricted filter. With the memory engine the items may also be filtered with `Visible` before they are passed. Without a
 `show_deleted` field, `listing.WithDefaultEqualities` on a boolean `deleted` field is the alternative the listing package documents.
 
-The restriction tests only `delete_time`, so with `show` a resource past its purge time that the expunge job has not removed yet still
-appears: a clock-dependent predicate would change between pages and invalidate their tokens. `Visible` hides such a resource in memory.
+For a finite restore window, also set `req.Cutoff = policy.Cutoff(at)`. The predicate is
+`deleteTime == null || purgeTime > at`. A tombstone disappears at its purge instant, even before physical deletion.
+Declare both fields as timestamps. The delete field uses `WithFilterField`; the purge field uses the lower camel case
+of `WithPurgeTimeField` (`expire_time` becomes `expireTime`). A tombstone without a purge time fails this predicate.
+Omit the cutoff for indefinite retention. Capture one instant for List and Count and refresh it on the next request.
+SQL and memory support the cutoff. MongoDB refuses it with `listing.ErrInvalidRestriction`.
 
 ## Purge (AIP-165)
 

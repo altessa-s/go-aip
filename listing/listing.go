@@ -81,6 +81,13 @@ type Request struct {
 	// every page of a walk: derive it from the request and the caller, never
 	// from the clock.
 	Restriction filter.Node
+	// Cutoff is a trusted server predicate that may narrow the visible rows between
+	// pages, for example as a restore window expires. List and Count apply it before
+	// pagination. It has the validation and copy semantics of Restriction. A nil
+	// or typed nil cutoff admits every row. Tokens omit it because removing rows
+	// changes neither the order keys nor the continuation position. Use Restriction
+	// for any change that must invalidate an existing walk, including caller scope.
+	Cutoff filter.Node
 }
 
 // pageSize resolves the page size of req under the schema's limits.

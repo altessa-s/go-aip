@@ -2,10 +2,10 @@ name: Commit Validation
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [develop, main]
   pull_request:
-    branches: [ develop, main ]
-    types: [ opened, synchronize, reopened, edited ]
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read

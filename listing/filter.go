@@ -45,12 +45,17 @@ type Query struct {
 	// into its query language and binds its canonical form
 	// (filter.Canonical) into the page token.
 	Filter filter.Node
+	cutoff filter.Node
 }
+
+// Cutoff returns the validated, request-owned server predicate to apply to List
+// and Count alongside Filter. Only Filter participates in token bindings.
+func (q Query) Cutoff() filter.Node { return q.cutoff }
 
 // Compile validates req in field order — pageSize, parent, orderBy, filter
 // — and returns the first invalid field's error, an InvalidArgument
 // core/errors.FieldError. At the filter step the server restriction
-// ([Request] Restriction) is checked first, then the client's filter is
+// and cutoff are checked first, then the client's filter is
 // parsed, joined with the default equalities it does not override and
 // validated, and finally ANDed with the restriction. The page token is checked by the engine when it
 // resolves the position. Every engine applies the same rules, so they reject
@@ -92,7 +97,12 @@ func (s *Schema) CompileWithOrderValidator(ctx context.Context, req Request, val
 		return Query{}, err
 	}
 
-	q := Query{Size: size, Order: order}
+	cutoff, err := s.restriction(req.Cutoff)
+	if err != nil {
+		return Query{}, fmt.Errorf("cutoff: %w", err)
+	}
+
+	q := Query{Size: size, Order: order, cutoff: cutoff}
 	if strings.TrimSpace(req.Filter) != "" { // a blank filter matches everything
 		if q.Filter, err = s.parseFilter(ctx, req.Filter); err != nil {
 			return Query{}, err
@@ -108,6 +118,12 @@ func (s *Schema) CompileWithOrderValidator(ctx context.Context, req Request, val
 		q.Filter = and(q.Filter, restriction)
 		if err = s.policy.CheckLimits(q.Filter); err != nil {
 			return Query{}, s.FormatError(FieldFilter, "is too complex for this list; simplify it", err)
+		}
+	}
+
+	if cutoff != nil && q.Filter != nil {
+		if err = s.policy.CheckLimits(and(q.Filter, cutoff)); err != nil {
+			return Query{}, fmt.Errorf("%w: cutoff exceeds combined filter limits: %w", ErrInvalidRestriction, err)
 		}
 	}
 

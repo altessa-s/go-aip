@@ -63,7 +63,7 @@ linters:
       match-constant: true
       numbers: true
     staticcheck:
-      checks: [ "all", "-ST1003" ]
+      checks: ["all", "-ST1003"]
     mnd:
       ignored-functions:
         - strings.SplitN

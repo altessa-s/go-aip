@@ -158,6 +158,16 @@ The AST skips the parser, so enum fields take stored values (a proto enum name i
 and timestamp literals are cut to the profile precision. It must be the same on every page of a walk. A field the client must not filter on at all
 cannot appear in it (it shares the client's filter policy); scope such fields in the engine (`sqlbase.Scope`, the memory slice).
 
+A handler may also set `Request.Cutoff` to a server predicate whose value advances between pages, such as a restore deadline.
+`Schema.Compile` clones and validates it under the restriction rules and returns it through `Query.Cutoff()`. A refusal,
+including a cutoff that pushes the whole expression over its limits, is `ErrInvalidRestriction` (INTERNAL).
+SQL List and Count and the memory engine apply the cutoff before pagination. MongoDB refuses it because its keyset
+reader binds the entire BSON predicate. Use matching root and backend releases when enabling cutoffs.
+
+The cutoff only removes rows. Keyset pagination resumes strictly after the same sort values and identity, even if
+the last returned row has since expired. Rows that remain eligible keep their positions. Use `Restriction` for
+tenant, caller, and request predicates whose change must invalidate the walk.
+
 ## Engines and storage
 
 | Engine                                                                                                    | Source                                           | Requirements                                                                                                                                              |
@@ -190,12 +200,12 @@ data skipping indexes; its primary index is the MergeTree sorting key, which sho
 
 ### Exact SQL totals
 
-When a response needs `total_size`, call `List` and then `Count(ctx, req, scope)` on the concrete SQL engine with the same authorized scope and
-restriction. Count returns the exact `int64` number of matching rows across all pages and ignores the page token. Propagate errors from either call and
+When a response needs `total_size`, call `List` and then `Count(ctx, req, scope)` on the concrete SQL engine with the same authorized scope,
+restriction and cutoff. Count returns the exact `int64` number of matching rows across all pages and ignores the page token. Propagate errors from either call and
 check for overflow before assigning an `int32` response field.
 
 A single caller deadline can bound both statements. At `READ COMMITTED` an intervening write can change the total. For a consistent page and total, use
-an engine backed by the same read-only `REPEATABLE READ` transaction and reuse the restriction and its reference time.
+an engine backed by the same read-only `REPEATABLE READ` transaction and reuse the cutoff instant from the page request.
 
 Counting may scan every qualifying index entry and visit the heap. Measure plans with representative tenant, parent, and soft-delete filters. A
 selective scope index can reduce the scan. PostgreSQL `strpos` over `lower` and `unnest` cannot directly use a B-tree on `lower`, a plain trigram index,

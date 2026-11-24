@@ -189,3 +189,34 @@ func TestCompileRestrictionCanonical(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, canonical(t, plain.Filter), canonical(t, restricted.Filter))
 }
+
+func TestCompileCutoff(t *testing.T) {
+	t.Parallel()
+	s := widgetSchema(t)
+	at := time.Date(2026, 3, 1, 0, 0, 0, 123456789, time.UTC)
+	req := listing.Request{Restriction: eq("archived", false), Filter: "priority > 0"}
+	plain, err := s.Compile(t.Context(), req)
+	require.NoError(t, err)
+	assert.Nil(t, plain.Cutoff())
+
+	literal := &filter.LiteralNode{Value: at}
+	req.Cutoff = &filter.BinaryOpNode{Op: filter.OpGT, Left: &filter.IdentNode{Name: "createTime"}, Right: literal}
+	q, err := s.Compile(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, canonical(t, plain.Filter), canonical(t, q.Filter))
+	assert.Equal(t, at, literal.Value)
+	literal.Value = nil
+	want := &filter.BinaryOpNode{Op: filter.OpGT, Left: &filter.IdentNode{Name: "createTime"}, Right: &filter.LiteralNode{Value: at.Truncate(time.Millisecond)}}
+	assert.Equal(t, canonical(t, want), canonical(t, q.Cutoff()))
+
+	req.Cutoff = eq("kind", "KIND_A")
+	_, err = s.Compile(t.Context(), req)
+	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+	require.ErrorIs(t, err, filter.ErrEnumValueNotAllowed)
+
+	req = listing.Request{Filter: "priority > 1 && archived == false", Cutoff: eq("name", "n1")}
+	_, err = widgetSchema(t, listing.WithMaxFilterOperations(7)).Compile(t.Context(), req)
+	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+	require.ErrorIs(t, err, filter.ErrMaxOperationsExceeded)
+	assert.Empty(t, fieldOf(err))
+}

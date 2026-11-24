@@ -9,7 +9,8 @@
 // Field lookups return detached enum metadata.
 //
 // Request.Restriction is a server predicate (an AIP-164 show_deleted rule, a tenant scope) that Compile ANDs onto the client's filter after
-// the default equalities; every engine applies it and binds it into the page token.
+// the default equalities. Every engine applies it and binds it into the page token. Request.Cutoff narrows the rows
+// visible at each read and may change between pages. Engines apply it before pagination or refuse it as a server fault.
 //
 // # Usage
 //

@@ -4,7 +4,13 @@
 
 package softdelete
 
-import "github.com/altessa-s/go-aip/filter"
+import (
+	"time"
+
+	"github.com/altessa-s/go-aip/filter"
+
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
+)
 
 // Restriction returns the AIP-164 show_deleted rule of a List as a
 // server restriction: "<field> == null" (the [WithFilterField] name,
@@ -26,6 +32,21 @@ import "github.com/altessa-s/go-aip/filter"
 // the caller may keep or share it: listing never modifies a restriction.
 func (p *Policy) Restriction(showDeleted bool) filter.Node {
 	return p.Restrict(nil, showDeleted)
+}
+
+// Cutoff returns the restore-window predicate for listing.Request.Cutoff.
+// It admits live resources and tombstones with a purge time strictly after at.
+// The public purge field is the lower camel case of the configured proto
+// purge time field. Use it for a resource with a finite restore window and
+// pass the same instant to List and Count within one request.
+func (p *Policy) Cutoff(at time.Time) filter.Node {
+	return &filter.BinaryOpNode{
+		Op: filter.OpOr, Left: p.Restriction(false),
+		Right: &filter.BinaryOpNode{
+			Op: filter.OpGT, Left: &filter.IdentNode{Name: corestrings.ToCamelCase(p.opts.purgeTimeField)},
+			Right: &filter.LiteralNode{Value: at},
+		},
+	}
 }
 
 // Restrict applies the AIP-164 show_deleted rule to a List filter AST the

@@ -100,6 +100,7 @@ flowchart TB
   backend_meili --> filter
   backend_meili --> orderby
   backend_meili --> projection
+  backend_memory --> apierror
   backend_memory --> fieldmask
   backend_memory --> listing_evaluation
   backend_mongo --> apierror

@@ -174,3 +174,34 @@ func TestRestrictionWithListing(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreWindowCutoff(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	p := softdelete.New(softdelete.WithFilterField("deletedAt"), softdelete.WithPurgeTimeField("expire_time"))
+	policy, err := filter.NewPolicy(filter.WithAllowedFields("deletedAt", "expireTime"))
+	require.NoError(t, err)
+	eval, err := filtereval.New(policy)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name             string
+		deleted, expires any
+		want             bool
+	}{
+		{"live", nil, nil, true},
+		{"restorable", at, at.Add(time.Millisecond), true},
+		{"at deadline", at, at, false},
+		{"expired", at, at.Add(-time.Millisecond), false},
+		{"missing expiry", at, nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := eval.Evaluate(p.Cutoff(at), map[string]any{"deletedAt": tc.deleted, "expireTime": tc.expires})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

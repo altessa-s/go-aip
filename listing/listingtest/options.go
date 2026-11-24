@@ -20,6 +20,8 @@ type SignerFactory func(testing.TB) pagetoken.Signer
 func defaultSigner(tb testing.TB) pagetoken.Signer { return pagetokentest.Codec(tb) }
 
 type options struct {
+	// cutoffRefusal requires the engine to refuse even a valid cutoff as a server fault.
+	cutoffRefusal bool `optval:"param"`
 	// signerFactory replaces the token service without weakening the mandatory cases.
 	signerFactory SignerFactory `optgen:"default=defaultSigner,notnil"`
 	// schemaOptions configure fixture parsers and policies before scenario-specific settings.

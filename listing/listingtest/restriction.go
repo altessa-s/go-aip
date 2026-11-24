@@ -6,7 +6,9 @@
 package listingtest
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -142,4 +144,76 @@ func testRestrictionTokenBinding(t *testing.T, newList Factory, arrays bool, cfg
 		_, isField := errors.AsType[*coreerrs.FieldError](err)
 		require.False(t, isField, "a server restriction is not blamed on a request field")
 	})
+}
+
+// cutoffRequest narrows both the client filter and the stable server scope.
+func cutoffRequest(at time.Time) listing.Request {
+	return listing.Request{
+		PageSize: 3, OrderBy: "id", Filter: "priority > 0", Restriction: equality("kind", "a"),
+		Cutoff: &filter.BinaryOpNode{Op: filter.OpGT, Left: &filter.IdentNode{Name: "createTime"}, Right: &filter.LiteralNode{Value: at}},
+	}
+}
+
+func cutoffIDs(ws []Widget, at time.Time) []string {
+	return expectedOrder(matching(ws, func(w Widget) bool {
+		return w.Priority > 0 && w.Kind == "a" && w.Created.Truncate(listing.TimestampPrecision).After(at)
+	}), []orderKey{{"id", false}})
+}
+
+func testCutoff(t *testing.T, newList Factory, arrays bool, cfg *options) {
+	ws := MakeWidgets(120)
+	list := newList(t, fixtureSchema(t, arrays, cfg), cfg.signerFactory(t), ws)
+	_, err := list(t.Context(), Subject, listing.Request{Cutoff: equality("unknown", true)})
+	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+	require.Empty(t, FieldOf(err))
+
+	start := baseTime.Add(3 * time.Minute)
+	req := cutoffRequest(start)
+
+	first, err := list(t.Context(), Subject, req)
+	if cfg.cutoffRefusal {
+		require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+		require.Empty(t, FieldOf(err))
+
+		return
+	}
+
+	require.NoError(t, err)
+	require.NotEmpty(t, first.NextPageToken)
+
+	want := cutoffIDs(ws, start)
+	require.Equal(t, want[:req.PageSize], IDs(first.Items))
+	require.Equal(t, want, Collect(t, list, req))
+
+	later := start.Add(9 * time.Minute)
+	req = cutoffRequest(later)
+	req.PageToken = first.NextPageToken
+	last := first.Items[len(first.Items)-1].ID
+	remaining := cutoffIDs(ws, later)
+
+	index, _ := slices.BinarySearch(remaining, last)
+	if index < len(remaining) && remaining[index] == last {
+		index++
+	}
+
+	require.NotEmpty(t, remaining[index:])
+	require.Equal(t, remaining[index:], Collect(t, list, req))
+}
+
+// RunCutoffCount checks the exact pre-pagination total under two cutoff instants
+// and the classification of an invalid cutoff. items must be the widgets in scope.
+func RunCutoffCount[S any](tb testing.TB, items []Widget, count func(context.Context, listing.Request, S) (int64, error), scope S) {
+	tb.Helper()
+
+	for _, at := range []time.Time{baseTime, baseTime.Add(12 * time.Minute)} {
+		req := cutoffRequest(at)
+		req.PageToken = "ignored by Count"
+		total, err := count(tb.Context(), req, scope)
+		require.NoError(tb, err)
+		require.Equal(tb, int64(len(cutoffIDs(items, at))), total)
+	}
+
+	_, err := count(tb.Context(), listing.Request{Cutoff: equality("unknown", true)}, scope)
+	require.ErrorIs(tb, err, listing.ErrInvalidRestriction)
+	require.Empty(tb, FieldOf(err))
 }
