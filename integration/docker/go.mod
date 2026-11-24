@@ -6,12 +6,12 @@ toolchain go1.27.4
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.49.0
-	github.com/altessa-s/go-aip v0.1.11
-	github.com/altessa-s/go-aip/backend/clickhouse v0.1.11
-	github.com/altessa-s/go-aip/backend/mariadb v0.1.11
-	github.com/altessa-s/go-aip/backend/mongo v0.1.11
-	github.com/altessa-s/go-aip/backend/postgres v0.1.11
-	github.com/altessa-s/go-aip/backend/sqlbase v0.1.11
+	github.com/altessa-s/go-aip v0.1.12
+	github.com/altessa-s/go-aip/backend/clickhouse v0.1.12
+	github.com/altessa-s/go-aip/backend/mariadb v0.1.12
+	github.com/altessa-s/go-aip/backend/mongo v0.1.12
+	github.com/altessa-s/go-aip/backend/postgres v0.1.12
+	github.com/altessa-s/go-aip/backend/sqlbase v0.1.12
 	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.12.0

@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-aip v0.1.11
+	github.com/altessa-s/go-aip v0.1.12
 	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/altessa-s/go-mongox v0.1.2
 	github.com/shopspring/decimal v1.4.0
