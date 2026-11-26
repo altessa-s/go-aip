@@ -299,7 +299,7 @@ func (s *Spec) plan(u *updateCheck, root msgPair, paths []string, implied bool) 
 	var p Plan
 
 	for _, fd := range s.order {
-		if root.req.Has(fd) && s.class(string(fd.Name())) == classSecret {
+		if root.req.Has(fd) && s.rootClassification(fd).isWriteOnly() {
 			p.set = append(p.set, string(fd.Name()))
 		}
 	}
@@ -381,27 +381,12 @@ func coveredExplicit(tree fieldmask.FieldMask, explicit []maskPath) []fieldmask.
 // written nor checked by the update; an output-only, identity or immutable
 // class governs as OUTPUT_ONLY, IDENTIFIER or IMMUTABLE.
 func (s *Spec) topBehavior(fd protoreflect.FieldDescriptor) (annotations.FieldBehavior, bool) {
-	managed := s.opts.serverManaged(fd)
-
-	switch s.class(string(fd.Name())) {
-	case classSecret:
+	f := s.rootClassification(fd)
+	if f.isWriteOnly() || f.namedIdentity && !f.outputOnly && !f.identifier {
 		return annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED, true
-	case classIdentity:
-		switch {
-		case managed == annotations.FieldBehavior_OUTPUT_ONLY:
-			return managed, false
-		case slices.Contains(s.opts.behaviors(fd), annotations.FieldBehavior_IDENTIFIER):
-			return annotations.FieldBehavior_IDENTIFIER, false
-		default:
-			return annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED, true
-		}
-	case classOutputOnly:
-		return annotations.FieldBehavior_OUTPUT_ONLY, false
-	case classImmutable:
-		return annotations.FieldBehavior_IMMUTABLE, false
-	default:
-		return managed, false
 	}
+
+	return f.managedBehavior(), false
 }
 
 // addExplicitPath adds raw, the mask path at index i, to tree: a path of a

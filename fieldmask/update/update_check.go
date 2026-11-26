@@ -159,19 +159,7 @@ func newApplyCheck(req, current proto.Message, policy *options) (*updateCheck, m
 // IMMUTABLE, like the annotations; an OUTPUT_ONLY annotation dominates both.
 func policyTopBehavior(policy *options) topBehavior {
 	return func(fd protoreflect.FieldDescriptor) (annotations.FieldBehavior, bool) {
-		managed := policy.serverManaged(fd)
-		name := string(fd.Name())
-
-		switch {
-		case managed == annotations.FieldBehavior_OUTPUT_ONLY || managed == annotations.FieldBehavior_IDENTIFIER:
-			return managed, false
-		case slices.Contains(policy.identityFields, name):
-			return annotations.FieldBehavior_IDENTIFIER, false
-		case slices.Contains(policy.immutableFields, name):
-			return annotations.FieldBehavior_IMMUTABLE, false
-		default:
-			return managed, false
-		}
+		return policy.classifyField(fd, true).managedBehavior(), false
 	}
 }
 
@@ -182,9 +170,13 @@ func policyTopBehavior(policy *options) topBehavior {
 // only when the mask names it, so a stale etag is left to the service's
 // concurrency check (AIP-154).
 func isPolicyIdentity(fd protoreflect.FieldDescriptor, policy *options) bool {
-	return slices.Contains(policy.identityFields, string(fd.Name())) &&
-		policy.serverManaged(fd) != annotations.FieldBehavior_OUTPUT_ONLY &&
-		!slices.Contains(policy.behaviors(fd), annotations.FieldBehavior_IDENTIFIER)
+	if !slices.Contains(policy.identityFields, string(fd.Name())) {
+		return false
+	}
+
+	f := policy.classifyField(fd, false)
+
+	return !f.outputOnly && !f.identifier
 }
 
 // isAddressOnly reports whether fd, at the top level when topLevel, is one
@@ -369,7 +361,7 @@ func (u *updateCheck) verifyUnnamedIdentifiers(msk fieldmask.FieldMask, md proto
 // server-managed field is replaced through its other fields (see
 // [updateCheck.expand]) so the stored server-managed values survive.
 func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protoreflect.FieldDescriptor, pairs []msgPair, path string) {
-	if u.resolved && len(pairs) > 1 && slices.Contains(u.policy.behaviors(fd), annotations.FieldBehavior_REQUIRED) {
+	if u.resolved && len(pairs) > 1 && u.policy.classifyField(fd, false).required {
 		pairs = u.resolvedRequiredPairs(fd, pairs)
 		if len(pairs) == 0 {
 			return
@@ -398,7 +390,7 @@ func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protor
 
 // checkRequired records unsatisfied REQUIRED fields and reports whether any failed.
 func (u *updateCheck) checkRequired(fd protoreflect.FieldDescriptor, pairs []msgPair) bool {
-	if !slices.Contains(u.policy.behaviors(fd), annotations.FieldBehavior_REQUIRED) {
+	if !u.policy.classifyField(fd, false).required {
 		return false
 	}
 

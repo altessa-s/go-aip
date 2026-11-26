@@ -29,6 +29,11 @@
 // inside excluded collections and atomic messages. Pass the original mask to [Spec.Plan] to preserve
 // whole-message write intent, including clearing an absent message.
 //
+// [Spec.FieldPolicy] reads the effective policy of a descriptor route independently of the
+// mask and allow-list. It also reports field behavior inside messages selected as a whole.
+// Build routes from the exact descriptors of the spec's schema. NewSpec snapshots declared
+// root-field policy, and the spec resolves other nested descriptors and extensions on demand.
+//
 // # Usage
 //
 //	effective, err := update.ApplyMask(req.GetUpdateMask(), req.GetUser(), update.WithCurrent(stored))

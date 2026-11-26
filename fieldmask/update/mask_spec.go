@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/altessa-s/go-aip/fieldbehavior"
 	"github.com/altessa-s/go-aip/internal/maskmerge"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
@@ -46,23 +47,30 @@ const (
 // OUTPUT_ONLY fields are server-managed, IMMUTABLE fields and the fields
 // named on construction are immutable (an INPUT_ONLY one included: a
 // create-only credential), other INPUT_ONLY fields are write-only secrets,
-// and every other top-level field is mutable. Only top-level fields are
-// classified: a nested INPUT_ONLY field is an ordinary leaf of its mutable
-// parent (see [Spec.Plan]). It is immutable and
-// safe for concurrent use.
+// and every other top-level field is mutable. A nested INPUT_ONLY field is an ordinary
+// leaf of its parent (see [Spec.Plan]). Use [Spec.FieldPolicy] to inspect
+// root and nested fields. A Spec is immutable and safe for concurrent use.
 type Spec struct {
-	opts    *options
-	allowed *allowedMaskPaths
-	desc    protoreflect.MessageDescriptor
-	order   []protoreflect.FieldDescriptor // top-level fields in declaration order
-	classes *coremaps.ImmutableMap[string, maskClass]
-	skip    []string // never implied: identity, secrets, immutable
+	opts       *options
+	allowed    *allowedMaskPaths
+	desc       protoreflect.MessageDescriptor
+	order      []protoreflect.FieldDescriptor // top-level fields in declaration order
+	rootFields *coremaps.ImmutableMap[protoreflect.FieldDescriptor, rootFieldPolicy]
+	skip       []string // never implied: identity, secrets, immutable
+}
+
+// rootFieldPolicy retains the full classification and the ordered behavior
+// list used by the shared validation and merge walks.
+type rootFieldPolicy struct {
+	classification fieldClassification
+	behaviors      []annotations.FieldBehavior
 }
 
 // NewSpec returns the mask specification of resource's message type;
 // options replace identity names, atomic-message policy and the error field.
 // [WithImmutableFields] adds create-only fields. [WithAllowedPaths] is compiled
-// against the descriptor here. Nil resources return [ErrMessageMismatch].
+// against the descriptor here. NewSpec resolves each declared root field
+// once. Nil resources return [ErrMessageMismatch].
 func NewSpec(resource proto.Message, opts ...Option) (*Spec, error) {
 	if !validMessage(resource) {
 		return nil, ErrMessageMismatch
@@ -71,35 +79,34 @@ func NewSpec(resource proto.Message, opts ...Option) (*Spec, error) {
 	o := newOptions(opts...)
 	desc := resource.ProtoReflect().Descriptor()
 	s := &Spec{desc: desc, opts: o}
-	classes := map[string]maskClass{}
 
 	fields := desc.Fields()
+
+	rootFields := make(map[protoreflect.FieldDescriptor]rootFieldPolicy, fields.Len())
 	for i := range fields.Len() {
 		fd := fields.Get(i)
-		name := string(fd.Name())
-		behaviors := o.behaviors(fd)
+		behaviors := slices.Clone(o.behaviors(fd))
+		classification := o.classifyBehaviors(fd, true, behaviors)
+		rootFields[fd] = rootFieldPolicy{classification: classification, behaviors: behaviors}
 		s.order = append(s.order, fd)
 
-		switch {
-		case slices.Contains(o.identityFields, name) || slices.Contains(behaviors, annotations.FieldBehavior_IDENTIFIER):
-			classes[name] = classIdentity
-			s.skip = append(s.skip, name)
-		case slices.Contains(behaviors, annotations.FieldBehavior_OUTPUT_ONLY):
-			classes[name] = classOutputOnly
-		case slices.Contains(behaviors, annotations.FieldBehavior_IMMUTABLE) || slices.Contains(o.immutableFields, name):
-			// Before INPUT_ONLY: a create-only credential is immutable, never a
-			// secret an update may set or clear.
-			classes[name] = classImmutable
-			s.skip = append(s.skip, name)
-		case slices.Contains(behaviors, annotations.FieldBehavior_INPUT_ONLY):
-			classes[name] = classSecret
-			s.skip = append(s.skip, name)
-		default:
-			classes[name] = classMutable
+		switch classification.maskClass() {
+		case classIdentity, classImmutable, classSecret:
+			s.skip = append(s.skip, string(fd.Name()))
+		case classMutable, classOutputOnly:
 		}
 	}
 
-	s.classes = coremaps.NewImmutableMap(classes)
+	snapshot := coremaps.NewImmutableMap(rootFields)
+	s.rootFields = snapshot
+	resolver := o.resolver
+	o.resolver = fieldbehavior.ResolverFunc(func(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
+		if p, ok := snapshot.Get(fd); ok {
+			return p.behaviors
+		}
+
+		return resolveBehaviors(resolver, fd)
+	})
 
 	if o.allowedPaths != nil {
 		allowed, err := s.compileAllowedPaths(o.allowedPaths)
@@ -114,7 +121,22 @@ func NewSpec(resource proto.Message, opts ...Option) (*Spec, error) {
 	return s, nil
 }
 
-func (s *Spec) class(name string) maskClass { value, _ := s.classes.Get(name); return value }
+func (s *Spec) class(name string) maskClass {
+	fd := s.desc.Fields().ByName(protoreflect.Name(name))
+	if fd == nil {
+		return 0
+	}
+
+	return s.rootClassification(fd).maskClass()
+}
+
+func (s *Spec) rootClassification(fd protoreflect.FieldDescriptor) fieldClassification {
+	if p, ok := s.rootFields.Get(fd); ok {
+		return p.classification
+	}
+
+	return s.opts.classifyField(fd, true)
+}
 
 // fieldError applies the request's configured mask field without changing
 // the cause: the field of the offending path ("updateMask.paths[2]") when

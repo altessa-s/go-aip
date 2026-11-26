@@ -615,7 +615,7 @@ func (r *maskResolver) visitExpansion(prefix string, depth int) error {
 }
 
 func (r *maskResolver) markExpandedMessage(path string, fd protoreflect.FieldDescriptor, whole bool) {
-	if whole && slices.Contains(r.spec.opts.behaviors(fd), annotations.FieldBehavior_REQUIRED) {
+	if whole && r.spec.opts.classifyField(fd, false).required {
 		if r.whole == nil {
 			r.whole = make(map[string]bool)
 		}

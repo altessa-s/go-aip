@@ -183,6 +183,16 @@ equivalence. Never store the normalized request itself; merge the final paths in
 
 ## Update plans and patches
 
+Use [`Spec.FieldPolicy`](../fieldmask/update/README.md#inspect-field-policy) for
+a descriptor route's identity, output-only, write-only, immutable and required
+flags. Build routes from the spec's schema descriptors. Foreign descriptors,
+including those from a separately built equivalent `dynamicpb` schema,
+return `ErrMessageMismatch`. The spec snapshots declared root fields at
+construction, including their resolver results when those descriptors recur
+at depth. It resolves other nested fields and extensions on demand.
+The query is independent of mask selection and the allow-list and can read
+the REQUIRED behavior of a field inside an atomic message.
+
 For validators that run before the write plan, use [original mask resolution](../fieldmask/update/README.md#resolve-the-original-mask).
 `Spec.ResolveMask` returns the validation scope in declaration order, with the original entry index or `SynthesizedPathIndex`.
 An omitted mask selects populated mutable leaves, an explicit empty mask selects nothing and `*` expands by descriptor.

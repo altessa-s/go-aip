@@ -54,3 +54,15 @@ Interceptors can share the original resource and validation scope in request con
 value leaves that scope available for downstream diagnostics. Pass the original mask to the
 existing write flow. A whole-message write still clears an absent section or replaces it,
 dropping the prior message's unknown fields.
+
+## Addendum — Inspect policy independently of the mask
+
+`Spec.FieldPolicy` exposes the effective identity, output-only, write-only,
+immutable and required flags for a descriptor route. Mask resolution,
+validation, planning and policy inspection share the declared root field
+snapshot taken by `NewSpec`. Resolver results for those descriptors also
+apply when they recur at depth. Other nested fields and extensions are
+resolved on demand. Routes use the spec's exact schema descriptors, including
+the extendee of an extension. Independently built equivalent dynamic
+descriptors return `ErrMessageMismatch`. Interceptors can inspect fields
+outside the allow-list and inside atomic messages.
