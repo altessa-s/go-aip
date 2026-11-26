@@ -18,6 +18,12 @@ import (
 type Option func(o *options)
 
 // WithAllowedPaths restricts [Spec.ResolveMask] when configured in [NewSpec].
+// The constructor resolves aliases in the list to declared protobuf names.
+// Explicit request paths must match a compiled entry exactly, using the same
+// declared names and key quoting as [ResolvedMask.Paths]. Backticks quote empty
+// keys, keys containing a dot or backtick, and literal JSON "*" keys. Double
+// embedded backticks. Include trailing wildcards when the entry specifies them.
+// Other spellings return a [*MaskPathError] wrapping [fieldmask.ErrInvalidPath].
 // Passing no paths permits none. List entries must name the whole list.
 // A listed message expands to its eligible subtree unless descendant entries
 // narrow the selection. Pass the original mask to the write planner.
