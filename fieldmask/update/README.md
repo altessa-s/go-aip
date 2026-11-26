@@ -86,7 +86,12 @@ stops at the first recursive descriptor cycle and keeps that branch whole.
 
 Configure `WithAllowedPaths` in `NewSpec`. The constructor resolves aliases and rejects malformed,
 unknown or OUTPUT_ONLY paths and entries below a list field. An empty allow-list forbids every
-path. Explicit entries must be listed. A listed message with no listed descendants
+path. Explicit request paths must match a compiled entry segment by segment. Use the declared
+protobuf field names and the same key quoting as `ResolvedMask.Paths()`. Backticks quote empty
+keys, keys containing a dot or backtick, and literal JSON `*` keys. Double any embedded backticks.
+Include trailing wildcards when the entry specifies them, even when resolution selects the
+whole field. An alias or unnecessary quoting in a request returns `fieldmask.ErrInvalidPath`
+with the original path and index in `*MaskPathError`. A listed message with no listed descendants
 admits its eligible subtree for expansion and omitted-mask synthesis. When descendants are listed,
 expansion follows them. A partial map allow-list expands its configured keys and descendants under
 `*` and selects only populated paths when the mask is omitted. A dynamic root with an allow-list

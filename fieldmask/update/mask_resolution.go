@@ -9,6 +9,7 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"strings"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
@@ -99,16 +100,9 @@ type pathOrigin struct {
 	depth int
 }
 
-// explicitPathKey keeps the raw depth so trailing wildcards removed during
-// path resolution cannot bypass exact allow-list entries.
-type explicitPathKey struct {
-	path  string
-	depth int
-}
-
 // allowedMaskPaths is compiled at spec construction and read only thereafter.
 type allowedMaskPaths struct {
-	explicit map[explicitPathKey]bool
+	explicit map[string]bool
 	paths    map[string]bool
 	prefixes map[string]bool
 	subtrees map[string]bool
@@ -117,7 +111,7 @@ type allowedMaskPaths struct {
 
 func (s *Spec) compileAllowedPaths(paths []string) (*allowedMaskPaths, error) {
 	a := &allowedMaskPaths{
-		explicit: make(map[explicitPathKey]bool, len(paths)),
+		explicit: make(map[string]bool, len(paths)),
 		paths:    make(map[string]bool, len(paths)),
 		prefixes: make(map[string]bool),
 		children: make(map[string][]string),
@@ -148,7 +142,9 @@ func (s *Spec) compileAllowedPaths(paths []string) (*allowedMaskPaths, error) {
 		canonical := maskpath.Join(segs)
 		a.paths[canonical] = true
 
-		a.explicit[explicitPathKey{path: canonical, depth: depth}] = true
+		// Keep trailing wildcards in the explicit spelling even when resolution
+		// folds them into a whole-field selection.
+		a.explicit[canonical+strings.Repeat(".*", depth-len(segs))] = true
 		if target.message != nil {
 			parents[canonical] = true
 		}
@@ -299,7 +295,7 @@ func (r *maskResolver) resolveExplicit(raw string, index int) error {
 	segs, target := s.resolutionTarget(segs, depth)
 
 	path := maskpath.Join(segs)
-	if a := s.allowed; a != nil && !a.explicit[explicitPathKey{path: path, depth: depth}] {
+	if a := s.allowed; a != nil && !a.explicit[raw] {
 		return indexedFieldError(fieldmask.ErrInvalidPath, index, raw, path, fmt.Sprintf("path %q is not allowed", raw))
 	}
 
