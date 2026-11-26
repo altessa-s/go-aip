@@ -97,6 +97,9 @@ var sentinels = map[string]expectation{
 	"fieldmask/update.ErrElementCountMismatch": {
 		update.ErrElementCountMismatch, code.Code_FAILED_PRECONDITION, aipmap.ReasonElementCountMismatch,
 	},
+	"fieldmask/update.ErrAllowedPathsAtCall": {
+		update.ErrAllowedPathsAtCall, cInternal, rInternal,
+	},
 	"fieldmask/extract.ErrFieldNotSettable": {extract.ErrFieldNotSettable, cInternal, rInternal},
 	"fieldmask/update.ErrInvalidPatch":      {update.ErrInvalidPatch, cInternal, rInternal},
 	"fieldmask.ErrInvalidPath":              {fieldmask.ErrInvalidPath, cInvalid, aipmap.ReasonInvalidFieldMask},

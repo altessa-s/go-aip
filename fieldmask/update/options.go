@@ -27,10 +27,15 @@ import (
 // per-request values of [Apply], [ValidateStrict] and [Spec.Plan].
 type options struct {
 	// WithResolver replaces annotation lookup for update planning, including nested fields. Nil uses annotations.
-	resolver            fieldbehavior.Resolver                    `optgen:"default=fieldbehavior.AnnotationResolver{}"`
-	identityFields      []string                                  `optgen:"default=[]string{fieldID, fieldEtag},allownull"`
-	impliedSkipFields   []string                                  `optgen:"allownull"`
-	immutableFields     []string                                  `optgen:"allownull"`
+	resolver          fieldbehavior.Resolver `optgen:"default=fieldbehavior.AnnotationResolver{}"`
+	identityFields    []string               `optgen:"default=[]string{fieldID, fieldEtag},allownull"`
+	impliedSkipFields []string               `optgen:"allownull"`
+	immutableFields   []string               `optgen:"allownull"`
+	// WithAllowedPaths restricts [Spec.ResolveMask] when configured in [NewSpec].
+	// Passing no paths permits none. List entries must name the whole list.
+	// A listed message expands to its eligible subtree unless descendant entries
+	// narrow the selection. Pass the original mask to the write planner.
+	allowedPaths        []string                                  `optgen:"allownull"`
 	atomicMessage       func(protoreflect.MessageDescriptor) bool `optgen:"default=DefaultAtomicMessage"`
 	updateMaskFieldName string                                    `optgen:"default=DefaultUpdateMaskField"`
 	// WithStrictDynamicPaths limits the paths into google.protobuf.Struct, Value and ListValue fields to the

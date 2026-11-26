@@ -22,6 +22,13 @@
 // ApplyMask applies the raw update_mask of a request as the client sent it, checks every path on its own (a path another one covers
 // included, which a fieldmask.FieldMask cannot hold) and returns the effective mask to write back to the request.
 //
+// [Spec.ResolveMask] resolves the original mask for validators before any field value checks.
+// [Spec.ValidateResolved] checks that scope on the original resource, including explicitly named leaves
+// under inactive oneof branches and the element counts of covered collection paths. With [WithCurrent],
+// an omitted mask also checks protected input outside the public scope, including protected fields
+// inside excluded collections and atomic messages. Pass the original mask to [Spec.Plan] to preserve
+// whole-message write intent, including clearing an absent message.
+//
 // # Usage
 //
 //	effective, err := update.ApplyMask(req.GetUpdateMask(), req.GetUser(), update.WithCurrent(stored))

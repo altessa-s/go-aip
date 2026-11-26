@@ -121,3 +121,34 @@ func TestLiteralStarMapKey(t *testing.T) {
 		require.ErrorIs(t, err, fieldmask.ErrInvalidPath)
 	})
 }
+
+func TestOmittedMaskWithLiteralStarMapKey(t *testing.T) {
+	t.Parallel()
+
+	req := &pb.Account{Delegates: map[string]*pb.Owner{"*": {Email: "new@example.com", Org: "org"}}}
+	stored := &pb.Account{Delegates: map[string]*pb.Owner{"*": {Email: "old@example.com", Org: "org"}}}
+	spec, err := update.NewSpec(req)
+	require.NoError(t, err)
+
+	t.Run("Plan", func(t *testing.T) {
+		t.Parallel()
+
+		msg := proto.CloneOf(req)
+		plan, err := spec.Plan(msg, nil, update.WithCurrent(stored))
+		require.NoError(t, err)
+		require.Equal(t, []string{"delegates"}, plan.Paths)
+		requireProtoEqual(t, req, msg)
+	})
+
+	t.Run("Prepare", func(t *testing.T) {
+		t.Parallel()
+
+		msg := proto.CloneOf(req)
+		pending, err := update.Prepare(nil, msg)
+		require.NoError(t, err)
+		mask, err := pending.Complete(stored)
+		require.NoError(t, err)
+		require.Equal(t, []string{"delegates"}, mask.ToPaths())
+		requireProtoEqual(t, req, msg)
+	})
+}
