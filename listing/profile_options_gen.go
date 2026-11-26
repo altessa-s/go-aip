@@ -309,6 +309,20 @@ func WithPresenceValidator(v func(filter.Node, *Schema) error) ProfileOption {
 	}
 }
 
+// WithServerOnlyFields sets the serverOnlyFields option.
+//
+// serverOnlyFields names declared fields reserved for server predicates and rejected in the client filter.
+func WithServerOnlyFields(v ...string) ProfileOption {
+	v = slices.Clone(v)
+
+	return func(o *profileOptions) {
+		if len(v) == 0 {
+			return
+		}
+		o.serverOnlyFields = v
+	}
+}
+
 // WithSizeValidator sets the sizeValidator option.
 //
 // sizeValidator replaces the size comparison contract; nil disables it.

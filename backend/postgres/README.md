@@ -16,11 +16,15 @@ Everything go-aip renders and evaluates for PostgreSQL, in one package:
 | List engine      | `NewListEngine[T](q, codec, schema, table, columns, dest, opts ...sqlbase.ListEngineOption) (*sqlbase.ListEngine[T], error)` | Keyset pages over a PostgreSQL table (AIP-132, AIP-158)                       |
 | List dialect     | `ListDialect{}`                                                                                                      | The PostgreSQL `sqlbase.ListDialect` used by `NewListEngine`                  |
 
-Every translator constructor takes the resource's shared, client-facing policy (built once in API names and reused by every backend) followed by the
+Every translator constructor takes the resource's shared policy (built once in API names and reused by every backend) followed by the
 storage options that bind it to PostgreSQL column names. The options use `sqlbase.OrderOption`, `sqlbase.ProjectionOption` and `sqlbase.ListEngineOption`; their `With…` functions stay in sqlbase (`sqlbase.WithOrderOptions`, `sqlbase.WithProjectionOptions`, `sqlbase.WithList…`). The order, projection
 and list-engine constructors are the dialect-generic [`sqlbase`](../sqlbase/README.md) ones with the PostgreSQL dialect fixed; use
 `sqlbase.NewOrderTranslator` / `sqlbase.NewProjectionTranslator` with an application `sqlbase.ColumnResolver` for trusted storage expressions, and
 `sqlbase.NewListEngine` with a dialect that embeds `ListDialect` to override selected listing behavior.
+
+For list engines, declare fields used by server restrictions or cutoffs in the listing schema and map them to storage as usual.
+The listing profile's `listing.WithServerOnlyFields` option rejects those fields in the client filter while PostgreSQL
+can still translate the server predicates that use them.
 
 All translators, schemas, compiled programs and list engines are immutable and safe for concurrent use after construction; injected callbacks must be
 too. The package is independent of database drivers; the live conformance suite targets PostgreSQL 16 and runs in the test-only module

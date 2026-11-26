@@ -55,6 +55,8 @@ For a finite restore window, also set `req.Cutoff = policy.Cutoff(at)`. The pred
 `deleteTime == null || purgeTime > at`. A tombstone disappears at its purge instant, even before physical deletion.
 Declare both fields as timestamps. The delete field uses `WithFilterField`; the purge field uses the lower camel case
 of `WithPurgeTimeField` (`expire_time` becomes `expireTime`). A tombstone without a purge time fails this predicate.
+Use `listing.WithServerOnlyFields("deleteTime", "purgeTime")` on the listing profile to keep both declared timestamps
+out of the client filter. For a restriction without a cutoff, name only the delete field.
 Omit the cutoff for indefinite retention. Capture one instant for List and Count and refresh it on the next request.
 SQL and memory support the cutoff. MongoDB refuses it with `listing.ErrInvalidRestriction`.
 

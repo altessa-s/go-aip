@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
+	"github.com/altessa-s/go-aip/softdelete"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -219,4 +220,68 @@ func TestCompileCutoff(t *testing.T) {
 	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
 	require.ErrorIs(t, err, filter.ErrMaxOperationsExceeded)
 	assert.Empty(t, fieldOf(err))
+}
+
+func TestCompileServerOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	fields := []listing.Field{
+		{Name: "id", Kind: filter.FieldKindString},
+		{Name: "deleteTime", Kind: filter.FieldKindTimestamp, Presence: true},
+		{Name: "purgeTime", Kind: filter.FieldKindTimestamp, Presence: true},
+	}
+	names := []string{"deleteTime", "purgeTime"}
+	opt := listing.WithServerOnlyFields(names...)
+	names[0] = "misspelled"
+
+	expansions := listing.WithFunctions(map[string]filter.CustomFunction{
+		"live": func([]filter.Node) (filter.Node, error) { return eq("deleteTime", nil), nil },
+	})
+	s := listing.MustSchema(fields, []string{"id"}, listing.NewProfile(opt, expansions))
+	public := listing.MustSchema(fields, []string{"id"}, listing.NewProfile(expansions))
+	denied := listing.MustSchema(fields, []string{"id"}, listing.NewProfile(expansions,
+		listing.WithFilterOptions(filter.WithAllowedFields("id"))))
+
+	for _, expr := range []string{`deleteTime == null`, `id == "a" || purgeTime != null`, `live()`} {
+		t.Run(expr, func(t *testing.T) {
+			t.Parallel()
+
+			req := listing.Request{Filter: expr}
+			_, err := public.Compile(t.Context(), req)
+			require.NoError(t, err)
+
+			_, want := denied.Compile(t.Context(), req)
+			require.ErrorIs(t, want, filter.ErrFieldNotAllowed)
+
+			_, got := s.Compile(t.Context(), req)
+			require.ErrorIs(t, got, filter.ErrFieldNotAllowed)
+
+			wantField, ok := errors.AsType[*coreerrs.FieldError](want)
+			require.True(t, ok)
+
+			gotField, ok := errors.AsType[*coreerrs.FieldError](got)
+			require.True(t, ok)
+			require.Equal(t, listing.FieldFilter, gotField.Field)
+			require.Equal(t, wantField.Reason, gotField.Reason)
+		})
+	}
+
+	policy := softdelete.New()
+	restriction := policy.Restriction(false)
+	cutoff := policy.Cutoff(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC))
+	q, err := s.Compile(t.Context(), listing.Request{Restriction: restriction, Cutoff: cutoff})
+	require.NoError(t, err)
+	require.Equal(t, canonical(t, restriction), canonical(t, q.Filter))
+	require.Equal(t, canonical(t, cutoff), canonical(t, q.Cutoff()))
+
+	_, err = s.Compile(t.Context(), listing.Request{Restriction: eq("deleteTime", "wrong kind")})
+	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+	require.ErrorIs(t, err, filter.ErrFieldTypeMismatch)
+
+	_, err = listing.NewSchema(fields, []string{"id"}, listing.NewProfile(listing.WithServerOnlyFields("missing")))
+	require.ErrorIs(t, err, listing.ErrInvalidSchema)
+
+	limited := listing.MustSchema(fields, []string{"id"}, listing.NewProfile(opt, listing.WithMaxFilterOperations(1)))
+	_, err = limited.Compile(t.Context(), listing.Request{Filter: `deleteTime == null`})
+	require.ErrorIs(t, err, filter.ErrMaxOperationsExceeded)
 }

@@ -34,7 +34,7 @@ func TestListAppliesRestriction(t *testing.T) {
 	})
 	schema, err := listing.NewSchema([]listing.Field{
 		{Name: "id", Kind: filter.FieldKindString}, {Name: "name", Kind: filter.FieldKindString}, {Name: "owner", Kind: filter.FieldKindString},
-	}, []string{"name"}, nil)
+	}, []string{"name"}, listing.NewProfile(listing.WithServerOnlyFields("owner")))
 	require.NoError(t, err)
 	l, err := sqlbase.NewListEngine[row](db, pagetokentest.Codec(t), schema, "widgets", []string{"id", "name"}, func(r *row) []any { return []any{&r.ID, &r.Name} }, postgres.ListDialect{})
 	require.NoError(t, err)
@@ -58,6 +58,11 @@ func TestListAppliesRestriction(t *testing.T) {
 	_, err = l.List(t.Context(), "widgets.List", listing.Request{PageSize: 1, OrderBy: "name", PageToken: first.NextPageToken}, nil)
 	require.Equal(t, pagetoken.TokenField, listingtest.FieldOf(err), "a token of a restricted list is refused without the restriction")
 	require.Len(t, fake.Calls(), calls, "no query runs for a refused token")
+
+	_, err = l.List(t.Context(), "widgets.List", listing.Request{Filter: `owner == "tenant-a"`}, nil)
+	require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
+	require.Equal(t, listing.FieldFilter, listingtest.FieldOf(err))
+	require.Len(t, fake.Calls(), calls, "no query runs for a refused filter")
 
 	_, err = l.List(t.Context(), "widgets.List", listing.Request{Restriction: &filter.BinaryOpNode{
 		Op: filter.OpEqual, Left: &filter.IdentNode{Name: "tenant"}, Right: &filter.LiteralNode{Value: "t"},

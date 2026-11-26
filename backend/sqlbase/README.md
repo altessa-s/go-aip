@@ -568,6 +568,9 @@ The application owns the table and its data; the engine emits parameterized quer
 values, and scanning. `List(ctx, subject, request, Scope)` requires every configured scope key; `WithListParentKey` explicitly binds a scope key to
 `Request.Parent`. `WithListMaxTime` defaults to ten seconds; zero uses the caller deadline. `WithListErrorMapper` replaces query-failure classification.
 
+The listing profile's `listing.WithServerOnlyFields` option reserves declared fields for server predicates. SQL translates
+them in restrictions and cutoffs using the usual storage mapping. The restriction participates in the page-token binding.
+
 For an exact total, call `Count(ctx, req, scope)` after List succeeds, passing the same request and authorized scope. Count applies the filter, default
 equalities, server restriction, cutoff and pins to the whole collection, ignores the page token and returns an int64 (zero for no matches). Propagate errors and
 check the total fits before assigning an int32 response field. The caller's deadline can bound both statements together. Under READ COMMITTED, an

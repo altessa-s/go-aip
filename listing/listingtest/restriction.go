@@ -95,7 +95,7 @@ func testRestriction(t *testing.T, newList Factory, arrays bool, cfg *options) {
 // restriction: another or no restriction rejects it, an equal one built
 // anew accepts it; and a restriction the schema refuses is a server fault.
 func testRestrictionTokenBinding(t *testing.T, newList Factory, arrays bool, cfg *options) {
-	l := newList(t, fixtureSchema(t, arrays, cfg), cfg.signerFactory(t), MakeWidgets(30))
+	l := newList(t, fixtureSchema(t, arrays, cfg, listing.WithServerOnlyFields("archived")), cfg.signerFactory(t), MakeWidgets(30))
 
 	first := listing.Request{PageSize: 3, Filter: `priority >= 0`, OrderBy: "name", Restriction: equality("archived", false)}
 	p, err := l(t.Context(), Subject, first)
@@ -106,6 +106,10 @@ func testRestrictionTokenBinding(t *testing.T, newList Factory, arrays bool, cfg
 	q, err := l(t.Context(), Subject, unrestricted)
 	require.NoError(t, err)
 	require.NotEmpty(t, q.NextPageToken)
+
+	_, err = l(t.Context(), Subject, listing.Request{Filter: "archived == false"})
+	require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
+	require.Equal(t, listing.FieldFilter, FieldOf(err))
 
 	tests := []struct {
 		name        string
@@ -162,7 +166,7 @@ func cutoffIDs(ws []Widget, at time.Time) []string {
 
 func testCutoff(t *testing.T, newList Factory, arrays bool, cfg *options) {
 	ws := MakeWidgets(120)
-	list := newList(t, fixtureSchema(t, arrays, cfg), cfg.signerFactory(t), ws)
+	list := newList(t, fixtureSchema(t, arrays, cfg, listing.WithServerOnlyFields("createTime")), cfg.signerFactory(t), ws)
 	_, err := list(t.Context(), Subject, listing.Request{Cutoff: equality("unknown", true)})
 	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
 	require.Empty(t, FieldOf(err))
