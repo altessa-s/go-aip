@@ -50,7 +50,30 @@ handling of invalid masks still apply.
 | `ResolvePath`          | An update path spelled by declared names, or `""`                                                                                             |
 | `Merge`, `MergePaths`  | Copy the selected fields from `src` to `dst` (see [Read-modify-write updates](#read-modify-write-updates))                                    |
 | `NewSpec`, `Spec.Plan` | Classify a resource once and resolve one request's mask into a `Plan` (see [Update plans](#update-plans-and-patches-aip-134-aip-154-aip-163)) |
+| `Spec.FieldPolicy`     | Inspect the effective policy of one root or nested field by descriptor                                                                         |
 | `Patch.Run`            | The whole read-modify-write with a revision precondition, allow_missing and validate_only                                                     |
+
+## Inspect field policy
+
+Call `spec.FieldPolicy(rootField, childField)` to read the effective policy of
+the last descriptor in a route. Build the route from the exact descriptors of
+the schema passed to `NewSpec`. Pass just one descriptor for a root field.
+For a repeated message or a map with message values, follow the element or
+value descriptor. An extension must extend the exact message descriptor at
+that step. An empty route or a foreign descriptor, including one from an
+independently built equivalent `dynamicpb` schema, returns `ErrMessageMismatch`.
+
+`NewSpec` snapshots the resolver result and classification of each declared
+root field. Policy inspection, mask resolution, validation and planning share
+that snapshot. Recursive uses of those descriptors share the resolver result,
+with name-based options applied only at the root. Other nested descriptors and
+extensions are resolved on demand.
+
+`OutputOnly` takes precedence over `Identity`. `WriteOnly` applies to root
+`INPUT_ONLY` fields outside those two categories and the immutable fields.
+`Required` reports `REQUIRED` for fields outside the identity, output-only and
+write-only categories, including immutable fields. The mask and allow-list
+have no effect on this query. Fields inside atomic values remain inspectable.
 
 ## Resolve the original mask
 

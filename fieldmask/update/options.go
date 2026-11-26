@@ -74,21 +74,23 @@ type options struct {
 // behaviors returns the annotations of fd. The default resolver's cached
 // slice is returned without a copy: callers must not modify the result.
 func (o *options) behaviors(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
-	if nilcheck.IsNil(o.resolver) {
+	return resolveBehaviors(o.resolver, fd)
+}
+
+func resolveBehaviors(resolver fieldbehavior.Resolver, fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
+	if nilcheck.IsNil(resolver) {
 		return behavior.Shared(fd)
 	}
 
-	if _, standard := o.resolver.(fieldbehavior.AnnotationResolver); standard {
+	if _, standard := resolver.(fieldbehavior.AnnotationResolver); standard {
 		return behavior.Shared(fd)
 	}
 
-	return o.resolver.Resolve(fd)
+	return resolver.Resolve(fd)
 }
 
 func (o *options) serverManaged(fd protoreflect.FieldDescriptor) annotations.FieldBehavior {
-	return behavior.FirstMatch(o.behaviors(fd), []annotations.FieldBehavior{
-		annotations.FieldBehavior_OUTPUT_ONLY, annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE,
-	})
+	return o.classifyField(fd, false).managedBehavior()
 }
 
 func (o *options) expandable(fd protoreflect.FieldDescriptor) bool {

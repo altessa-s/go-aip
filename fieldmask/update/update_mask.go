@@ -777,9 +777,7 @@ func atomicProtectedPath(md protoreflect.MessageDescriptor, visited map[protoref
 // the declaration order, so OUTPUT_ONLY names a field that is also IDENTIFIER
 // or IMMUTABLE. It returns FIELD_BEHAVIOR_UNSPECIFIED for any other field.
 func serverManagedBehavior(fd protoreflect.FieldDescriptor, policy *options) annotations.FieldBehavior {
-	return behavior.FirstMatch(policy.behaviors(fd), []annotations.FieldBehavior{
-		annotations.FieldBehavior_OUTPUT_ONLY, annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_IMMUTABLE,
-	})
+	return policy.serverManaged(fd)
 }
 
 // elementPath returns the path of the element sub-mask that [elementMasks]
