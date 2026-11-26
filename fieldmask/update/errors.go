@@ -21,6 +21,8 @@ var (
 	ErrInvalidUpdateMask = errors.New("fieldmask: invalid update mask")
 	// ErrProtectedField reports an update that would modify protected fields.
 	ErrProtectedField = errors.New("fieldmask: protected field")
+	// ErrAllowedPathsAtCall reports that WithAllowedPaths was passed to ResolveMask or ValidateResolved.
+	ErrAllowedPathsAtCall = errors.New("fieldmask: allowed paths must be configured in NewSpec")
 )
 
 // Unwrap classifies an annotation violation; Violations carries its paths and behaviors.

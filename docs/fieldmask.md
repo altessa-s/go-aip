@@ -183,6 +183,30 @@ equivalence. Never store the normalized request itself; merge the final paths in
 
 ## Update plans and patches
 
+For validators that run before the write plan, use [original mask resolution](../fieldmask/update/README.md#resolve-the-original-mask).
+`Spec.ResolveMask` returns the validation scope in declaration order, with the original entry index or `SynthesizedPathIndex`.
+An omitted mask selects populated mutable leaves, an explicit empty mask selects nothing and `*` expands by descriptor.
+A whole singular message or a selected message map value expands even when absent. Lists stay whole in the public scope.
+With no allow-list, explicit OUTPUT_ONLY paths are ignored.
+
+Configure `WithAllowedPaths` on `NewSpec`, which compiles the list once and rejects malformed, unknown and OUTPUT_ONLY paths
+and paths into list elements. An empty list forbids every path. Explicit paths outside the list return an indexed mask error.
+A listed message expands its eligible subtree unless listed descendants narrow it. A partial map scope expands under `*`
+and selects only populated paths under an omitted mask. Both call methods return `ErrAllowedPathsAtCall` for this option.
+
+`Spec.ValidateResolved` reads the original resource. With `WithCurrent`, an omitted mask compares supplied protected input
+and the effects of populated collection and atomic-value selections independently of the public scope. Covered collection
+paths retain element-count checks. Expansion follows active oneof message branches, and explicit leaves retain their own
+checks. Validation checks a selected REQUIRED message before its expanded leaves, including when it has no leaves to
+validate. Selected REQUIRED leaves under an ordinary absent parent are still checked. Violations are returned in descriptor
+order. Their `Index` identifies the original mask entry when one applies, and their `Path` uses dot-separated map keys
+with field-mask quoting.
+`ListIndexes` and `MapKeys` give the concrete positions and identify the collections' field segments. `IndexedPath()` formats them as in `members[0].email` and
+`delegates["a.b"].email`.
+
+Pass the original mask to the write planner. Replacing a whole section clears it when absent and drops stored unknown fields
+when present. The expanded paths supply validation scope.
+
 `Spec.Plan(resource, req.GetUpdateMask(), update.WithCurrent(stored))` applies the same rules to a `Plan` and keeps the presence of
 the mask: nil is the implied mask, an empty mask is a no-op and `*` a full replacement. Explicit paths may name nested fields, map keys and `*`
 sub-paths of repeated and map fields; `Plan.Paths` feed `MergePaths`.

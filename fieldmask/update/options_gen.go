@@ -17,6 +17,31 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithAllowedPaths restricts [Spec.ResolveMask] when configured in [NewSpec].
+// Passing no paths permits none. List entries must name the whole list.
+// A listed message expands to its eligible subtree unless descendant entries
+// narrow the selection. Pass the original mask to the write planner.
+func WithAllowedPaths(v ...string) Option {
+	return func(o *options) {
+		transformed := make([]string, len(v))
+		for i, element := range v {
+			transformed[i] = strings.TrimSpace(element)
+		}
+		deduped := make([]string, 0, len(transformed))
+		{
+			seen := make(map[string]struct{}, len(transformed))
+			for _, item := range transformed {
+				if _, ok := seen[item]; ok {
+					continue
+				}
+				seen[item] = struct{}{}
+				deduped = append(deduped, item)
+			}
+		}
+		o.allowedPaths = deduped
+	}
+}
+
 // WithAtomicMessage sets the atomicMessage option.
 func WithAtomicMessage(v func(protoreflect.MessageDescriptor) bool) Option {
 	return func(o *options) {

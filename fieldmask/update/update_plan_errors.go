@@ -133,7 +133,7 @@ func (e *changedError) Error() string {
 
 func (e *changedError) Unwrap() error { return ErrProtectedField }
 
-// MaskPathError locates a refusal of [Spec.Plan] or [Patch.Run] in the
+// MaskPathError locates a refusal of [Spec.ResolveMask], [Spec.Plan] or [Patch.Run] in the
 // update mask, so a caller can build the AIP-193 field violation of the
 // offending path. The [coreerrs.FieldError] these
 // return holds it in its Err chain (errors.AsType finds it) and names the
