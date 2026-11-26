@@ -40,6 +40,8 @@ type profileOptions struct {
 	fieldNameValidator func(string) error `optgen:"default=defaultFieldNameValidator"`
 	// filterOptions override the metadata-derived filter policy, in order, for Schema and engines.
 	filterOptions []filter.PolicyOption `optgen:"append" optval:"clone=eager"`
+	// serverOnlyFields names declared fields reserved for server predicates and rejected in the client filter.
+	serverOnlyFields []string `optval:"clone=eager,notrim,nodup"`
 	// builtinFunctions replaces the default CEL builtin allowlist; an empty slice disables builtins.
 	builtinFunctions []string `optgen:"default=defaultBuiltinFunctions()" optfn:"BuiltinFunctions=copyBuiltinFunctions"`
 	// caseInsensitiveContainsFields selects exact public text fields for Unicode 15.1 simple-lowercase contains.

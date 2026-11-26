@@ -83,6 +83,8 @@ the JSON name). Declare it in the list schema as a nullable timestamp (`listing.
 true}`, or `Optional`); a required field makes the null test a refused restriction (`listing.ErrInvalidRestriction`, INTERNAL). See
 `Example_softDeleteRestriction` in [integration/crossbackend](../integration/crossbackend/softdelete_list_example_test.go).
 
+`listing.WithServerOnlyFields("deleteTime")` on the profile reserves that declared field for server predicates.
+
 `Restrict(node, show)` composes the same rule with an AST the caller holds (its own translator or evaluator, a store adapter), never on
 strings: it returns a new root `node && deleteTime == null` (or the predicate alone for a nil node) and leaves `node` untouched; bind the page
 tokens to the restricted filter. With the memory engine the items may also be filtered with `Visible` before they are passed. Without a
@@ -92,6 +94,8 @@ For a finite restore window, also set `req.Cutoff = policy.Cutoff(at)`. The pred
 `deleteTime == null || purgeTime > at`. A tombstone disappears at its purge instant, even before physical deletion.
 Declare both fields as timestamps. The delete field uses `WithFilterField`; the purge field uses the lower camel case
 of `WithPurgeTimeField` (`expire_time` becomes `expireTime`). A tombstone without a purge time fails this predicate.
+To reserve both declared fields for server predicates, use `listing.WithServerOnlyFields("deleteTime", "purgeTime")`
+on the listing profile, substituting the configured names where applicable.
 Omit the cutoff for indefinite retention. Capture one instant for List and Count and refresh it on the next request.
 SQL and memory support the cutoff. MongoDB refuses it with `listing.ErrInvalidRestriction`.
 

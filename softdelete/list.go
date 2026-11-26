@@ -28,7 +28,9 @@ import (
 // Declare the field in the list schema as a nullable timestamp
 // (listing.Field{Name: "deleteTime", Kind: filter.FieldKindTimestamp,
 // Presence: true}, or Optional); otherwise listing refuses the restriction
-// with listing.ErrInvalidRestriction. The node is new on every call and
+// with listing.ErrInvalidRestriction. To reserve the field for server
+// predicates, pass listing.WithServerOnlyFields to the listing profile.
+// The node is new on every call and
 // the caller may keep or share it: listing never modifies a restriction.
 func (p *Policy) Restriction(showDeleted bool) filter.Node {
 	return p.Restrict(nil, showDeleted)
@@ -38,7 +40,9 @@ func (p *Policy) Restriction(showDeleted bool) filter.Node {
 // It admits live resources and tombstones with a purge time strictly after at.
 // The public purge field is the lower camel case of the configured proto
 // purge time field. Use it for a resource with a finite restore window and
-// pass the same instant to List and Count within one request.
+// pass the same instant to List and Count within one request. Declare both
+// timestamp fields in the schema and name both in listing.WithServerOnlyFields
+// to keep them out of the client filter.
 func (p *Policy) Cutoff(at time.Time) filter.Node {
 	return &filter.BinaryOpNode{
 		Op: filter.OpOr, Left: p.Restriction(false),

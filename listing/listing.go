@@ -34,8 +34,9 @@ type Request struct {
 	// is bound to the RPC, the parent, the filter (with the restriction)
 	// and the order.
 	PageToken string
-	// Filter is a CEL expression over the schema's fields (AIP-160); empty
-	// matches everything.
+	// Filter is a CEL expression over the schema's client-filterable fields
+	// (AIP-160). An empty expression matches everything. [WithServerOnlyFields] reserves
+	// declared fields for server predicates.
 	Filter string
 	// OrderBy is a declared sort pattern or its full reversal (AIP-132);
 	// empty is the schema's default.
@@ -64,9 +65,9 @@ type Request struct {
 	//
 	// The restriction is trusted server input, built as an AST that skips
 	// the filter parser: enum fields take their stored values, not proto
-	// enum names. It obeys the same contract as a client filter — the
-	// schema's filter policy (declared fields, kinds, contract rules) and the
-	// profile's call, size() and presence checks — but a refusal is
+	// enum names. It uses the schema's filter policy (declared fields, kinds,
+	// contract rules) and the profile's call, size() and presence checks.
+	// It can also use fields named by [WithServerOnlyFields]. A refusal is
 	// [ErrInvalidRestriction] (a server fault, INTERNAL), never a field
 	// error on filter. It is cloned and its timestamp literals are cut to the
 	// profile precision; the caller's node is never modified, so one node may

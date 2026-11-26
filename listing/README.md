@@ -84,7 +84,7 @@ page, err := books.List(ctx, req)
 | Aspect             | Behavior                                                                                                                                                                                                                                         |
 |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Trust              | Server input. It never comes from the request message (`RequestFromProto` leaves it nil); nil or a typed nil restricts nothing.                                                                                                                  |
-| Validation         | The client filter's contract: the schema filter policy (declared fields, kinds, contract rules) and the profile's call, `size()` and presence checks, plus stored enum values.                                                                   |
+| Validation         | The schema filter policy and the profile's call, `size()` and presence checks apply. Server predicates can use fields named by `WithServerOnlyFields` and use stored enum values. |
 | Refusal            | `ErrInvalidRestriction` (wraps `ErrInvalidSchema`, INTERNAL in `apierror/aipmap`), never a field error: a server bug is not blamed on the client. Checked at the filter step, before the client filter is parsed.                                |
 | Default equalities | Decided by the client filter alone; the restriction is joined after them and never suppresses or triggers one.                                                                                                                                   |
 | Literals           | The AST skips the parser: an enum field takes its stored value (`"a"`), not the proto name (`"KIND_A"`, refused). Timestamps are cut to the profile precision on a copy.                                                                         |
@@ -103,10 +103,12 @@ The cutoff only removes rows. Keyset pagination resumes strictly after the same 
 the last returned row has since expired. Rows that remain eligible keep their positions. Use `Restriction` for
 tenant, caller, and request predicates whose change must invalidate the walk.
 
-The restriction uses the schema's filter policy, so it can only test fields a client may also filter on. That is safe — the conjunction only
-narrows — but a field the client must not name at all (denied with `WithFilterOptions`) cannot be restricted this way; scope it in the engine
-instead (`sqlbase.Scope` with `WithListScopeKeys`, or the slice handed to the memory engine). A client filter spelled exactly as the combined filter
-of another request yields the same binding; both run the same query, so the token is harmless there.
+Declare server-only predicate fields in the schema as usual, then pass
+`listing.NewProfile(listing.WithServerOnlyFields("deleteTime", "purgeTime"))` to the schema constructor.
+`Restriction` and `Cutoff` can use these fields subject to the shared filter policy and engine rules. A client filter
+that references one, including through a custom function expansion, gets the same field error as a disallowed field
+(`filter.ErrFieldNotAllowed`). `WithFilterOptions` still applies to both client and server predicates. Sort declarations
+and projection rules are configured independently.
 
 ## Page tokens and page sizes
 
@@ -387,6 +389,7 @@ Engine identity options use storage terminology: the MongoDB engine uses `WithLi
 | `WithErrorFormatter`        | `ProfileOption` | field error formatter                           | ErrorFormatter formats and classifies request errors. It must return a non-nil error and be concurrency safe.                                                                                                                                                                                           |
 | `WithFieldNameValidator`    | `ProfileOption` | public dotted-name validator                    | Checks public field names; nil disables syntax checks. Custom syntax also requires matching filter and order parsers.                                                                                                                                                                                   |
 | `WithFilterOptions`         | `ProfileOption` | nil / unset                                     | FilterOptions override the metadata-derived filter policy, in order, for Schema and engines.                                                                                                                                                                                                            |
+| `WithServerOnlyFields`      | `ProfileOption` | nil / unset                                     | Rejects the named declared fields in the client filter while allowing them in server predicates. |
 | `WithFilterParser`          | `ProfileOption` | nil / unset                                     | FilterParser replaces parsing. It must preserve the declared enum representation.                                                                                                                                                                                                                       |
 | `WithFilterParserOptions`   | `ProfileOption` | nil / unset                                     | FilterParserOptions configure the default parser before schema-owned vocabulary and function settings.                                                                                                                                                                                                  |
 | `WithFunctions`             | `ProfileOption` | functionMap(nil)                                | Functions are custom CEL functions of the filter (e.g. a free-text search()), expanded by the parser into ordinary predicates over the declared fields; the allowlist applies to the expansion.                                                                                                         |

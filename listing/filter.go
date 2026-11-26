@@ -241,6 +241,18 @@ func (s *Schema) parseFilter(ctx context.Context, expr string) (filter.Node, err
 		return nil, s.parseError(err)
 	}
 
+	if len(s.opts.serverOnlyFields) != 0 {
+		if err = s.policy.CheckLimits(node); err != nil {
+			return nil, s.TranslationError(err)
+		}
+
+		for n := range filter.AllNodes(node) {
+			if id, ok := n.(*filter.IdentNode); ok && id != nil && slices.Contains(s.opts.serverOnlyFields, id.Name) {
+				return nil, s.TranslationError(coreerrs.Wrapf(filter.ErrFieldNotAllowed, "%s", id.Name))
+			}
+		}
+	}
+
 	if err = s.checkContract(node); err != nil {
 		return nil, s.formatFilterError(err)
 	}
@@ -491,7 +503,8 @@ func references(root filter.Node, name string) bool {
 }
 
 // FilterPolicy returns the filter policy the schema built from [Schema.FilterOptions]: the shared, backend-independent
-// field rules in public names. Engines pass it to their translator or evaluator and bind it to their storage names
+// field rules in public names, including server-only fields. [Schema.Compile] enforces client access before
+// combining predicates. Engines pass the policy to their translator or evaluator and bind it to their storage names
 // there (filter.WithFieldMapping); it is immutable and safe to share.
 func (s *Schema) FilterPolicy() *filter.Policy { return s.policy }
 

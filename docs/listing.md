@@ -155,8 +155,10 @@ token through `filter.Canonical`; a blank client filter still gets it, and a cli
 | The client is not blamed for server limits                         | Restriction alone over the limits: `ErrInvalidRestriction`; only combined with the client filter: a field error on `filter`                                                           |
 
 The AST skips the parser, so enum fields take stored values (a proto enum name is refused, not silently unmatched). The node is cloned per request
-and timestamp literals are cut to the profile precision. It must be the same on every page of a walk. A field the client must not filter on at all
-cannot appear in it (it shares the client's filter policy); scope such fields in the engine (`sqlbase.Scope`, the memory slice).
+and timestamp literals are cut to the profile precision. It must be the same on every page of a walk.
+`listing.WithServerOnlyFields("deleteTime", "purgeTime")` on the schema profile reserves those declared fields for
+server predicates. The client filter gets `filter.ErrFieldNotAllowed` for those fields. Restrictions and cutoffs still
+validate their types and operations under the shared filter policy.
 
 A handler may also set `Request.Cutoff` to a server predicate whose value advances between pages, such as a restore deadline.
 `Schema.Compile` clones and validates it under the restriction rules and returns it through `Query.Cutoff()`. A refusal,
