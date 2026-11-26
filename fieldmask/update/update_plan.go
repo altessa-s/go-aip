@@ -287,9 +287,10 @@ func (s *Spec) planResource(resource proto.Message, mask *fieldmaskpb.FieldMask,
 // maskPath is an explicit update mask path: its position in the mask, its
 // spelling in the request and its resolved segments (see [resolveUpdateSegments]).
 type maskPath struct {
-	index int
-	raw   string
-	segs  []string
+	resolvedLeaf bool // explicitly named leaf, independent of descriptor expansion
+	index        int
+	raw          string
+	segs         []string
 }
 
 // plan resolves the mask of [Spec.Plan] and collects all behavior violations,
@@ -493,7 +494,7 @@ func declaredPaths(tree fieldmask.FieldMask, md protoreflect.MessageDescriptor) 
 				out = append(out, path)
 			case fd.IsList() || fd.IsMap():
 				for _, key := range slices.Sorted(maps.Keys(nested)) {
-					keyPath := behavior.JoinPath(path, behavior.QuoteSegment(key))
+					keyPath := behavior.JoinPath(path, maskpath.PathSegment(key))
 					if sub := nested[key]; sub != nil && maskpath.ValueMessage(fd) != nil {
 						walk(sub, maskpath.ValueMessage(fd), keyPath)
 					} else {

@@ -80,10 +80,14 @@ type updateCheck struct {
 	preparedInput fieldmask.FieldMask
 	// namedInput preserves explicit naming for routing checks after ignored paths
 	// are removed; it is never used to evaluate a merge or derive writes.
-	namedInput   fieldmask.FieldMask
-	violations   []FieldViolation
-	violationSet map[FieldViolation]struct{}
-	deferredSet  map[DeferredOperation]struct{}
+	namedInput fieldmask.FieldMask
+	// resolvedWhole retains REQUIRED checks on whole messages expanded to leaves.
+	resolvedWhole  map[string]bool
+	resolvedOneofs map[string]bool
+	resolved       bool
+	violations     []FieldViolation
+	violationSet   map[FieldViolation]struct{}
+	deferredSet    map[DeferredOperation]struct{}
 	// Retain the original selection and read-only resource pair for the reference
 	// walk. Only an evaluation with violations runs that walk.
 	violationOrder []fieldmask.FieldMask
@@ -246,7 +250,7 @@ func (u *updateCheck) checkMask(msk fieldmask.FieldMask, md protoreflect.Message
 	u.verifyUnnamedIdentifiers(msk, md, pairs, prefix)
 
 	fields := md.Fields()
-	for _, name := range slices.Sorted(maps.Keys(msk)) {
+	for _, name := range checkedFieldNames(msk, fields, u.resolved) {
 		fd := fields.ByName(protoreflect.Name(name))
 		if fd == nil {
 			continue
@@ -270,16 +274,25 @@ func (u *updateCheck) checkMask(msk fieldmask.FieldMask, md protoreflect.Message
 			continue
 		}
 
+		fieldPairs := pairs
+
+		if u.resolved {
+			fieldPairs = u.resolvedFieldPairs(fd, nested, pairs, path)
+			if len(fieldPairs) == 0 {
+				continue
+			}
+		}
+
 		if nested == nil {
-			u.checkWhole(msk, name, fd, pairs, path)
+			u.checkWhole(msk, name, fd, fieldPairs, path)
 			continue
 		}
 
 		switch {
 		case fd.IsList() || fd.IsMap():
-			u.checkElements(fd, nested, pairs, path)
+			u.checkElements(fd, nested, fieldPairs, path)
 		case u.policy.expandable(fd):
-			u.checkMask(nested, fd.Message(), childPairs(pairs, fd), path)
+			u.checkMask(nested, fd.Message(), childPairs(fieldPairs, fd), path)
 		default:
 			continue
 		}
@@ -288,6 +301,23 @@ func (u *updateCheck) checkMask(msk fieldmask.FieldMask, md protoreflect.Message
 			delete(msk, name)
 		}
 	}
+}
+
+func checkedFieldNames(msk fieldmask.FieldMask, fields protoreflect.FieldDescriptors, resolved bool) []string {
+	if !resolved {
+		return slices.Sorted(maps.Keys(msk))
+	}
+
+	names := make([]string, 0, len(msk))
+
+	for i := range fields.Len() {
+		name := string(fields.Get(i).Name())
+		if _, selected := msk[name]; selected {
+			names = append(names, name)
+		}
+	}
+
+	return names
 }
 
 // omitProtected excludes a protected selection from the effective mask. With
@@ -339,20 +369,13 @@ func (u *updateCheck) verifyUnnamedIdentifiers(msk fieldmask.FieldMask, md proto
 // server-managed field is replaced through its other fields (see
 // [updateCheck.expand]) so the stored server-managed values survive.
 func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protoreflect.FieldDescriptor, pairs []msgPair, path string) {
-	if slices.Contains(u.policy.behaviors(fd), annotations.FieldBehavior_REQUIRED) {
-		failed := false
-
-		for _, p := range pairs {
-			if behavior.RequiredUnmet(p.req, fd) {
-				u.fail(FieldViolation{Path: behavior.JoinPath(p.path, name), Behavior: annotations.FieldBehavior_REQUIRED, Reason: behavior.ReasonRequired})
-
-				failed = true
-			}
-		}
-
-		if failed {
+	if u.resolved && len(pairs) > 1 && slices.Contains(u.policy.behaviors(fd), annotations.FieldBehavior_REQUIRED) {
+		pairs = u.resolvedRequiredPairs(fd, pairs)
+		if len(pairs) == 0 {
 			return
 		}
+	} else if u.checkRequired(fd, pairs) {
+		return
 	}
 
 	u.checkWrittenRequired(fd, pairs)
@@ -371,6 +394,26 @@ func (u *updateCheck) checkWhole(msk fieldmask.FieldMask, name string, fd protor
 	} else {
 		delete(msk, name)
 	}
+}
+
+// checkRequired records unsatisfied REQUIRED fields and reports whether any failed.
+func (u *updateCheck) checkRequired(fd protoreflect.FieldDescriptor, pairs []msgPair) bool {
+	if !slices.Contains(u.policy.behaviors(fd), annotations.FieldBehavior_REQUIRED) {
+		return false
+	}
+
+	failed := false
+
+	for _, p := range pairs {
+		if behavior.RequiredUnmet(p.req, fd) {
+			path := behavior.JoinPath(p.path, string(fd.Name()))
+			u.fail(FieldViolation{Path: path, Behavior: annotations.FieldBehavior_REQUIRED, Reason: behavior.ReasonRequired})
+
+			failed = true
+		}
+	}
+
+	return failed
 }
 
 // isAtomic reports whether md is a message type the policy keeps whole
@@ -757,7 +800,14 @@ func (u *updateCheck) checkElements(fd protoreflect.FieldDescriptor, nested fiel
 	var emptied []string
 
 	for key, sub := range elementMasks(fd, named) {
-		u.checkMask(sub, elem, elementPairs(fd, key, named, pairs), elementPath(path, key))
+		selected := elementPairs(fd, key, named, pairs)
+		if u.resolved && fd.IsMap() {
+			// The resolved scope can include a key even when this request
+			// carries no entry whose values can be validated.
+			selected = slices.DeleteFunc(selected, func(pair msgPair) bool { return pair.req == nil })
+		}
+
+		u.checkMask(sub, elem, selected, elementPath(path, key))
 
 		if len(sub) == 0 {
 			emptied = append(emptied, key)
@@ -1016,7 +1066,7 @@ func mapElementPairs(fd protoreflect.FieldDescriptor, key string, nested fieldma
 	}
 
 	if key != maskpath.Wildcard {
-		k, ok := maskpath.ParseMapKey(fd.MapKey().Kind(), key)
+		k, ok := maskpath.ParseMapKey(fd.MapKey().Kind(), maskpath.JSONKey(key))
 		if !ok {
 			return nil
 		}

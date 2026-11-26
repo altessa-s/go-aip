@@ -167,7 +167,7 @@ func internalRules() []apierror.Rule {
 		orderby.ErrAllowlistRequired, orderby.ErrPolicyRequired,
 		projection.ErrAllowlistRequired, projection.ErrPolicyRequired, projection.ErrConflictingPolicy,
 		projection.ErrAllFieldsUnresolvable, protopath.ErrDescriptorRequired,
-		update.ErrMessageMismatch, update.ErrInvalidPatch, extract.ErrFieldNotSettable,
+		update.ErrMessageMismatch, update.ErrAllowedPathsAtCall, update.ErrInvalidPatch, extract.ErrFieldNotSettable,
 		fieldbehavior.ErrCurrentMismatch, fieldpolicy.ErrMalformedPattern,
 		fieldinfo.ErrUnknownFormat, fieldinfo.ErrInvalidRegistry,
 		etag.ErrNilMessage, etag.ErrNoField,

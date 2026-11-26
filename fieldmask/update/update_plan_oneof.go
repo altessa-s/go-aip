@@ -397,6 +397,23 @@ func (g oneofGuard) checkSwitch(
 	return nil
 }
 
+// protectedSibling reports whether setting fd could clear a protected oneof member.
+func (g oneofGuard) protectedSibling(fd protoreflect.FieldDescriptor, top bool) bool {
+	od := fd.ContainingOneof()
+	if od == nil || od.IsSynthetic() {
+		return false
+	}
+
+	members := od.Fields()
+	for i := range members.Len() {
+		if other := members.Get(i); other != fd && g.guarded(other, top) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // guarded reports whether an update must not clear fd as a side effect: an
 // IMMUTABLE or IDENTIFIER field or a message holding one at any depth, and,
 // for a top-level field, one topGuarded reports. An OUTPUT_ONLY field is

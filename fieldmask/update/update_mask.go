@@ -397,7 +397,7 @@ func isCovered(msk fieldmask.FieldMask, parts []string) bool {
 // fields) are still checked individually without cloning either resource.
 // A violation both report is recorded once.
 func (u *updateCheck) checkCovering(work fieldmask.FieldMask, covered []fieldmask.FieldMask, md protoreflect.MessageDescriptor, root msgPair) {
-	if u.orderMode == referenceExplicit && u.violationOrder == nil {
+	if !u.resolved && u.orderMode == referenceExplicit && u.violationOrder == nil {
 		u.violationOrder = append(u.violationOrder, work.Clone())
 		for _, tree := range covered {
 			u.violationOrder = append(u.violationOrder, tree.Clone())
@@ -408,6 +408,18 @@ func (u *updateCheck) checkCovering(work fieldmask.FieldMask, covered []fieldmas
 
 	if u.refusal != nil {
 		return
+	}
+
+	u.checkSelectionInputs(work, covered, md, root)
+}
+
+// checkSelectionInputs validates values and covered explicit paths after the
+// original write effect has been checked.
+func (u *updateCheck) checkSelectionInputs(work fieldmask.FieldMask, covered []fieldmask.FieldMask,
+	md protoreflect.MessageDescriptor, root msgPair,
+) {
+	if u.resolved {
+		u.addResolvedMessageChecks(work)
 	}
 
 	u.checkMask(work, md, []msgPair{root}, "")

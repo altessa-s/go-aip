@@ -52,6 +52,81 @@ handling of invalid masks still apply.
 | `NewSpec`, `Spec.Plan` | Classify a resource once and resolve one request's mask into a `Plan` (see [Update plans](#update-plans-and-patches-aip-134-aip-154-aip-163)) |
 | `Patch.Run`            | The whole read-modify-write with a revision precondition, allow_missing and validate_only                                                     |
 
+## Resolve the original mask
+
+Use `Spec.ResolveMask` at the request boundary to share a canonical validation scope and path
+origins before checking values. An omitted mask selects populated mutable leaves, a sent empty mask
+selects nothing, and `*` selects by descriptor. An explicit leaf stays selected even when empty.
+A selected singular message or map message value expands by descriptor, even when absent. A list
+stays one path, including when an unrestricted explicit mask selected fields of its elements. A whole map, an atomic message or a dynamic value stays whole. Unrestricted expansion
+stops at the first recursive descriptor cycle and keeps that branch whole.
+
+Configure `WithAllowedPaths` in `NewSpec`. The constructor resolves aliases and rejects malformed,
+unknown or OUTPUT_ONLY paths and entries below a list field. An empty allow-list forbids every
+path. Explicit entries must be listed. A listed message with no listed descendants
+admits its eligible subtree for expansion and omitted-mask synthesis. When descendants are listed,
+expansion follows them. A partial map allow-list expands its configured keys and descendants under
+`*` and selects only populated paths when the mask is omitted. A dynamic root with an allow-list
+uses the configured paths for `*`. Unrestricted resolution ignores
+explicit OUTPUT_ONLY paths. Restricted resolution rejects them.
+
+Request mask refusals carry a `*MaskPathError` with the original spelling and index.
+Passing `WithAllowedPaths` to either resolution or validation returns `ErrAllowedPathsAtCall`. Overlapping leaves take
+their origin from the most specific explicit entry. Duplicates use the first index. An omitted
+mask and `*` use `SynthesizedPathIndex`.
+
+```go
+spec, err := update.NewSpec(resource,
+    update.WithAllowedPaths("general", "general.time_zone", "notifications", "notifications.routes"))
+if err != nil {
+    return err
+}
+raw := req.GetUpdateMask()
+selected, err := spec.ResolveMask(resource, raw)
+if err != nil {
+    return err
+}
+
+// Share selected.Paths() and resource with the request validators.
+violations, err := spec.ValidateResolved(resource, selected, update.WithCurrent(stored))
+if err != nil {
+    return err
+}
+for _, violation := range violations {
+    requestPath := "settings." + violation.IndexedPath() // settings.notifications.routes[1].kind
+    // Report violation.Behavior and violation.Reason at requestPath.
+    _ = requestPath
+}
+```
+
+Validate the original resource before filtering it. Expansion checks leaves in active oneof message
+branches, and explicitly named leaves retain their own checks. Validation checks a selected
+REQUIRED message even when it has no leaves. A missing REQUIRED message suppresses its expanded
+descendant checks for that instance. Selected REQUIRED leaves under an ordinary absent parent
+are still checked. An absent map key can stay in scope and has no request value to check.
+Violations follow descriptor field order, numeric list index and map key order. Their `Index`
+identifies the originating explicit mask entry when one applies. Covered collection paths retain
+element-count checks and their original error indexes.
+
+An omitted mask retains the planner's conservative oneof switch check when stored state is
+unknown. With `WithCurrent`, validation compares supplied protected fields and the effects of
+populated collection and atomic-value selections, including selections excluded from `Paths()`.
+Protected comparisons retain explicitly selected whole messages, including their unknown fields.
+Protected scalar leaves beneath ordinary singular messages can be compared directly when the
+selection has no other protected merge effects. When validation visits a dynamic branch with a
+foreign descriptor, it checks schema compatibility before using that branch. This includes enum
+definitions reachable from the checked descriptor.
+
+Each violation's `Path` uses declared field names and dot-separated map keys. Keys such as
+`a.b` use the field-mask grammar's backtick quoting. `ListIndexes` associates each repeated-field
+index with its list field segment. `MapKeys` associates the unescaped key with its map field segment.
+`IndexedPath()` renders list positions and quoted map keys in brackets, such as
+`members[1].email` and `delegates["a.b"].email`.
+
+Pass the original mask to `Spec.Plan` or the existing write flow, and merge its write paths.
+A whole-message replacement clears a section omitted by the request and drops stored unknown
+fields. `ResolvedMask.Paths()` supplies the leaf scope for validators.
+
 ## Behavior
 
 A field carrying several behaviors is judged by presence with a fixed precedence (`OUTPUT_ONLY` dropped, then `IDENTIFIER`, then `IMMUTABLE` compared,
@@ -436,6 +511,7 @@ descendants. Unprotected OUTPUT_ONLY descendants of whole collection replacement
 | `ErrProtectedField`                                                                                        | `Spec.Plan`, `Patch.Run`                                                   | A changed IMMUTABLE or IDENTIFIER value, an identity path, a oneof switch away from a protected member |
 | `fieldmask.ErrMaxPathsExceeded`, `fieldmask.ErrMaxPathDepthExceeded`, `fieldmask.ErrMaxPathLengthExceeded` | every entry point a mask enters                                            | A mask over a limit (see [Limits](#limits))                                                            |
 | `ErrElementCountMismatch`                                                                                  | `Spec.Plan`, `Merge`, `MergePaths`                                         | A `*` sub-path of a list whose source holds elements, but not as many as the destination               |
+| `ErrAllowedPathsAtCall`                                                                                     | `Spec.ResolveMask`, `Spec.ValidateResolved`                                                         | Configure the allow-list in `NewSpec`.                                                                 |
 | `ErrMessageMismatch`                                                                                       | `ApplyMask`, `Merge`, `MergePaths`, `NewSpec`, `Spec.Plan`, `WithCurrent`  | Nil messages, or messages of different types                                                           |
 | `etag.ErrMismatch` (`coreerrs.ErrConflict`)                                                                | `Int64Precondition`, `TagPrecondition`                                     | A present etag that does not name the stored version, or any etag for a missing resource               |
 | `coreerrs.FieldError` on the etag field                                                                    | `Int64Precondition.Parse`, `TagPrecondition.Parse`                         | A malformed etag (`etag.ReasonInvalid`) or a missing required one (`etag.ReasonRequired`)              |
@@ -445,6 +521,7 @@ descendants. Unprotected OUTPUT_ONLY descendants of whole collection replacement
 
 | Option                       | Type          | Default                                 | Behavior                                                                                                               |
 |------------------------------|---------------|-----------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `WithAllowedPaths`           | `Option`      | unset (unrestricted)                    | Configure in `NewSpec` to restrict `Spec.ResolveMask`. Pass zero paths to deny all.                                                               |
 | `WithAtomicMessage`          | `Option`      | DefaultAtomicMessage                    | Choose message descriptors that must be updated as whole values.                                                       |
 | `WithIdentityFields`         | `Option`      | `"id"`, `"etag"`                        | Replace conventional id/etag paths used by update planning; an empty set disables name-based identities.               |
 | `WithImmutableFields`        | `Option`      | nil / unset                             | Add application paths protected as immutable during planning.                                                          |
@@ -524,7 +601,7 @@ from the wildcard through implied masks, validation, filtering, planning and mer
 | `StrictError`                                                                                                                           | The invalid paths of a strict update mask.                                                                                                                                            |
 | `Spec`                                                                                                                                  | The update-mask classification of a resource message's top-level fields; immutable and safe for concurrent use.                                                                       |
 | `Plan`                                                                                                                                  | The resolved update mask of one request: `Paths`, `Empty`, `Secret`.                                                                                                                  |
-| `MaskPathError`                                                                                                                         | Locates a `Spec.Plan` or `Patch.Run` refusal in the mask: `Index`, `Path`, `Field`, `Err`.                                                                                            |
+| `MaskPathError`                                                                                                                         | Locates a resolution or planning refusal in the mask: `Index`, `Path`, `Field`, `Err`.                                                                                            |
 | `ImpliedPaths`                                                                                                                          | The implied update mask of an omitted `update_mask`: the populated leaf fields, skipping identity, secret, immutable and server-managed ones.                                         |
 | `ResolvePath`                                                                                                                           | An update path spelled by declared names, or `""`: list indexes, element fields without `*` and paths into atomic values are not update paths.                                        |
 | `Merge`, `MergePaths`                                                                                                                   | Copy the fields a mask or update paths name from `src` to `dst`, all-or-nothing.                                                                                                      |

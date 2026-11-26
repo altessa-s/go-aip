@@ -52,6 +52,7 @@ const (
 // safe for concurrent use.
 type Spec struct {
 	opts    *options
+	allowed *allowedMaskPaths
 	desc    protoreflect.MessageDescriptor
 	order   []protoreflect.FieldDescriptor // top-level fields in declaration order
 	classes *coremaps.ImmutableMap[string, maskClass]
@@ -60,7 +61,8 @@ type Spec struct {
 
 // NewSpec returns the mask specification of resource's message type;
 // options replace identity names, atomic-message policy and the error field.
-// WithImmutableFields adds create-only fields. Nil resources return ErrMessageMismatch.
+// [WithImmutableFields] adds create-only fields. [WithAllowedPaths] is compiled
+// against the descriptor here. Nil resources return [ErrMessageMismatch].
 func NewSpec(resource proto.Message, opts ...Option) (*Spec, error) {
 	if !validMessage(resource) {
 		return nil, ErrMessageMismatch
@@ -98,6 +100,16 @@ func NewSpec(resource proto.Message, opts ...Option) (*Spec, error) {
 	}
 
 	s.classes = coremaps.NewImmutableMap(classes)
+
+	if o.allowedPaths != nil {
+		allowed, err := s.compileAllowedPaths(o.allowedPaths)
+		if err != nil {
+			return nil, err
+		}
+
+		s.allowed = allowed
+		o.allowedPaths = nil
+	}
 
 	return s, nil
 }

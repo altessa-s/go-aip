@@ -160,32 +160,12 @@ func (u *updateCheck) orderedViolations(md protoreflect.MessageDescriptor) ([]Fi
 		return nil, err
 	}
 
-	keys := make(map[FieldViolation][]violationPosition, len(u.violations))
+	sortViolations(u.violations, md)
 
 	found := make(map[FieldViolation]bool, len(u.violations))
 	for _, v := range u.violations {
-		keys[v] = declarationKey(md, maskpath.Split(v.Path))
 		found[v] = true
 	}
-
-	slices.SortFunc(u.violations, func(a, b FieldViolation) int {
-		order := slices.CompareFunc(keys[a], keys[b], func(a, b violationPosition) int {
-			if order := cmp.Compare(a.index, b.index); order != 0 {
-				return order
-			}
-
-			return strings.Compare(a.key, b.key)
-		})
-		if order != 0 {
-			return order
-		}
-
-		if order := cmp.Compare(a.Behavior, b.Behavior); order != 0 {
-			return order
-		}
-
-		return strings.Compare(a.Reason, b.Reason)
-	})
 
 	ordered := make([]FieldViolation, 0, len(u.violations))
 
@@ -210,6 +190,37 @@ func (u *updateCheck) orderedViolations(md protoreflect.MessageDescriptor) ([]Fi
 	u.violations = ordered
 
 	return ordered, nil
+}
+
+func sortViolations(violations []FieldViolation, md protoreflect.MessageDescriptor) {
+	if len(violations) <= 1 {
+		return
+	}
+
+	keys := make(map[FieldViolation][]violationPosition, len(violations))
+
+	for _, v := range violations {
+		keys[v] = declarationKey(md, maskpath.Split(v.Path))
+	}
+
+	slices.SortFunc(violations, func(a, b FieldViolation) int {
+		order := slices.CompareFunc(keys[a], keys[b], func(a, b violationPosition) int {
+			if order := cmp.Compare(a.index, b.index); order != 0 {
+				return order
+			}
+
+			return strings.Compare(a.key, b.key)
+		})
+		if order != 0 {
+			return order
+		}
+
+		if order := cmp.Compare(a.Behavior, b.Behavior); order != 0 {
+			return order
+		}
+
+		return strings.Compare(a.Reason, b.Reason)
+	})
 }
 
 // violationPosition is a descriptor's declaration index, a numeric list index,
