@@ -352,7 +352,7 @@ func TestResolveMaskSelectionBoundaries(t *testing.T) {
 		{name: "identifier", mask: []string{"name"}, want: []update.ResolvedPath{{Path: "name", Index: 0}}},
 		{name: "output only dropped", mask: []string{"update_time", "uid", "backup_owner.create_time", "delegates.bob.create_time"}},
 		{name: "output only rejected", opts: []update.Option{update.WithAllowedPaths("display_name")}, mask: []string{"display_name", "uid"}, bad: true},
-		{name: "allow-listed leaf", opts: []update.Option{update.WithAllowedPaths("display_name")}, mask: []string{"displayName"},
+		{name: "allow-listed leaf", opts: []update.Option{update.WithAllowedPaths("display_name")}, mask: []string{"display_name"},
 			want: []update.ResolvedPath{{Path: "display_name", Index: 0}}},
 		{name: "explicit with empty allow-list", opts: []update.Option{update.WithAllowedPaths()}, mask: []string{"display_name"}, bad: true},
 		{name: "omitted with empty allow-list", opts: []update.Option{update.WithAllowedPaths()}},
@@ -532,7 +532,7 @@ func TestValidateResolvedExplicitEmptyLeaf(t *testing.T) {
 	req := &pb.Account{}
 	spec, err := update.NewSpec(req, update.WithAllowedPaths("display_name"))
 	require.NoError(t, err)
-	resolved, err := spec.ResolveMask(req, maskOf([]string{"displayName"}))
+	resolved, err := spec.ResolveMask(req, maskOf([]string{"display_name"}))
 	require.NoError(t, err)
 	violations, err := spec.ValidateResolved(req, resolved)
 	require.NoError(t, err)
