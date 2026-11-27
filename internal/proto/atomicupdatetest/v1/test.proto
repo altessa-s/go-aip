@@ -1,0 +1,42 @@
+// Copyright 2026 ALTESSA SOLUTIONS INC.
+// Use of this source code is governed by the MIT license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+
+package atomicupdatetest.v1;
+
+import "google/api/field_behavior.proto";
+
+option go_package = "github.com/altessa-s/go-aip/internal/proto/gen/atomicupdatetest/v1;atomicupdatetestv1";
+
+message Integration {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_SMTP = 1;
+    KIND_TELEGRAM = 2;
+  }
+
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string name = 2;
+  Kind kind = 3 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = IMMUTABLE
+  ];
+  bool enabled = 4;
+  oneof settings {
+    SmtpSettings smtp = 5;
+    TelegramSettings telegram = 6;
+  }
+  string lastCheck = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string etag = 8;
+}
+
+message SmtpSettings {
+  string host = 1 [(google.api.field_behavior) = REQUIRED];
+  int32 port = 2;
+}
+
+message TelegramSettings {
+  string botToken = 1 [(google.api.field_behavior) = REQUIRED];
+}
