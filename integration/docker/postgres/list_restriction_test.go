@@ -117,13 +117,8 @@ func TestNotificationVisibilityRestriction(t *testing.T) {
 	t.Run("zero visible kinds", func(t *testing.T) {
 		t.Parallel()
 
-		kind := &filter.IdentNode{Name: "kind"}
-		value := &filter.LiteralNode{Value: kinds[0]}
 		none := req
-		none.Restriction = &filter.BinaryOpNode{Op: filter.OpAnd,
-			Left:  &filter.BinaryOpNode{Op: filter.OpEqual, Left: kind, Right: value},
-			Right: &filter.BinaryOpNode{Op: filter.OpNotEqual, Left: kind, Right: value},
-		}
+		none.Restriction = listing.MatchNone("kind")
 		p, err := engine.List(t.Context(), subject, none, nil)
 		require.NoError(t, err)
 		require.Empty(t, p.Items)

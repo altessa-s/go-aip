@@ -121,7 +121,7 @@ func NewListEngine[D any](coll *mongo.Collection, codec pagetoken.Signer, schema
 	l.arrays = schema.FilterPolicy().ArrayFields()
 
 	// The schema's policy authorizes the public names; the translator binds them to the BSON paths.
-	l.translator, err = NewFilterTranslatorWithSchema(schema.FilterPolicy(), semantics,
+	l.translator, err = NewFilterTranslatorWithSchema(schema.CombinedFilterPolicy(), semantics,
 		WithFilterOptions(filter.WithFieldMapping(l.filterPaths())))
 	if err != nil {
 		return nil, coreerrs.Wrap(errors.Join(listing.ErrInvalidSchema, err), "filter translator")

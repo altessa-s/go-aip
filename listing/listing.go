@@ -75,6 +75,9 @@ type Request struct {
 	// filter depth and operation limits; exceeding them only together with
 	// the client's filter is a field error on filter. Use only operations
 	// every engine of the list translates (equalities, null tests, ranges).
+	// An empty IN list, as built by [MatchNone], matches no rows. List still
+	// validates the client filter and any page token, and Count returns zero
+	// after validating the collection predicate.
 	//
 	// The page token binds the canonical combined filter, so a token issued
 	// under one restriction (show_deleted false) is rejected under another
@@ -84,11 +87,24 @@ type Request struct {
 	Restriction filter.Node
 	// Cutoff is a trusted server predicate that may narrow the visible rows between
 	// pages, for example as a restore window expires. List and Count apply it before
-	// pagination. It has the validation and copy semantics of Restriction. A nil
+	// pagination. It has the copy semantics of Restriction and follows the
+	// ordinary filter policy for validation, including its IN list rules. A nil
 	// or typed nil cutoff admits every row. Tokens omit it because removing rows
 	// changes neither the order keys nor the continuation position. Use Restriction
 	// for any change that must invalidate an existing walk, including caller scope.
 	Cutoff filter.Node
+}
+
+// MatchNone returns a server restriction that matches no rows. Field must
+// name a filterable field declared in the schema, including server-only fields.
+// Assign the result to [Request.Restriction]. The empty membership list is
+// part of the page token binding.
+func MatchNone(field string) filter.Node {
+	return &filter.BinaryOpNode{
+		Op:    filter.OpIn,
+		Left:  &filter.IdentNode{Name: field},
+		Right: &filter.ListNode{},
+	}
 }
 
 // pageSize resolves the page size of req under the schema's limits.

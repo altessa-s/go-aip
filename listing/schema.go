@@ -37,6 +37,7 @@ type Schema struct {
 	filterParser                  FilterParser
 	orderParser                   OrderParser
 	policy                        *filter.Policy
+	combinedFilterPolicy          *filter.Policy
 	orderPolicy                   *orderby.Policy
 	orders                        []Order                               // declared, then reversed, per pattern
 	byCanonical                   *coremaps.ImmutableMap[string, Order] // canonical orderBy -> order
@@ -111,6 +112,8 @@ func NewSchema(fields []Field, patterns []string, profile *Profile) (*Schema, er
 	}
 
 	s.policy = policy
+	s.combinedFilterPolicy = policy.WithoutContractRule(filter.NonemptyIn)
+
 	if err = s.compileDefaults(); err != nil {
 		return nil, err
 	}

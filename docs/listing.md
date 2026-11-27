@@ -78,7 +78,7 @@ must satisfy their declared kind. All stored floats must be finite: [listing/eva
 filters with, fails a record holding a NaN or an infinity with `evaluation.ErrNonFiniteFloat` (naming the field), and the memory engine fails a
 non-finite sort or identity value with `pagetoken.ErrUnsortableValue`.
 
-Portable validation rejects empty membership lists, null membership elements, ordered comparisons with null, and unsupported regex shapes. Builtins are
+Portable validation requires nonempty membership lists in client filters and cutoffs. It also rejects null membership elements, ordered comparisons with null, and unsupported regex shapes. Builtins are
 contains, startsWith, endsWith, size, and timestamp; operators and the has macro remain grammar. Custom functions can expand to validated predicates.
 Timestamp literals and default equalities normalize to UTC at profile precision, one millisecond by default.
 
@@ -147,6 +147,13 @@ returns. See the [projection guide](projection.md).
 `deleteTime == null` or nil) and tenant or caller scopes. It is part of `Query.Filter`, so every engine applies it and binds it into the page
 token through `filter.Canonical`; a blank client filter still gets it, and a client filter can only narrow it.
 
+Use `req.Restriction = listing.MatchNone("kind")` when a caller has no visible kinds. The helper builds
+`kind IN []` over the declared field, and SQL renders it as a constant-false predicate. List validates
+the client filter and any page token before returning an empty page without a continuation token. A token
+issued with different visibility is rejected. SQL Count applies the same restriction and returns zero
+for a valid collection predicate. The default client filter and cutoff policies continue to require
+nonempty IN lists.
+
 | Rule                                                               | How it is met                                                                                                                                                                         |
 |--------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | AIP-164: soft-deleted resources are excluded unless `show_deleted` | `Restriction = softdelete.Policy.Restriction(show)`; the client filter cannot widen the conjunction                                                                                   |
@@ -161,7 +168,7 @@ server predicates. The client filter gets `filter.ErrFieldNotAllowed` for those 
 validate their types and operations under the shared filter policy.
 
 A handler may also set `Request.Cutoff` to a server predicate whose value advances between pages, such as a restore deadline.
-`Schema.Compile` clones and validates it under the restriction rules and returns it through `Query.Cutoff()`. A refusal,
+`Schema.Compile` clones and validates it under `Schema.FilterPolicy()` and returns it through `Query.Cutoff()`. A refusal,
 including a cutoff that pushes the whole expression over its limits, is `ErrInvalidRestriction` (INTERNAL).
 SQL List and Count and the memory engine apply the cutoff before pagination. MongoDB refuses it because its keyset
 reader binds the entire BSON predicate. Use matching root and backend releases when enabling cutoffs.

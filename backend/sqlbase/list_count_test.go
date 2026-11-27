@@ -108,6 +108,30 @@ func TestCountUsesCollectionPredicate(t *testing.T) {
 	}
 }
 
+func TestCountMatchNone(t *testing.T) {
+	t.Parallel()
+
+	db, fake := sqlbasetest.NewFakeDB(t, func(string, []any) sqlbasetest.Reply {
+		return sqlbasetest.Reply{Columns: []string{"count"}, Rows: [][]driver.Value{{int64(0)}}}
+	})
+	engine := newCountEngine(t, db)
+	req := listing.Request{Filter: `id != "x"`, Restriction: listing.MatchNone("id")}
+
+	total, err := engine.Count(t.Context(), req, nil)
+	require.NoError(t, err)
+	require.Zero(t, total)
+
+	calls := fake.Calls()
+	require.Len(t, calls, 1)
+	require.Contains(t, calls[0].Query, "FALSE")
+	require.Equal(t, []any{"x"}, calls[0].Args)
+
+	req.Filter = `unknown == "x"`
+	_, err = engine.Count(t.Context(), req, nil)
+	require.Equal(t, listing.FieldFilter, listingtest.FieldOf(err))
+	require.Len(t, fake.Calls(), 1)
+}
+
 func TestCountValidatesBeforeQuery(t *testing.T) {
 	t.Parallel()
 
