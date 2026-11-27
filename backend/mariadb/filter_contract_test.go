@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/filter/filtertest"
+	"github.com/altessa-s/go-aip/listing"
 )
 
 func contractTranslator(t testing.TB) *mariadb.SchemaFilterTranslator {
@@ -91,6 +92,7 @@ func TestContractSQLAndArguments(t *testing.T) {
 		{`name in [null]`, "FALSE", nil},
 		{`!(name in [null])`, "TRUE", nil},
 		{`!(name in [])`, "TRUE", nil},
+		{`!(tags in [])`, "TRUE", nil},
 		{`note == note`, "(`note` <=> `note`)", nil},
 		{`!(note == note)`, "(NOT (`note` <=> `note`))", nil},
 		{`size(name) == null`, "FALSE", nil},
@@ -121,6 +123,15 @@ func TestContractSQLAndArguments(t *testing.T) {
 			require.Equal(t, tc.args, args)
 		})
 	}
+}
+
+func TestContractMatchNoneArray(t *testing.T) {
+	t.Parallel()
+
+	sql, args, err := contractTranslator(t).Translate(listing.MatchNone("tags"))
+	require.NoError(t, err)
+	require.Equal(t, "FALSE", sql)
+	require.Empty(t, args)
 }
 
 func TestContractRejectsNonLiteralArrayOperands(t *testing.T) {

@@ -144,8 +144,9 @@ returns. See the [projection guide](projection.md).
 
 `Request.Restriction` is a server-built `filter.Node` that `Compile` ANDs after the client filter and the default equalities:
 `(filter && defaults) && restriction`. It serves AIP-164 `show_deleted` (`softdelete.Policy.Restriction(showDeleted)` returns
-`deleteTime == null` or nil) and tenant or caller scopes. It is part of `Query.Filter`, so every engine applies it and binds it into the page
-token through `filter.Canonical`; a blank client filter still gets it, and a client filter can only narrow it.
+`deleteTime == null` or nil) and tenant or caller scopes. Every engine applies the restriction through `Query.Filter`, even when the client
+filter is blank. The client filter can only narrow the results. SQL and memory bind the page token to `filter.Canonical(Query.Filter)`.
+MongoDB binds the token to the BSON of the final query filter, including the scope and the translated `Query.Filter`.
 
 Use `req.Restriction = listing.MatchNone("kind")` when a caller has no visible kinds. The helper builds
 `kind IN []` over the declared field, and SQL renders it as a constant-false predicate. List validates
@@ -157,7 +158,7 @@ nonempty IN lists.
 | Rule                                                               | How it is met                                                                                                                                                                         |
 |--------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | AIP-164: soft-deleted resources are excluded unless `show_deleted` | `Restriction = softdelete.Policy.Restriction(show)`; the client filter cannot widen the conjunction                                                                                   |
-| AIP-158: a page token is rejected when the request changes         | The canonical filter includes the restriction: a token of `show_deleted=false` is `malformed` with `true`                                                                             |
+| AIP-158: a page token is rejected when the request changes         | The token binding includes the restriction. A token issued with `show_deleted=false` is `malformed` with `true`.                                                                      |
 | The restriction is trusted input                                   | Never read from the message; validated under the schema policy and the profile checks; a refusal is `ErrInvalidRestriction` (wraps `ErrInvalidSchema`, INTERNAL), never a field error |
 | The client is not blamed for server limits                         | Restriction alone over the limits: `ErrInvalidRestriction`; only combined with the client filter: a field error on `filter`                                                           |
 
@@ -276,7 +277,7 @@ FieldError, `apierror.Error` or sentinel it holds never selects the status or re
 
 ## Tokens and conformance
 
-Tokens bind the subject, parent/scope, canonical filter (with the server restriction) and order, engine storage settings, and profile ContractID
+Tokens bind the subject, parent/scope, effective filter (with the server restriction) and order, engine storage settings, and profile ContractID
 (portable-v1 by default). Change ContractID whenever custom parsing or evaluation semantics change. PositionCodec.Name versions ordering and encoding. A
 nil signer serves a single page and rejects supplied tokens. Engines do not exchange tokens, and pagination is not snapshot isolation. See
 [pagination](pagination.md) for signing, rotation, encryption, and codecs.

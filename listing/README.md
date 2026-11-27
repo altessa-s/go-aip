@@ -34,7 +34,7 @@ A declared sort pattern or its full reversal is accepted. Sort fields are requir
 identity in the last key's direction. Unrestricted and ID-only ordering are explicit profile policies.
 
 `Engine[T, S]` serves an explicit source or scope; `Bind` produces `Lister[T]` with source and subject captured. The caller must not mutate a bound
-scope during requests. Tokens bind the subject, parent, canonical filter and order, engine storage contract, and `ContractID`; page size may change
+scope during requests. Tokens bind the subject, parent, effective filter and order, engine storage contract, and `ContractID`; page size may change
 between pages. A nil signer serves one page and rejects supplied tokens. Pagination is not a snapshot.
 
 Parsers, validators, literal conversion, field-name validation, page-size resolution, and error formatting are replaceable. Injected dependencies must
@@ -71,9 +71,10 @@ errors (such as the go-atlas errstatus interceptor) reports it as a BadRequest f
 `Request.Restriction` is a `filter.Node` the server ANDs onto every request: the AIP-164 `show_deleted` rule
 ([`softdelete.Policy.Restriction`](../softdelete/README.md#show_deleted-in-list)), a tenant or caller scope. `Compile` builds
 `(client filter && default equalities) && restriction`, so a blank filter still gets it and a client filter can only narrow it, never widen it
-(`archived == true || archived == false` under `archived == false` still returns only unarchived items). Every engine applies it, because it
-is part of `Query.Filter`, and binds it into the page token through the canonical filter: a token issued under one restriction is `malformed`
-under another or none.
+(`archived == true || archived == false` under `archived == false` still returns only unarchived items). Every engine applies the restriction
+through `Query.Filter`. SQL and memory bind the page token to `filter.Canonical(Query.Filter)`. MongoDB binds it to the BSON of the final
+query filter, including the scope and the translated `Query.Filter`. A token issued under one restriction is `malformed` under another or
+with no restriction.
 
 ```go
 req := listing.RequestFromProto(msg)
@@ -287,7 +288,7 @@ and a `size()` operand out of range, which name only the field, the operator or 
 | `Schema.Default()`, `Schema.UnrestrictedOrder()`                             | The order of a request without `orderBy`; whether request orders may be absent from `Orders` (`WithUnrestrictedOrder`) |
 | `Schema.ZeroFields()`, `Schema.OptionalFields()`, `Schema.PresenceFields()`  | The `Optional` fields with their kinds, their names, and the `Presence` fields: the engine's storage configuration     |
 | `Schema.MaxPageSize()`, `Schema.TimestampPrecision()`, `Schema.ContractID()` | The page ceiling, the filter timestamp precision and the contract ID an engine checks or binds into its tokens         |
-| `filter.Canonical(q.Filter)`                                                 | The spelling-independent filter a page token binds to (restriction included)                                           |
+| `filter.Canonical(q.Filter)`                                                 | The spelling-independent filter SQL and memory page tokens bind to (restriction included)                              |
 
 The schema builds its policies once, in `NewSchema`, following the parser / policy / translator model of the
 [root README](../README.md#parser--policy--translator): the filter policy from `FilterOptions` and the order policy from `OrderOptions`. An
