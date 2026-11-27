@@ -34,7 +34,7 @@ A declared sort pattern or its full reversal is accepted. Sort fields are requir
 identity in the last key's direction. Unrestricted and ID-only ordering are explicit profile policies.
 
 `Engine[T, S]` serves an explicit source or scope; `Bind` produces `Lister[T]` with source and subject captured. The caller must not mutate a bound
-scope during requests. Tokens bind the subject, parent, canonical filter and order, engine storage contract, and `ContractID`; page size may change
+scope during requests. Tokens bind the subject, parent, effective filter and order, engine storage contract, and `ContractID`; page size may change
 between pages. A nil signer serves one page and rejects supplied tokens. Pagination is not a snapshot.
 
 Parsers, validators, literal conversion, field-name validation, page-size resolution, and error formatting are replaceable. Injected dependencies must
@@ -71,15 +71,23 @@ errors (such as the go-atlas errstatus interceptor) reports it as a BadRequest f
 `Request.Restriction` is a `filter.Node` the server ANDs onto every request: the AIP-164 `show_deleted` rule
 ([`softdelete.Policy.Restriction`](../softdelete/README.md#show_deleted-in-list)), a tenant or caller scope. `Compile` builds
 `(client filter && default equalities) && restriction`, so a blank filter still gets it and a client filter can only narrow it, never widen it
-(`archived == true || archived == false` under `archived == false` still returns only unarchived items). Every engine applies it, because it
-is part of `Query.Filter`, and binds it into the page token through the canonical filter: a token issued under one restriction is `malformed`
-under another or none.
+(`archived == true || archived == false` under `archived == false` still returns only unarchived items). Every engine applies the restriction
+through `Query.Filter`. SQL and memory bind the page token to `filter.Canonical(Query.Filter)`. MongoDB binds it to the BSON of the final
+query filter, including the scope and the translated `Query.Filter`. A token issued under one restriction is `malformed` under another or
+with no restriction.
 
 ```go
 req := listing.RequestFromProto(msg)
 req.Restriction = softdelete.New().Restriction(msg.GetShowDeleted()) // deleteTime == null unless show_deleted
 page, err := books.List(ctx, req)
 ```
+
+When an authorization check yields zero visible kinds, set
+`req.Restriction = listing.MatchNone("kind")`. This builds an empty IN list over a declared
+filterable field and can also be constructed directly with an empty `filter.ListNode`.
+List validates the client filter and any page token, then returns an empty page without a
+continuation token. SQL Count validates the collection predicate and returns zero. The
+default policy still rejects empty membership lists in client filter text and cutoffs.
 
 | Aspect             | Behavior                                                                                                                                                                                                                                         |
 |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -94,7 +102,7 @@ page, err := books.List(ctx, req)
 | Engines            | Use operations every engine of the list translates (equalities, null tests, ranges); an engine translator's refusal is reported like a client filter's.                                                                                          |
 
 A handler may also set `Request.Cutoff` to a server predicate whose value advances between pages, such as a restore deadline.
-`Schema.Compile` clones and validates it under the restriction rules and returns it through `Query.Cutoff()`. A refusal,
+`Schema.Compile` clones and validates it under `Schema.FilterPolicy()` and returns it through `Query.Cutoff()`. A refusal,
 including a cutoff that pushes the whole expression over its limits, is `ErrInvalidRestriction` (INTERNAL).
 SQL List and Count and the memory engine apply the cutoff before pagination. MongoDB refuses it because its keyset
 reader binds the entire BSON predicate. Use matching root and backend releases when enabling cutoffs.
@@ -189,8 +197,9 @@ arrays); null comparisons are aliases for equality/inequality with zero (or empt
 | `x == null` / `x != null`                   | `x == zero` / `x != zero`                   | Empty / non-empty                    |
 | `size(x)`                                   | String length (zero for an absent optional) | Element count                        |
 
-Portable validation rejects empty `in` lists, null in `in`, ordered comparisons with null, non-finite float literals, and regex patterns
-outside the shared literal, anchor, and `.*` subset. Stored float fields must contain finite values only; NaN and infinities sort
+Portable validation requires nonempty `in` lists in client filters and cutoffs. It also rejects null in
+`in`, ordered comparisons with null, non-finite float literals, and regex patterns outside the shared
+literal, anchor, and `.*` subset. Stored float fields must contain finite values only; NaN and infinities sort
 differently across supported databases and cannot have portable filter semantics.
 
 ### Case-insensitive contains
@@ -267,7 +276,8 @@ and a `size()` operand out of range, which name only the field, the operator or 
 | `Schema.Compile(ctx, req) (Query, error)`                                    | Validates a request; `Query{Size, Order, Filter}` — the validated AST (defaults and restriction joined)                |
 | `Schema.CompileWithOrderValidator(ctx, req, validate)`                       | `Compile` with the engine's physical order check, run after the schema's order check and before the filter is parsed   |
 | `Schema.FormatError(field, reason, cause)`                                   | The profile's request-error formatter (`WithErrorFormatter`), for the engine's own request errors                      |
-| `Schema.FilterPolicy()`                                                      | The schema's filter policy in public names; an engine passes it to its translator or evaluator                         |
+| `Schema.FilterPolicy()`                                                      | The schema's filter policy in public names, including the rules for client filters and cutoffs                       |
+| `Schema.CombinedFilterPolicy()`                                              | The policy an engine passes to its translator or evaluator for the compiled filter, including empty IN restrictions   |
 | `Schema.FilterOptions()`                                                     | The options of that policy; storage names go in the engine's translator (`filter.WithFieldMapping`)                    |
 | `Schema.OrderOptions()`                                                      | The `orderby.PolicyOption`s of the schema: untrusted input, sortable fields, default order (public names)              |
 | `Schema.OrderPolicy()`                                                       | The `*orderby.Policy` built from `OrderOptions` in `NewSchema`; bind it with an orderby translator                     |
@@ -278,7 +288,7 @@ and a `size()` operand out of range, which name only the field, the operator or 
 | `Schema.Default()`, `Schema.UnrestrictedOrder()`                             | The order of a request without `orderBy`; whether request orders may be absent from `Orders` (`WithUnrestrictedOrder`) |
 | `Schema.ZeroFields()`, `Schema.OptionalFields()`, `Schema.PresenceFields()`  | The `Optional` fields with their kinds, their names, and the `Presence` fields: the engine's storage configuration     |
 | `Schema.MaxPageSize()`, `Schema.TimestampPrecision()`, `Schema.ContractID()` | The page ceiling, the filter timestamp precision and the contract ID an engine checks or binds into its tokens         |
-| `filter.Canonical(q.Filter)`                                                 | The spelling-independent filter a page token binds to (restriction included)                                           |
+| `filter.Canonical(q.Filter)`                                                 | The spelling-independent filter SQL and memory page tokens bind to (restriction included)                              |
 
 The schema builds its policies once, in `NewSchema`, following the parser / policy / translator model of the
 [root README](../README.md#parser--policy--translator): the filter policy from `FilterOptions` and the order policy from `OrderOptions`. An
@@ -292,7 +302,7 @@ cannot state the projection allow-list. Append `projection.WithAllowedFields` (a
 (`projection.WithView`, `projection.WithDefaultView`) before calling `projection.NewPolicy`. An omitted read mask returns every allowed field
 except the Hidden ones (AIP-157); when a view selects the fields instead, pass the selected paths as `Request.ReadMask`.
 
-An engine translates `Query.Filter` as a whole and binds its canonical form; it needs nothing else for `Request.Restriction`. An engine
+An engine translates `Query.Filter` as a whole under `Schema.CombinedFilterPolicy()` and binds its canonical form. An engine
 must also apply `Query.Cutoff()` to the rows it reads or refuse it as a server fault. The `listingtest.Run` suite checks both predicates.
 
 ## Tests

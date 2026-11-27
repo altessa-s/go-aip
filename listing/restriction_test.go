@@ -191,6 +191,33 @@ func TestCompileRestrictionCanonical(t *testing.T) {
 	assert.NotEqual(t, canonical(t, plain.Filter), canonical(t, restricted.Filter))
 }
 
+func TestCompileMatchNone(t *testing.T) {
+	t.Parallel()
+
+	s := widgetSchema(t, listing.WithServerOnlyFields("archived"))
+	none := listing.MatchNone("archived")
+	q, err := s.Compile(t.Context(), listing.Request{Restriction: none})
+	require.NoError(t, err)
+	require.Equal(t, canonical(t, none), canonical(t, q.Filter))
+	require.NoError(t, filter.Validate(q.Filter, s.CombinedFilterPolicy()))
+	require.ErrorIs(t, filter.Validate(q.Filter, s.FilterPolicy()), filter.ErrInvalidExpression)
+
+	_, err = s.Compile(t.Context(), listing.Request{Filter: `name in []`, Restriction: none})
+	require.ErrorIs(t, err, filter.ErrInvalidExpression)
+
+	_, err = s.Compile(t.Context(), listing.Request{Filter: `unknown == "x"`, Restriction: none})
+	require.Error(t, err)
+	fe, ok := errors.AsType[*coreerrs.FieldError](err)
+	require.True(t, ok)
+	require.Equal(t, listing.FieldFilter, fe.Field)
+
+	_, err = s.Compile(t.Context(), listing.Request{Restriction: listing.MatchNone("unknown")})
+	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+
+	_, err = s.Compile(t.Context(), listing.Request{Cutoff: none})
+	require.ErrorIs(t, err, listing.ErrInvalidRestriction)
+}
+
 func TestCompileCutoff(t *testing.T) {
 	t.Parallel()
 	s := widgetSchema(t)

@@ -161,7 +161,7 @@ func (l *ListEngine[T]) newTranslator(fields *Schema, opts []filter.TranslatorOp
 
 	names := l.schema.CaseInsensitiveContainsFields()
 	if len(names) == 0 {
-		return l.opts.dialect.NewTranslator(l.schema.FilterPolicy(), fields, opts, config)
+		return l.opts.dialect.NewTranslator(l.schema.CombinedFilterPolicy(), fields, opts, config)
 	}
 
 	d, ok := l.opts.dialect.(interface {
@@ -171,7 +171,7 @@ func (l *ListEngine[T]) newTranslator(fields *Schema, opts []filter.TranslatorOp
 		return nil, invalid("dialect does not support case-insensitive contains")
 	}
 
-	return d.NewCaseInsensitiveContainsTranslator(l.schema.FilterPolicy(), fields, opts, config, names)
+	return d.NewCaseInsensitiveContainsTranslator(l.schema.CombinedFilterPolicy(), fields, opts, config, names)
 }
 
 // MustNewListEngine is [NewListEngine] for package-level declarations with static configuration: it returns the engine

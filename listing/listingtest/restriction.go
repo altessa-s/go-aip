@@ -89,6 +89,16 @@ func testRestriction(t *testing.T, newList Factory, arrays bool, cfg *options) {
 		t.Parallel()
 		require.Empty(t, Collect(t, l, listing.Request{Filter: `archived == true`, Restriction: notArchived}))
 	})
+
+	t.Run("empty membership restriction", func(t *testing.T) {
+		t.Parallel()
+
+		req := listing.Request{Filter: `priority >= 0`, Restriction: listing.MatchNone("kind")}
+		p, err := withDefaults(t.Context(), Subject, req)
+		require.NoError(t, err)
+		require.Empty(t, p.Items)
+		require.Empty(t, p.NextPageToken)
+	})
 }
 
 // testRestrictionTokenBinding checks a page token is bound to the
@@ -120,6 +130,7 @@ func testRestrictionTokenBinding(t *testing.T, newList Factory, arrays bool, cfg
 		{name: "equal restriction", token: p.NextPageToken, restriction: equality("archived", false), ok: true},
 		{name: "restriction removed", token: p.NextPageToken},
 		{name: "other restriction", token: p.NextPageToken, restriction: equality("archived", true)},
+		{name: "match none restriction", token: p.NextPageToken, restriction: listing.MatchNone("archived")},
 		{name: "restriction added", token: q.NextPageToken, restriction: equality("archived", false)},
 	}
 	for _, tc := range tests {

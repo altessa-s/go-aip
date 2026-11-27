@@ -440,6 +440,14 @@ func (r *contractRenderer) binary(e *contractExpression) (string, error) {
 		return r.membership(right, left, rf, r.negated)
 	}
 
+	if e.Op == filter.OpIn && lf.array && right.Tag == filter.NodeKindList && len(right.Children) == 0 {
+		if r.negated {
+			return sqlTrue, nil
+		}
+
+		return sqlFalse, nil
+	}
+
 	if lf.array {
 		switch e.Op {
 		case filter.OpEqual, filter.OpNotEqual:

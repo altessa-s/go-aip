@@ -92,12 +92,12 @@ func (s *Schema) CompileWithOrderValidator(ctx context.Context, req Request, val
 		}
 	}
 
-	restriction, err := s.restriction(req.Restriction)
+	restriction, err := s.restriction(req.Restriction, s.combinedFilterPolicy)
 	if err != nil {
 		return Query{}, err
 	}
 
-	cutoff, err := s.restriction(req.Cutoff)
+	cutoff, err := s.restriction(req.Cutoff, s.policy)
 	if err != nil {
 		return Query{}, fmt.Errorf("cutoff: %w", err)
 	}
@@ -134,7 +134,7 @@ func (s *Schema) CompileWithOrderValidator(ctx context.Context, req Request, val
 // request, its timestamp literals cut to the profile precision; nil for no
 // restriction. A refused restriction is [ErrInvalidRestriction] and never a
 // field error.
-func (s *Schema) restriction(node filter.Node) (filter.Node, error) {
+func (s *Schema) restriction(node filter.Node, policy *filter.Policy) (filter.Node, error) {
 	if nilcheck.IsNil(node) {
 		return nil, nil //nolint:nilnil // no restriction
 	}
@@ -145,7 +145,7 @@ func (s *Schema) restriction(node filter.Node) (filter.Node, error) {
 	}
 
 	if err == nil {
-		err = filter.Validate(restriction, s.policy)
+		err = filter.Validate(restriction, policy)
 	}
 
 	if err == nil {
@@ -502,11 +502,15 @@ func references(root filter.Node, name string) bool {
 	return found
 }
 
-// FilterPolicy returns the filter policy the schema built from [Schema.FilterOptions]: the shared, backend-independent
-// field rules in public names, including server-only fields. [Schema.Compile] enforces client access before
-// combining predicates. Engines pass the policy to their translator or evaluator and bind it to their storage names
-// there (filter.WithFieldMapping); it is immutable and safe to share.
+// FilterPolicy returns the policy built from [Schema.FilterOptions], in public
+// names and including server-only fields. [Schema.Compile] enforces client access
+// before combining predicates. Engines use [Schema.CombinedFilterPolicy].
 func (s *Schema) FilterPolicy() *filter.Policy { return s.policy }
+
+// CombinedFilterPolicy returns the immutable policy for translating or evaluating
+// [Query.Filter] after [Schema.Compile]. It allows empty membership lists from
+// server restrictions and otherwise applies the rules of [Schema.FilterPolicy].
+func (s *Schema) CombinedFilterPolicy() *filter.Policy { return s.combinedFilterPolicy }
 
 // FilterOptions returns the shared filter policy options of the schema:
 // declared fields and kinds, the portable contract, safe regex patterns, array rules and AST limits.

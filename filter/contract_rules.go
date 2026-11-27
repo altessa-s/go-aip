@@ -4,6 +4,12 @@
 
 package filter
 
+import (
+	"maps"
+
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+)
+
 // ContractRule identifies one independently configurable validation rule.
 type ContractRule string
 
@@ -46,6 +52,25 @@ func (o *Policy) ContractRuleEnabled(rule ContractRule) bool {
 	}
 
 	return o.portableContract
+}
+
+// WithoutContractRule returns an immutable policy with rule disabled. It shares
+// the original policy's field rules, limits and regex cache.
+func (o *Policy) WithoutContractRule(rule ContractRule) *Policy {
+	if !o.ContractRuleEnabled(rule) {
+		return o
+	}
+
+	rules := make(map[ContractRule]bool)
+	if o.contractRules != nil {
+		maps.Insert(rules, o.contractRules.All())
+	}
+
+	rules[rule] = false
+	p := *o
+	p.contractRules = coremaps.NewImmutableMap(rules)
+
+	return &p
 }
 
 // ValueCodec validates a literal for an application-defined FieldKind.

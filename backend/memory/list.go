@@ -114,7 +114,7 @@ func NewListEngine[T, ID any](
 		}
 	}
 
-	_, err = evaluator.New(schema.FilterPolicy(), evaluator.WithProfile(selected), evaluator.WithMaxDataBudget(o.maxDataBudget))
+	_, err = evaluator.New(schema.CombinedFilterPolicy(), evaluator.WithProfile(selected), evaluator.WithMaxDataBudget(o.maxDataBudget))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (m *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 		}
 	}
 
-	eval, err := evaluator.New(m.schema.FilterPolicy(), evaluator.WithProfile(profile),
+	eval, err := evaluator.New(m.schema.CombinedFilterPolicy(), evaluator.WithProfile(profile),
 		evaluator.WithMaxDataBudget(m.opts.maxDataBudget))
 	if err != nil {
 		return page.Page[T]{}, err
