@@ -5,8 +5,8 @@ go 1.27.0
 toolchain go1.27.4
 
 require (
-	github.com/altessa-s/go-aip v0.1.16
-	github.com/altessa-s/go-aip/backend/sqlbase v0.1.16
+	github.com/altessa-s/go-aip v0.1.17
+	github.com/altessa-s/go-aip/backend/sqlbase v0.1.17
 	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.12.1
