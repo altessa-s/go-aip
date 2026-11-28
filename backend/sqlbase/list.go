@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
@@ -46,13 +47,15 @@ type ListEngine[T any] struct {
 	codec              pagetoken.Signer
 	schema             *listing.Schema
 	table, quotedTable string
-	columns            []string
-	dest               func(*T) []any
-	opts               *listOptions
-	translator         ListFilterTranslator
-	indexes            []string
-	columnMap          *coreMaps.ImmutableMap[string, string]
-	tokens             pagetoken.Typed[pagetoken.Position]
+	// from is the FROM item of List and Count: the quoted table or the parenthesized table expression.
+	from       string
+	columns    []string
+	dest       func(*T) []any
+	opts       *listOptions
+	translator ListFilterTranslator
+	indexes    []string
+	columnMap  *coreMaps.ImmutableMap[string, string]
+	tokens     pagetoken.Typed[pagetoken.Position]
 	// plans holds the query plans of the declared orders by canonical order; it is read-only after construction.
 	plans map[string]*listPlan
 }
@@ -79,11 +82,17 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 		return nil, coreerrs.Wrap(errors.Join(listing.ErrInvalidSchema, err), "table")
 	}
 
+	from := quotedTable
+	if expr := strings.TrimSpace(cfg.tableExpression); expr != "" {
+		from = "(" + expr + ")"
+	}
+
 	if err = validateProjection(cfg, columns, dest); err != nil {
 		return nil, err
 	}
 
-	l := &ListEngine[T]{q: q, codec: codec, schema: schema, table: table, quotedTable: quotedTable, columns: slices.Clone(columns), dest: dest, opts: cfg}
+	l := &ListEngine[T]{q: q, codec: codec, schema: schema, table: table, quotedTable: quotedTable, from: from, columns: slices.Clone(columns),
+		dest: dest, opts: cfg}
 
 	fieldCols, err := resolveFieldColumns(schema, cfg)
 	if err != nil {
@@ -98,12 +107,16 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 		return nil, err
 	}
 
+	if err = validateNullableSorts(schema, cfg); err != nil {
+		return nil, err
+	}
+
 	sqlFields := make(map[string]Field, len(fieldCols))
 
 	for _, name := range schema.Fields() {
 		f, _ := schema.FieldInfo(name)
 
-		k := cfg.kindResolver(f.Kind)
+		k := l.fieldKind(name, f.Kind)
 		switch {
 		case fieldCols[name] == cfg.idColumn && cfg.idType == IDUUID:
 			sqlFields[name] = Scalar(fieldCols[name], UUID)
@@ -157,7 +170,8 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 
 // newTranslator uses the dialect's optional contains capability only when the schema requests it.
 func (l *ListEngine[T]) newTranslator(fields *Schema, opts []filter.TranslatorOption) (ListFilterTranslator, error) {
-	config := ListTranslatorConfig{TextCollation: l.opts.textCollation, DecimalFormat: l.opts.decimalFormat, TimestampPrecision: l.opts.timestampPrecision}
+	config := ListTranslatorConfig{TextCollation: l.opts.textCollation, DecimalFormat: l.opts.decimalFormat, TimestampPrecision: l.opts.timestampPrecision,
+		ExplicitCollation: l.opts.explicitCollation}
 
 	names := l.schema.CaseInsensitiveContainsFields()
 	if len(names) == 0 {

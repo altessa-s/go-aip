@@ -38,15 +38,18 @@ list, err := mariadb.NewListEngine[Widget](db, signer, schema, "widgets", []stri
 
 MariaDB has no `NULLS FIRST/LAST`: an order key whose null placement differs from the native one (nulls smallest) gets a leading
 `` `col` IS NULL `` key. The listing engine filters through `NewFilterTranslatorWithSchema` over a contract-mode `Schema` carrying the engine's text
-collation, decimal format and timestamp precision; it rejects UUID ids, and array fields need `sqlbase.WithListArrayStorage(sqlbase.ArraysJSON)`. See
-the [listing section of sqlbase](../sqlbase/README.md#listing-engine) for the engine contract.
+collation, decimal format and timestamp precision; it rejects UUID ids, and array fields need `sqlbase.WithListArrayStorage(sqlbase.ArraysJSON)`.
+It also rejects `sqlbase.WithListUUIDFields` (MariaDB's UUID type does not order like the uuid text), `sqlbase.WithListNarrowIntegers`,
+`sqlbase.WithListExplicitCollation` and an order on a Presence field (`listing.WithSortableFields`). See the
+[listing section of sqlbase](../sqlbase/README.md#listing-engine) for the engine contract.
 
 `MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
 the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` (it is
 `sqlbase.MustNewListEngine` with `ListDialect` fixed) and wraps the `NewListEngine` error.
 
 The concrete SQL list engine provides an exact filtered total through `Count(ctx, req, scope)` on every page. See [exact SQL
-totals](../../docs/listing.md#exact-sql-totals).
+totals](../../docs/listing.md#exact-sql-totals). `BoundedCount` reports the rows it counted up to the limit, without a planner estimate, and
+refuses `sqlbase.WithCountProbeTime`: `ListDialect` does not implement `sqlbase.ListCountDialect`.
 
 ## Filter
 

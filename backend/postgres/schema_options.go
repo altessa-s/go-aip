@@ -41,6 +41,9 @@ type schemaOptions struct {
 	// WithSchemaContractMode renders against non-null, C-collated listing columns. It is the only contract switch:
 	// [NewFilterTranslatorWithSchema] follows the schema.
 	contract bool `opt:"SchemaContractMode" optval:"param"`
+	// WithSchemaExplicitCollation keeps the explicit text collation in contract mode, for listing columns stored in
+	// another collation.
+	explicitCollation bool `opt:"SchemaExplicitCollation" optval:"param"`
 	// WithSchemaJSONBStringCompare must reproduce the database's default collation, including
 	// deterministic tie-breaking. strings.Compare is suitable for a C-locale database.
 	// Without an explicit comparator, ordering whole JSONB values is rejected.
