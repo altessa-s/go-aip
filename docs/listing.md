@@ -60,7 +60,7 @@ binding source and subject.
 | Required scalar   | Present scalar                       | Two-valued comparison                               | Comparable scalar allowed |
 | `Optional: true`  | Missing/null resolves to kind zero   | Two-valued implicit presence                        | Rejected                  |
 | `Array: true`     | Missing/null resolves to empty array | Element predicates; inequality complements equality | Rejected                  |
-| `Presence: true`  | Explicit nullable scalar             | Default evaluator's null semantics                  | Rejected                  |
+| `Presence: true`  | Explicit nullable scalar             | Default evaluator's null semantics                  | `WithSortableFields` only |
 
 Presence is incompatible with Optional and Array. Optional enums declare EnumZero whose stored value is the kind's zero. Enum names in filters are
 converted to stored values; inputs and returned metadata are detached snapshots.
@@ -118,10 +118,13 @@ Listing applies the parser / policy / translator model of the [root README](../R
 |------------------------------|-------------------------------------------------------------------------------------------------------------|
 | `Schema.OrderOptions()`      | `[]orderby.PolicyOption`: untrusted input, the sortable fields, and the default order in public names       |
 | `Schema.OrderPolicy()`       | The `*orderby.Policy` built from `OrderOptions` in `NewSchema`                                              |
+| `Schema.SortFields()`        | The sorted names of the fields a request may sort on                                                        |
 | `Schema.ProjectionOptions()` | `[]projection.PolicyOption`: the Hidden fields denied; callers append the allow-list and any resource views |
 
 The sortable fields are the keys of the accepted orders or, under WithUnrestrictedOrder, every field that passes the pattern key checks; a schema with
-no sortable field refuses every key. The schema cannot state the projection allow-list, because a list's fields are its filter fields rather than
+no sortable field refuses every key. WithSortableFields replaces the sort field checks with a list of declared fields, which may name Presence
+fields: PostgreSQL and the memory engine sort a null key first ascending and last descending, while MongoDB and the other SQL dialects refuse
+such an order. The schema cannot state the projection allow-list, because a list's fields are its filter fields rather than
 every field of the resource: append `projection.WithAllowedFields` (a field access policy needs one too), and any resource views
 (`projection.WithView`), to `Schema.ProjectionOptions()` before calling `projection.NewPolicy`. An omitted read mask returns every allowed field
 except the Hidden ones (AIP-157); a List method that serves views should default to BASIC.

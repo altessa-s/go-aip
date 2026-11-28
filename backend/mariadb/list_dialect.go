@@ -102,6 +102,14 @@ func (ListDialect) Validate(schema *listing.Schema, config sqlbase.ListStorageCo
 		return coreerrs.Wrap(listing.ErrInvalidSchema, "MariaDB requires text ids to preserve listing order")
 	}
 
+	if len(config.UUIDFields) > 0 {
+		return coreerrs.Wrap(listing.ErrInvalidSchema, "MariaDB uuid fields need text columns: its UUID type does not order like the uuid text")
+	}
+
+	if config.NarrowIntegers || config.ExplicitCollation {
+		return coreerrs.Wrap(listing.ErrInvalidSchema, "MariaDB requires 64-bit integers and collated text columns")
+	}
+
 	if config.ArrayStorage == sqlbase.ArraysUnsupported {
 		for _, name := range schema.Fields() {
 			if f, _ := schema.FieldInfo(name); f.Array {

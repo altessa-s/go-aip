@@ -27,7 +27,7 @@ func (l *ListEngine[T]) Count(ctx context.Context, req listing.Request, scope Sc
 		return 0, err
 	}
 
-	query := "SELECT COUNT(*) FROM " + l.quotedTable + " AS " + l.quote(l.opts.tableAlias) + " WHERE " + where
+	query := "SELECT COUNT(*) FROM " + l.from + " AS " + l.quote(l.opts.tableAlias) + " WHERE " + where
 
 	qctx, cancel := corecontext.WithMaxTimeout(ctx, l.opts.maxTime)
 	defer cancel()
