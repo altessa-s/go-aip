@@ -20,6 +20,11 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
+var (
+	_ sqlbase.ListDialect        = ListDialect{}
+	_ sqlbase.ListSortKeyDialect = ListDialect{}
+)
+
 // style is the PostgreSQL identifier quote and placeholder form: double quotes and $n placeholders.
 var style = sqlbase.Style{Quote: '"', Numbered: true}
 
@@ -58,7 +63,7 @@ func (ListDialect) IdentityExpression(column string, kind sqlbase.Kind) string {
 }
 
 // CursorPredicate renders a lexicographic continuation predicate: a row-value comparison when every key sorts in the
-// same direction, nested comparisons otherwise. A UUID identity is cast to uuid.
+// same direction, nested comparisons otherwise. UUID keys are cast to uuid.
 func (ListDialect) CursorPredicate(keys []sqlbase.ListOrderKey, pos pagetoken.Position, alias string, id sqlbase.IDType,
 	_ sqlbase.DecimalFormat,
 ) (string, []any, error) {
@@ -76,7 +81,7 @@ func (ListDialect) CursorPredicate(keys []sqlbase.ListOrderKey, pos pagetoken.Po
 		cols[i] = style.QuoteIdent(alias) + "." + style.QuoteIdent(k.Column)
 		marks[i] = "?"
 
-		if i == last && id == sqlbase.IDUUID {
+		if (i == last && id == sqlbase.IDUUID) || k.StorageKind == sqlbase.UUID {
 			marks[i] += "::uuid"
 		}
 
@@ -96,6 +101,15 @@ func (ListDialect) CursorPredicate(keys []sqlbase.ListOrderKey, pos pagetoken.Po
 	}
 
 	return "(" + query + ")", args, nil
+}
+
+// SortKeyExpression selects a UUID sort key as text.
+func (ListDialect) SortKeyExpression(column string, kind sqlbase.Kind) string {
+	if kind == sqlbase.UUID {
+		return column + "::text"
+	}
+
+	return column
 }
 
 // cursorOperator returns the comparison operator that continues after a key.
@@ -153,7 +167,8 @@ func (ListDialect) NewCaseInsensitiveContainsTranslator(policy *filter.Policy, f
 func newListTranslator(policy *filter.Policy, fields *sqlbase.Schema, opts []filter.TranslatorOption,
 	config sqlbase.ListTranslatorConfig, semanticOpts ...SchemaOption,
 ) (sqlbase.ListFilterTranslator, error) {
-	semanticOpts = append(semanticOpts, WithSchemaContractMode(true), WithSchemaTimestampPrecision(config.TimestampPrecision))
+	semanticOpts = append(semanticOpts, WithSchemaContractMode(true), WithSchemaTimestampPrecision(config.TimestampPrecision),
+		WithSchemaExplicitCollation(config.ExplicitCollation))
 	if config.TextCollation != "" {
 		// This schema is used for SQL rendering only; comparison runs in the database.
 		semanticOpts = append(semanticOpts, WithSchemaTextCollation(config.TextCollation), WithSchemaTextCompare(strings.Compare))

@@ -210,7 +210,7 @@ func inlineValue(v any) (string, error) {
 	}
 }
 
-// render renders e as a value. Outside the listing contract a text value carries the C collation. A predicate used as a value
+// render renders e as a value. Outside the listing contract, or with an explicit collation, a text value carries the collation. A predicate used as a value
 // (an operand of a comparison, a list element) renders its exact result: TRUE, FALSE, or NULL where the program's is unknown.
 func (r *renderer) render(e *expression) (string, error) {
 	sql, err := r.renderValue(e)
@@ -218,7 +218,7 @@ func (r *renderer) render(e *expression) (string, error) {
 		return "", err
 	}
 
-	if e.Kind == sqlbase.Text && !r.contract {
+	if e.Kind == sqlbase.Text && r.collated() {
 		sql = "(" + sql + " COLLATE " + r.collation() + ")"
 	}
 
@@ -351,6 +351,9 @@ func (r *renderer) renderList(e *expression) (string, error) {
 
 	return "ARRAY[" + strings.Join(parts, ", ") + "]::" + typeName(e.Kind) + "[]", nil
 }
+
+// collated reports whether text values carry an explicit collation: outside the listing contract, or by option.
+func (r *renderer) collated() bool { return !r.contract || r.options.explicitCollation }
 
 func (r *renderer) collation() string {
 	name := r.options.textCollation
