@@ -25,9 +25,6 @@ func WithCountLimit(v int) CountOption {
 // positive value requires a dialect implementing ListCountDialect.
 func WithCountProbeTime(v time.Duration) CountOption {
 	return func(o *countOptions) {
-		if v <= 0 {
-			return
-		}
 		o.probeTime = v
 	}
 }

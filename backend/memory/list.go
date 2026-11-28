@@ -480,7 +480,18 @@ func comparePositions(o listing.Order, comparator pagetoken.ValueComparator, opt
 	allKeys := o.Keys()
 	descendingID := len(allKeys) > 0 && allKeys[len(allKeys)-1].Desc
 
-	return pagetoken.ComparePositions(desc, descendingID, comparator)
+	return pagetoken.ComparePositions(desc, descendingID, nullsFirstComparator{comparator})
+}
+
+// nullsFirstComparator keeps the engine's NULL ordering outside the codec's scalar comparison.
+type nullsFirstComparator struct{ pagetoken.ValueComparator }
+
+func (c nullsFirstComparator) Compare(a, b pagetoken.SortValue) int {
+	if !a.Valid() || !b.Valid() {
+		return a.Compare(b)
+	}
+
+	return c.ValueComparator.Compare(a, b)
 }
 
 // RequestProfile binds a custom evaluator to the request-wide scan, read,

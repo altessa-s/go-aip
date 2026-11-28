@@ -5,6 +5,8 @@
 package mariadb_test
 
 import (
+	"context"
+	"database/sql"
 	"database/sql/driver"
 	"strings"
 	"sync/atomic"
@@ -47,7 +49,10 @@ func TestMariaDBRejectsUnsupportedIDAndArrays(t *testing.T) {
 
 			_, err = mariadb.NewListEngine[struct{ ID string }](db, nil, schema, "widgets", []string{"id"}, func(r *struct{ ID string }) []any { return []any{&r.ID} }, options...)
 			require.ErrorIs(t, err, listing.ErrInvalidSchema)
-			require.ErrorContains(t, err, tc.message)
+
+			if tc.message != "" {
+				require.ErrorContains(t, err, tc.message)
+			}
 		})
 	}
 }
@@ -172,4 +177,22 @@ func TestMariaDBCheckSchemaAndIndexes(t *testing.T) {
 			require.Equal(t, indexes[len(indexes)-1], fake.Calls()[len(fake.Calls())-1].Query)
 		})
 	}
+}
+
+func TestMariaDBSkipChecksForDerivedKey(t *testing.T) {
+	t.Parallel()
+
+	db, _ := sqlbasetest.NewFakeDB(t, func(string, []any) sqlbasetest.Reply {
+		return sqlbasetest.Reply{Columns: []string{"name", "type", "column_type", "charset", "collation", "nullable", "precision"},
+			Rows: [][]driver.Value{{"id", "varchar", "varchar(64)", "utf8mb4", "utf8mb4_nopad_bin", "NO", nil}}}
+	})
+	schema := listing.MustSchema([]listing.Field{{Name: "name", Kind: filter.FieldKindString}}, []string{"name"}, nil)
+	engine, err := mariadb.NewListEngine(db, nil, schema, "items", []string{"id"}, func(id *string) []any { return []any{id} },
+		sqlbase.WithListTableExpression("SELECT id, 'x' AS name FROM items"), sqlbase.WithListDerivedColumns("name"),
+		sqlbase.WithListSchemaCheckPolicy(func(_ context.Context, _ *sql.DB, r sqlbase.ListSchemaCheckResult) error {
+			require.NotEqual(t, "name", r.Column)
+			return r.Err
+		}))
+	require.NoError(t, err)
+	require.NoError(t, engine.CheckSchema(t.Context(), db))
 }

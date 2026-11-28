@@ -5,6 +5,7 @@
 package sqlbase_test
 
 import (
+	"database/sql/driver"
 	"strings"
 	"testing"
 
@@ -128,6 +129,9 @@ func TestListUUIDFields(t *testing.T) {
 	require.Len(t, fake.Calls(), 1, "no query runs for a refused operand")
 
 	for name, opts := range map[string][]sqlbase.ListEngineOption{
+		"native identity": {sqlbase.WithListUUIDFields("id")},
+		"mapped native identity": {sqlbase.WithListUUIDFields("id"), sqlbase.WithListColumns(map[string]string{"id": "item_id"}),
+			sqlbase.WithListIDColumn("item_id")},
 		"undeclared": {sqlbase.WithListUUIDFields("tenant")},
 		"integer":    {sqlbase.WithListUUIDFields("age")},
 	} {
@@ -142,4 +146,57 @@ func TestListUUIDFields(t *testing.T) {
 	config := sqlbase.ListSchemaConfig{UUIDFields: []string{"owner"}}
 	require.Equal(t, sqlbase.UUID, config.FieldKind(listing.Field{Name: "owner", Kind: filter.FieldKindString}))
 	require.Equal(t, sqlbase.Text, config.FieldKind(listing.Field{Name: "name", Kind: filter.FieldKindString}))
+}
+
+func TestDerivedColumnRefusals(t *testing.T) {
+	t.Parallel()
+
+	db, _ := sqlbasetest.NewFakeDB(t, nil)
+	for _, col := range []string{" ", "not a column", "id"} {
+		_, err := postgres.NewListEngine(db, pagetokentest.Codec(t), countSchema(t), "items", []string{"id"},
+			func(id *string) []any { return []any{id} },
+			sqlbase.WithListTableExpression("SELECT * FROM items"), sqlbase.WithListDerivedColumns(col))
+		require.ErrorIs(t, err, sqlbase.ErrInvalidSchema, col)
+	}
+}
+
+func TestKeyColumnWithoutSchema(t *testing.T) {
+	t.Parallel()
+
+	c := sqlbase.ListSchemaConfig{IDColumn: "id", ScopeKeys: []string{"tenant"}}
+	require.True(t, c.KeyColumn("id"))
+	require.True(t, c.KeyColumn("tenant"))
+	require.False(t, c.KeyColumn("name"))
+}
+
+func TestMixedDirectionUUIDCursor(t *testing.T) {
+	t.Parallel()
+
+	schema := listing.MustSchema([]listing.Field{
+		{Name: "id", Kind: filter.FieldKindString},
+		{Name: "owner", Kind: filter.FieldKindString},
+		{Name: "age", Kind: filter.FieldKindInt},
+	}, []string{"owner, age desc"}, nil)
+	db, fake := sqlbasetest.NewFakeDB(t, func(string, []any) sqlbasetest.Reply {
+		return sqlbasetest.Reply{Columns: []string{"id", "owner", "age", "id"},
+			Rows: [][]driver.Value{{"a", ownerUUID, int64(2), "a"}, {"b", ownerUUID, int64(1), "b"}}}
+	})
+	l := postgres.MustNewListEngine(db, pagetokentest.Codec(t), schema, "items", []string{"id"},
+		func(id *string) []any { return []any{id} }, sqlbase.WithListUUIDFields("owner"))
+	req := listing.Request{PageSize: 1}
+	page, err := l.List(t.Context(), "items", req, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, page.NextPageToken)
+	req.PageToken = page.NextPageToken
+	_, err = l.List(t.Context(), "items", req, nil)
+	require.NoError(t, err)
+	require.Contains(t, fake.Calls()[1].Query, `"_listing"."owner" > $1::uuid`)
+	require.Contains(t, fake.Calls()[1].Query, `"_listing"."owner" = $2::uuid`)
+}
+
+func TestListStorageConfigComparable(t *testing.T) {
+	t.Parallel()
+
+	config := sqlbase.ListStorageConfig{IDType: sqlbase.IDUUID}
+	require.True(t, config == (sqlbase.ListStorageConfig{IDType: sqlbase.IDUUID}))
 }

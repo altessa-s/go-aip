@@ -6,6 +6,7 @@ package sqlbase
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/altessa-s/go-aip/listing"
 	"github.com/altessa-s/go-aip/pagination/page"
@@ -19,9 +20,9 @@ type HydratedPage[R any] struct {
 }
 
 // ListHydrated lists a page of keys, loads its rows with load and, when count is set, counts the matching rows with
-// [ListEngine.BoundedCount] and countOpts. load gets the keys in page order and is not called for an empty page. Run
-// the read in one snapshot, for example a read-only repeatable-read transaction the querier joins, so that the rows,
-// the next page token and the total describe the same state.
+// [ListEngine.BoundedCount] and countOpts. The loader is required and must return exactly one row per key in the
+// supplied order. An empty page skips the loader. Run the read in one snapshot, for example a read-only repeatable-read
+// transaction the querier joins, so the rows, next page token and total describe the same state.
 func ListHydrated[T comparable, R any](
 	ctx context.Context,
 	l *ListEngine[T],
@@ -32,6 +33,25 @@ func ListHydrated[T comparable, R any](
 	count bool,
 	countOpts ...CountOption,
 ) (HydratedPage[R], error) {
+	if l == nil || load == nil {
+		return HydratedPage[R]{}, invalid("list engine and loader are required")
+	}
+
+	var (
+		o       *countOptions
+		counter ListCountDialect
+		err     error
+	)
+
+	if count {
+		o = newCountOptions(countOpts...)
+
+		counter, err = l.validateCountOptions(o)
+		if err != nil {
+			return HydratedPage[R]{}, err
+		}
+	}
+
 	keys, err := l.List(ctx, subject, req, scope)
 	if err != nil {
 		return HydratedPage[R]{}, err
@@ -44,10 +64,14 @@ func ListHydrated[T comparable, R any](
 		if result.Items, err = load(ctx, keys.Items); err != nil {
 			return HydratedPage[R]{}, err
 		}
+
+		if len(result.Items) != len(keys.Items) {
+			return HydratedPage[R]{}, fmt.Errorf("%w: loader returned %d rows for %d keys", ErrCorruptRecord, len(result.Items), len(keys.Items))
+		}
 	}
 
 	if count {
-		total, err := l.BoundedCount(ctx, req, scope, countOpts...)
+		total, err := l.boundedCount(ctx, req, scope, o, counter)
 		if err != nil {
 			return HydratedPage[R]{}, err
 		}

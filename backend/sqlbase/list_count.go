@@ -50,15 +50,33 @@ type Total struct {
 // the querier, as Count does.
 func (l *ListEngine[T]) BoundedCount(ctx context.Context, req listing.Request, scope Scope, opts ...CountOption) (Total, error) {
 	o := newCountOptions(opts...)
+
+	counter, err := l.validateCountOptions(o)
+	if err != nil {
+		return Total{}, err
+	}
+
+	return l.boundedCount(ctx, req, scope, o, counter)
+}
+
+func (l *ListEngine[T]) validateCountOptions(o *countOptions) (ListCountDialect, error) {
 	if o.limit < 0 || o.limit == math.MaxInt {
-		return Total{}, invalid("count limit %d", o.limit)
+		return nil, invalid("count limit %d", o.limit)
+	}
+
+	if o.probeTime < 0 {
+		return nil, invalid("negative count probe time")
 	}
 
 	counter, _ := l.opts.dialect.(ListCountDialect)
 	if o.probeTime > 0 && counter == nil {
-		return Total{}, invalid("the dialect cannot bound a count probe")
+		return nil, invalid("the dialect cannot bound a count probe")
 	}
 
+	return counter, nil
+}
+
+func (l *ListEngine[T]) boundedCount(ctx context.Context, req listing.Request, scope Scope, o *countOptions, counter ListCountDialect) (Total, error) {
 	p, err := l.prepare(ctx, req, scope)
 	if err != nil {
 		return Total{}, err

@@ -54,6 +54,12 @@ func validateStorageOptions(cfg *listOptions, schema *listing.Schema) error {
 		return invalid("derived columns require a table expression")
 	}
 
+	for _, column := range cfg.derivedColumns {
+		if !cfg.dialect.ValidIdentifier(column) || column == cfg.idColumn {
+			return invalid("derived column %q must be a valid identifier distinct from the identity column", column)
+		}
+	}
+
 	for _, name := range cfg.uuidFields {
 		f, ok := schema.FieldInfo(name)
 		if !ok || f.Array || cfg.kindResolver(f.Kind) != Text {
@@ -69,7 +75,7 @@ func validateStorageOptions(cfg *listOptions, schema *listing.Schema) error {
 }
 
 func (o *listOptions) storageConfig() ListStorageConfig {
-	return ListStorageConfig{IDType: o.idType, ArrayStorage: o.arrayStorage, DecimalFormat: o.decimalFormat, UUIDFields: slices.Clone(o.uuidFields),
+	return ListStorageConfig{IDType: o.idType, ArrayStorage: o.arrayStorage, DecimalFormat: o.decimalFormat, HasUUIDFields: len(o.uuidFields) > 0,
 		NarrowIntegers: o.narrowIntegers, ExplicitCollation: o.explicitCollation}
 }
 
@@ -157,6 +163,10 @@ func resolveFieldColumns(schema *listing.Schema, cfg *listOptions) (map[string]s
 
 		usedColumns[column] = name
 		if column == cfg.idColumn {
+			if cfg.idType != IDUUID && slices.Contains(cfg.uuidFields, name) {
+				return nil, invalid("UUID field %q maps to the identity column and requires WithListIDType(IDUUID)", name)
+			}
+
 			field, _ := schema.FieldInfo(name)
 			if field.Kind != cfg.idKind || field.Array || field.Optional || field.Presence {
 				return nil, invalid("field %q mapped to id column must be a required scalar matching idKind", name)

@@ -16,5 +16,5 @@ type countOptions struct {
 	limit int `optgen:"default=DefaultCountLimit"`
 	// probeTime bounds the exact count, which reports an estimate when it expires. Zero leaves it to the engine's time cap; a
 	// positive value requires a dialect implementing ListCountDialect.
-	probeTime time.Duration
+	probeTime time.Duration `optval:"nonpositive"`
 }

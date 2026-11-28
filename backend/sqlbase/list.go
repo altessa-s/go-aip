@@ -171,7 +171,7 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 // newTranslator uses the dialect's optional contains capability only when the schema requests it.
 func (l *ListEngine[T]) newTranslator(fields *Schema, opts []filter.TranslatorOption) (ListFilterTranslator, error) {
 	config := ListTranslatorConfig{TextCollation: l.opts.textCollation, DecimalFormat: l.opts.decimalFormat, TimestampPrecision: l.opts.timestampPrecision,
-		ExplicitCollation: l.opts.explicitCollation}
+		ExplicitCollation: l.opts.explicitCollation, NarrowIntegers: l.opts.narrowIntegers}
 
 	names := l.schema.CaseInsensitiveContainsFields()
 	if len(names) == 0 {

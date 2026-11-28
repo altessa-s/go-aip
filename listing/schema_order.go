@@ -132,7 +132,7 @@ func (s *Schema) checkPatternKeys(pattern string, spec orderby.Spec) error {
 		}
 
 		switch {
-		case len(s.opts.sortableFields) > 0:
+		case s.opts.sortableFieldsSet:
 			if !slices.Contains(s.opts.sortableFields, k.Name) {
 				return fmt.Errorf("%w: pattern %q: field %q does not sort", ErrInvalidSchema, pattern, k.Name)
 			}

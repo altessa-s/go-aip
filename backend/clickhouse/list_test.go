@@ -122,7 +122,10 @@ func TestNewListEngine_ClickHouseRejects(t *testing.T) {
 
 			_, err = clickhouse.NewListEngine[widget](db, nil, schema, "widgets", []string{"id"}, func(w *widget) []any { return []any{&w.ID} }, tc.option)
 			require.ErrorIs(t, err, listing.ErrInvalidSchema)
-			require.ErrorContains(t, err, tc.message)
+
+			if tc.message != "" {
+				require.ErrorContains(t, err, tc.message)
+			}
 		})
 	}
 }

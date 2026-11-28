@@ -99,6 +99,9 @@ func TestBoundedCountRefusals(t *testing.T) {
 	_, err = maria.BoundedCount(t.Context(), listing.Request{}, nil, sqlbase.WithCountProbeTime(time.Millisecond))
 	require.ErrorIs(t, err, sqlbase.ErrInvalidSchema, "MariaDB cannot bound the probe")
 
+	_, err = pg.BoundedCount(t.Context(), listing.Request{}, nil, sqlbase.WithCountProbeTime(-time.Second))
+	require.ErrorIs(t, err, sqlbase.ErrInvalidSchema)
+
 	require.Empty(t, fake.Calls())
 }
 
@@ -112,7 +115,8 @@ func TestBoundedCountWithoutEstimator(t *testing.T) {
 	l := sqlbase.MustNewListEngine(db, pagetokentest.Codec(t), countSchema(t), "items", []string{"id"},
 		func(id *string) []any { return []any{id} }, mariadb.ListDialect{})
 
-	got, err := l.BoundedCount(t.Context(), listing.Request{}, nil, sqlbase.WithCountLimit(5))
+	got, err := l.BoundedCount(t.Context(), listing.Request{}, nil, sqlbase.WithCountLimit(5),
+		sqlbase.WithCountProbeTime(time.Second), sqlbase.WithCountProbeTime(0))
 	require.NoError(t, err)
 	require.Equal(t, sqlbase.Total{Count: 6}, got)
 	require.Equal(t, "SELECT COUNT(*) FROM (SELECT 1 FROM `items` AS `_listing` WHERE TRUE LIMIT 6) AS `_count`", fake.Calls()[0].Query)

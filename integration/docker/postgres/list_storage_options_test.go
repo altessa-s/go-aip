@@ -59,7 +59,7 @@ func TestStorageOptions(t *testing.T) {
 	l, err := postgres.NewListEngine(db, pagetokentest.Codec(t), joined, "assets", []string{"id"}, idDest,
 		append(slices.Clone(join), sqlbase.WithListDerivedColumns("part_name"))...)
 	require.NoError(t, err)
-	require.NoError(t, l.CheckSchema(t.Context(), db))
+	require.NoError(t, l.EnsureIndexes(t.Context(), db))
 	l, err = postgres.NewListEngine(db, pagetokentest.Codec(t), joined, "assets", []string{"id"}, idDest, join...)
 	require.NoError(t, err)
 	require.ErrorIs(t, l.CheckSchema(t.Context(), db), sqlbase.ErrInvalidSchema, "part_name is not in assets")
@@ -80,4 +80,52 @@ func TestStorageOptions(t *testing.T) {
 		require.NotEqual(t, want, query(t, db, `SELECT id::text FROM assets WHERE label > 'Z' ORDER BY created_at, id`),
 			"the database collation orders differently, so the filter collates explicitly")
 	}
+}
+
+func TestNarrowIntegerArrays(t *testing.T) {
+	t.Parallel()
+
+	db := assetStore(t)
+	_, err := db.ExecContext(t.Context(), `ALTER TABLE assets ADD COLUMN ranks smallint[] NOT NULL DEFAULT '{1,2}',
+  ADD COLUMN levels integer[] NOT NULL DEFAULT '{1,2}'`)
+	require.NoError(t, err)
+
+	schema := listing.MustSchema([]listing.Field{
+		{Name: "id", Kind: filter.FieldKindString},
+		{Name: "kind", Kind: filter.FieldKindInt},
+		{Name: "ranks", Kind: filter.FieldKindInt, Array: true},
+		{Name: "levels", Kind: filter.FieldKindInt, Array: true},
+	}, []string{"id"}, nil)
+	engine := postgres.MustNewListEngine(db, pagetokentest.Codec(t), schema, "assets", []string{"id"}, idDest,
+		sqlbase.WithListIDType(sqlbase.IDUUID), sqlbase.WithListNarrowIntegers())
+	require.NoError(t, engine.CheckSchema(t.Context(), db))
+
+	for filter, want := range map[string]int64{
+		"ranks in [1]": 40, "ranks == 1": 40, "ranks in [32768]": 0,
+		"levels in [1]": 40, "levels == 1": 40, "levels in [2147483648]": 0,
+		"kind == 32768": 0,
+	} {
+		got, err := engine.Count(t.Context(), listing.Request{Filter: filter}, nil)
+		require.NoError(t, err, filter)
+		require.Equal(t, want, got, filter)
+	}
+}
+
+func TestDerivedScopeColumn(t *testing.T) {
+	t.Parallel()
+
+	db := assetStore(t)
+	scoped := listing.MustSchema([]listing.Field{{Name: "id", Kind: filter.FieldKindString}}, []string{"id"}, nil)
+	l, err := postgres.NewListEngine(db, pagetokentest.Codec(t), scoped, "assets", []string{"id"}, idDest,
+		sqlbase.WithListIDType(sqlbase.IDUUID), sqlbase.WithListScopeKeys("part_name"),
+		sqlbase.WithListTableExpression(`SELECT a.*, p.name AS part_name FROM assets a JOIN parts p ON p.id = a.part`),
+		sqlbase.WithListDerivedColumns("part_name"))
+	require.NoError(t, err)
+	require.NoError(t, l.EnsureIndexes(t.Context(), db))
+
+	var partName string
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT name FROM parts LIMIT 1").Scan(&partName))
+	count, err := l.Count(t.Context(), listing.Request{}, sqlbase.Scope{"part_name": partName})
+	require.NoError(t, err)
+	require.Positive(t, count)
 }

@@ -584,17 +584,17 @@ the exact count; when it expires the total is an estimate. It requires a `ListCo
 transaction-local `statement_timeout`, so an expired probe leaves the enclosing transaction usable, and estimates with `EXPLAIN (FORMAT JSON)`.
 Like `Count`, it validates the request, ignores the page token and reads the snapshot of its querier.
 
-`ListHydrated(ctx, engine, subject, req, scope, load, count, countOpts...)` lists a page of keys, loads their rows with `load` in page
-order (not at all for an empty page) and, when `count` is set, adds the `BoundedCount` total. Run it inside one read-only REPEATABLE READ
-transaction the querier joins, so that the rows, the next page token and the total describe the same state.
+`ListHydrated(ctx, engine, subject, req, scope, load, count, countOpts...)` lists a page of keys and calls `load` for a nonempty page.
+The loader must return one row per key in page order. When `count` is set, the result includes the `BoundedCount` total.
+Run it inside one read-only REPEATABLE READ transaction the querier joins, so the rows, next page token and total describe the same state.
 
 `WithListTableExpression` reads List, Count and BoundedCount from a trusted derived table instead of the table, such as a join adding a
 column of another table: `FROM (<expression>) AS <alias>`. Filters, scope pins and cursors name its columns. `CheckSchema`, `Indexes` and
-`EnsureIndexes` keep naming the table; `WithListDerivedColumns` names the columns only the expression has, which `CheckSchema` then leaves
-unchecked.
+`EnsureIndexes` keep naming the table; `WithListDerivedColumns` names the columns only the expression has, which `CheckSchema` leaves unchecked. `Indexes` and `EnsureIndexes` skip patterns with a derived sort or scope column.
 
 Two PostgreSQL storage choices relax the column contract. `WithListNarrowIntegers` accepts `smallint` and `integer` columns (and their
-arrays) for integer fields; filters and cursors still bind 64-bit values, so a literal outside the column's range fails in the database.
+arrays) for integer fields. Filters compare at 64-bit width, so equality with a literal outside the column's range finds no matches.
+Widening an integer array in a filter can prevent use of an index on that column.
 `WithListExplicitCollation` makes filters compare text under the expected collation explicitly (`COLLATE`, `WithListTextCollation` or
 `"C"`), so filter semantics no longer depend on the column; the collation check then covers only the key columns
 (`ListSchemaConfig.KeyColumn`: the identity, the scope columns and the columns of `listing.Schema.SortFields`), whose order the cursors
@@ -868,6 +868,8 @@ the same mapping to schema checks.
 | `ListSortKeyDialect`      | Optional dialect extension rendering the SELECT expression of a non-identity sort key.                                                                                          |
 | `ListNullableSortDialect` | Optional dialect extension that sorts on Presence fields, NULL first ascending and last descending.                                                                             |
 | `ListCountDialect`        | Optional dialect extension that bounds the exact count of BoundedCount and estimates larger totals.                                                                             |
+| `ListHydrated`            | Lists a page of keys, loads its rows in key order, and optionally counts the matches.                                                                                          |
+| `HydratedPage`            | A page of loaded rows with an optional bounded total.                                                                                                                           |
 | `Total`                   | The size of a collection from BoundedCount: exact, or a lower bound or estimate when Exact is false.                                                                            |
 | `CountOption`             | Functional option of BoundedCount; every option is named WithCount….                                                                                                            |
 | `DecimalFormat`           | The exact DECIMAL(Precision,Scale) domain of stored decimals, shared with the MariaDB filter translator; `DefaultDecimalFormat` is DECIMAL(65,30).                              |

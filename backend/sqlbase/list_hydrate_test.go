@@ -72,3 +72,74 @@ func TestListHydrated(t *testing.T) {
 		func(context.Context, []string) ([]string, error) { return nil, broken }, true)
 	require.ErrorIs(t, err, broken)
 }
+
+func TestListHydratedRejectsInvalidInputs(t *testing.T) {
+	t.Parallel()
+
+	db, fake := sqlbasetest.NewFakeDB(t, func(string, []any) sqlbasetest.Reply {
+		return sqlbasetest.Reply{Columns: []string{"id", "name", "id"}, Rows: [][]driver.Value{{"a", "x", "a"}}}
+	})
+	engine := postgres.MustNewListEngine(db, pagetokentest.Codec(t), countSchema(t), "widgets", []string{"id"},
+		func(id *string) []any { return []any{id} })
+	load := func(context.Context, []string) ([]string, error) {
+		t.Error("invalid input called the loader")
+		return []string{"row a"}, nil
+	}
+
+	for _, tc := range []struct {
+		name   string
+		engine *sqlbase.ListEngine[string]
+		load   func(context.Context, []string) ([]string, error)
+		opts   []sqlbase.CountOption
+	}{
+		{name: "nil engine", load: load},
+		{name: "nil loader", engine: engine},
+		{name: "invalid count option", engine: engine, load: load, opts: []sqlbase.CountOption{sqlbase.WithCountLimit(-1)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				_, err := sqlbase.ListHydrated(t.Context(), tc.engine, "widgets", listing.Request{}, nil, tc.load, true, tc.opts...)
+				require.ErrorIs(t, err, sqlbase.ErrInvalidSchema)
+			})
+			require.Empty(t, fake.Calls())
+		})
+	}
+}
+
+func TestListHydratedPreservesPage(t *testing.T) {
+	t.Parallel()
+
+	countErr := errors.New("count failed")
+	db, fake := sqlbasetest.NewFakeDB(t, func(query string, _ []any) sqlbasetest.Reply {
+		if strings.Contains(query, "COUNT(*)") {
+			return sqlbasetest.Reply{Err: countErr}
+		}
+
+		return sqlbasetest.Reply{Columns: []string{"id", "name", "id"}, Rows: [][]driver.Value{{"a", "x", "a"}, {"b", "x", "b"}, {"c", "x", "c"}}}
+	})
+	l := postgres.MustNewListEngine(db, pagetokentest.Codec(t), countSchema(t), "widgets", []string{"id"},
+		func(id *string) []any { return []any{id} })
+	req := listing.Request{PageSize: 2}
+	load := func(_ context.Context, ids []string) ([]string, error) { return ids, nil }
+
+	_, err := sqlbase.ListHydrated(t.Context(), l, "widgets", listing.Request{PageSize: -1}, nil, load, false)
+	require.Error(t, err)
+	require.Empty(t, fake.Calls())
+
+	page, err := sqlbase.ListHydrated(t.Context(), l, "widgets", req, nil,
+		func(_ context.Context, ids []string) ([]string, error) { return ids[:1], nil }, false)
+	require.ErrorIs(t, err, sqlbase.ErrCorruptRecord)
+	require.Empty(t, page.NextPageToken)
+
+	page, err = sqlbase.ListHydrated(t.Context(), l, "widgets", req, nil, load, false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b"}, page.Items)
+	require.NotEmpty(t, page.NextPageToken)
+
+	_, err = sqlbase.ListHydrated(t.Context(), l, "widgets", req, nil, load, true, sqlbase.WithCountLimit(7))
+	require.ErrorIs(t, err, countErr)
+
+	calls := fake.Calls()
+	require.Len(t, calls, 4)
+	require.Contains(t, calls[3].Query, "LIMIT 8")
+}

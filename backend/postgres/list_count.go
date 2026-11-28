@@ -26,8 +26,10 @@ const (
 // countProbe is the savepoint that scopes the statement timeout of a count probe.
 const countProbe = "aip_count_probe"
 
+const countProbeCleanupTimeout = 2 * time.Second
+
 // ProbeCount runs query in a savepoint under a statement timeout of maxTime, rounded up to a millisecond. Rolling the
-// savepoint back restores the previous timeout and clears a canceled probe, so the enclosing transaction stays usable.
+// savepoint back uses a separate deadline and restores the previous timeout if the driver keeps the connection open.
 // On a *sql.DB, which runs each statement outside a transaction, a context deadline bounds the probe instead and no
 // savepoint is sent. Another querier that turns out to be outside a transaction gets the deadline once PostgreSQL
 // refuses the savepoint (25P01). A driver reports SQLSTATE through an error with a SQLState() string method, as pgx and
@@ -48,11 +50,34 @@ func (ListDialect) ProbeCount(ctx context.Context, q sqlbase.Querier, query stri
 	}
 
 	defer func() {
-		err = errors.Join(err, exec(ctx, q, "ROLLBACK TO SAVEPOINT "+countProbe), exec(ctx, q, "RELEASE SAVEPOINT "+countProbe))
+		if ctxErr := ctx.Err(); err != nil && ctxErr != nil && !errors.Is(err, ctxErr) {
+			err = errors.Join(ctxErr, err)
+		}
+
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), countProbeCleanupTimeout)
+		defer cancel()
+
+		cleanupErr := exec(cleanupCtx, q, "ROLLBACK TO SAVEPOINT "+countProbe)
+		if cleanupErr == nil {
+			cleanupErr = exec(cleanupCtx, q, "RELEASE SAVEPOINT "+countProbe)
+		}
+
+		if cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
+
+		if err != nil {
+			count, done = 0, false
+		}
 	}()
 
-	ms := max(1, (maxTime+time.Millisecond-1)/time.Millisecond)
-	if err = exec(ctx, q, "SET LOCAL statement_timeout = '"+strconv.FormatInt(int64(min(ms, math.MaxInt32)), 10)+"ms'"); err != nil {
+	ms := maxTime / time.Millisecond
+	if maxTime%time.Millisecond > 0 {
+		ms++
+	}
+
+	ms = max(1, min(ms, math.MaxInt32))
+	if err = exec(ctx, q, "SET LOCAL statement_timeout = '"+strconv.FormatInt(int64(ms), 10)+"ms'"); err != nil {
 		return 0, false, err
 	}
 
@@ -101,7 +126,15 @@ func (ListDialect) EstimateCount(ctx context.Context, q sqlbase.Querier, query s
 		return 0, fmt.Errorf("decode query plan: %d plans", len(plans))
 	}
 
-	return int64(min(math.MaxInt64, max(0, math.Ceil(plans[0].Plan.Rows)))), nil
+	estimate := math.Ceil(plans[0].Plan.Rows)
+	switch {
+	case estimate >= math.MaxInt64:
+		return math.MaxInt64, nil
+	case estimate <= 0:
+		return 0, nil
+	default:
+		return int64(estimate), nil
+	}
 }
 
 // probeWithDeadline runs query outside a transaction, where a canceled statement harms only its own connection.

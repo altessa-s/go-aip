@@ -72,8 +72,8 @@ type ListStorageConfig struct {
 	IDType        IDType
 	ArrayStorage  ArrayStorage
 	DecimalFormat DecimalFormat
-	// UUIDFields are the string fields stored in uuid columns ([WithListUUIDFields]).
-	UUIDFields []string
+	// HasUUIDFields reports whether any string fields use uuid storage ([WithListUUIDFields]).
+	HasUUIDFields bool
 	// NarrowIntegers accepts narrower signed integer columns ([WithListNarrowIntegers]).
 	NarrowIntegers bool
 	// ExplicitCollation makes filters collate text explicitly ([WithListExplicitCollation]).
@@ -180,6 +180,8 @@ type ListTranslatorConfig struct {
 	TextCollation      string
 	DecimalFormat      DecimalFormat
 	TimestampPrecision time.Duration
+	// NarrowIntegers accepts signed integer columns narrower than the filter's 64-bit operands.
+	NarrowIntegers bool
 	// ExplicitCollation compares text under TextCollation (the dialect's default when empty) whatever the column's.
 	ExplicitCollation bool
 }

@@ -11,11 +11,15 @@ import (
 	"slices"
 )
 
-// Indexes returns CREATE INDEX statements for the schema's sort patterns.
+// Indexes returns CREATE INDEX statements for sort patterns whose keys and scope columns are in the base table.
 func (l *ListEngine[T]) Indexes() []string { return slices.Clone(l.indexes) }
 
 func (l *ListEngine[T]) compileIndexes() error {
 	seen := map[string]bool{}
+
+	derivedScope := slices.ContainsFunc(l.opts.scopeKeys, func(key string) bool {
+		return slices.Contains(l.opts.derivedColumns, l.column(key))
+	})
 
 	orders := l.schema.Orders()
 	for i := 0; i < len(orders); i += 2 {
@@ -24,6 +28,12 @@ func (l *ListEngine[T]) compileIndexes() error {
 		ks := l.orderKeys(o)
 		if ks == nil {
 			return invalid("id may only appear as the last sort key")
+		}
+
+		if derivedScope || slices.ContainsFunc(ks, func(key ListOrderKey) bool {
+			return slices.Contains(l.opts.derivedColumns, key.Column)
+		}) {
+			continue
 		}
 
 		parts := make([]string, 0, len(l.opts.scopeKeys)+len(ks))

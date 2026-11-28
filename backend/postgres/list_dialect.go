@@ -105,7 +105,7 @@ func (ListDialect) CursorPredicate(keys []sqlbase.ListOrderKey, pos pagetoken.Po
 	args := []any{vals[last]}
 
 	for i := last - 1; i >= 0; i-- {
-		query = "(" + cols[i] + " " + cursorOperator(keys[i]) + " " + marks[i] + " OR (" + cols[i] + " = ? AND (" + query + ")))"
+		query = "(" + cols[i] + " " + cursorOperator(keys[i]) + " " + marks[i] + " OR (" + cols[i] + " = " + marks[i] + " AND (" + query + ")))"
 		args = append([]any{vals[i], vals[i]}, args...)
 	}
 
@@ -196,6 +196,8 @@ func newListTranslator(policy *filter.Policy, fields *sqlbase.Schema, opts []fil
 	if err != nil {
 		return nil, err
 	}
+
+	sem.opts.narrowIntegers = config.NarrowIntegers
 
 	return NewFilterTranslatorWithSchema(policy, sem, WithFilterOptions(opts...))
 }

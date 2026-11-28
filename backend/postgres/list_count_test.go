@@ -5,8 +5,10 @@
 package postgres_test
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +137,9 @@ func TestEstimateCount(t *testing.T) {
 	}{
 		{plan: `[{"Plan": {"Node Type": "Seq Scan", "Plan Rows": 1234}}]`, want: 1234},
 		{plan: `[{"Plan": {"Plan Rows": 12.2}}]`, want: 13},
+		{plan: `[{"Plan": {"Plan Rows": 1e20}}]`, want: math.MaxInt64},
+		{plan: `[{"Plan": {"Plan Rows": -5}}]`},
+		{plan: `[{"Plan": {"Plan Rows": NaN}}]`, invalid: true},
 		{plan: `[]`, invalid: true},
 		{plan: `{`, invalid: true},
 	} {
@@ -147,5 +152,81 @@ func TestEstimateCount(t *testing.T) {
 		require.Equal(t, tc.want, got, tc.plan)
 		require.Equal(t, "EXPLAIN (FORMAT JSON) SELECT 1 FROM t WHERE a = $1", fake.Calls()[0].Query)
 		require.Equal(t, []any{int64(1)}, fake.Calls()[0].Args)
+	}
+}
+
+func TestProbeCountCleanup(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		cancelQuery  bool
+		failRollback bool
+		failRelease  bool
+	}{
+		{name: "canceled", cancelQuery: true},
+		{name: "rollback failure", failRollback: true},
+		{name: "release failure", failRelease: true},
+		{name: "maximum duration"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			cleanupFailure := errors.New("cleanup failed")
+			db, fake := sqlbasetest.NewFakeDB(t, func(query string, _ []any) sqlbasetest.Reply {
+				switch {
+				case query == probeQuery:
+					if tc.cancelQuery {
+						cancel()
+						return sqlbasetest.Reply{Err: stateError("57014")}
+					}
+
+					return countReply(2)
+				case strings.HasPrefix(query, "ROLLBACK") && tc.failRollback,
+					strings.HasPrefix(query, "RELEASE") && tc.failRelease:
+					return sqlbasetest.Reply{Err: cleanupFailure}
+				}
+
+				return sqlbasetest.Reply{}
+			})
+			tx, err := db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+
+			defer func() { _ = tx.Rollback() }()
+
+			count, done, err := postgres.ListDialect{}.ProbeCount(ctx, tx, probeQuery, nil, time.Duration(math.MaxInt64))
+
+			calls := fake.Calls()
+			if tc.failRollback {
+				require.Len(t, calls, 4)
+			} else {
+				require.Len(t, calls, 5)
+				require.Equal(t, "RELEASE SAVEPOINT aip_count_probe", calls[4].Query)
+			}
+
+			require.Equal(t, "ROLLBACK TO SAVEPOINT aip_count_probe", calls[3].Query)
+
+			switch {
+			case tc.cancelQuery:
+				require.ErrorIs(t, err, context.Canceled)
+			case tc.failRollback || tc.failRelease:
+				require.ErrorIs(t, err, cleanupFailure)
+			default:
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, err == nil, done)
+
+			if done {
+				require.EqualValues(t, 2, count)
+			} else {
+				require.Zero(t, count)
+			}
+
+			require.Equal(t, "SET LOCAL statement_timeout = '2147483647ms'", calls[1].Query)
+		})
 	}
 }

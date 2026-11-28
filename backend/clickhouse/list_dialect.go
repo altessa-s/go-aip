@@ -130,7 +130,7 @@ func (ListDialect) Validate(_ *listing.Schema, config sqlbase.ListStorageConfig)
 		return coreerrs.Wrap(listing.ErrInvalidSchema, "ClickHouse requires native ids to preserve listing order")
 	}
 
-	if len(config.UUIDFields) > 0 {
+	if config.HasUUIDFields {
 		return coreerrs.Wrap(listing.ErrInvalidSchema, "ClickHouse uuid fields need String columns: its UUID type does not order like the uuid text")
 	}
 

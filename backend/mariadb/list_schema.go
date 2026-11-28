@@ -90,6 +90,10 @@ func checkListSchema(ctx context.Context, db *sql.DB, c sqlbase.ListSchemaConfig
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(indexed)) {
+		if slices.Contains(c.DerivedColumns, name) {
+			continue
+		}
+
 		col := got[name]
 		if err := c.Check(ctx, db, sqlbase.CheckIndexable, name, listTextType(col.dataType) && col.dataType != listVarchar && col.dataType != listChar,
 			"indexed column %q must use VARCHAR or CHAR, not TEXT", name); err != nil {

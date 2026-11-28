@@ -20,6 +20,7 @@ var sortableDeclared = []listing.Field{
 	{Name: "rank", Kind: filter.FieldKindInt},
 	{Name: "tags", Kind: filter.FieldKindString, Array: true},
 	{Name: "blob", Kind: filter.FieldKindBytes},
+	{Name: "nickname", Kind: filter.FieldKindString, Optional: true},
 }
 
 // TestSortableFields lets requests combine exactly the named fields, presence ones included.
@@ -53,6 +54,7 @@ func TestSortableFieldsRejects(t *testing.T) {
 	}{
 		"undeclared":      {[]string{"name"}, []string{"name", "missing"}},
 		"array":           {[]string{"name"}, []string{"name", "tags"}},
+		"optional":        {[]string{"name"}, []string{"name", "nickname"}},
 		"bytes":           {[]string{"name"}, []string{"name", "blob"}},
 		"pattern outside": {[]string{"rank"}, []string{"name"}},
 	} {
@@ -72,4 +74,14 @@ func TestSortFieldsWithoutOption(t *testing.T) {
 
 	s = listing.MustSchema(sortableDeclared, []string{"name"}, listing.NewProfile(listing.WithUnrestrictedOrder(true)))
 	require.Equal(t, []string{"name", "rank"}, s.SortFields())
+}
+
+func TestEmptySortableFields(t *testing.T) {
+	t.Parallel()
+
+	profile := listing.NewProfile(listing.WithUnrestrictedOrder(true), listing.WithEmptyOrderAllowed(true), listing.WithSortableFields())
+	s := listing.MustSchema(sortableDeclared, nil, profile)
+	require.Empty(t, s.SortFields())
+	_, err := s.Order(t.Context(), "rank")
+	require.Equal(t, listing.FieldOrderBy, listingtest.FieldOf(err))
 }

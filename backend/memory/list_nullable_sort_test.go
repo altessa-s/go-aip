@@ -110,3 +110,29 @@ func TestNullablePresenceSort(t *testing.T) {
 	_, err = strict.List(t.Context(), "assets.List", listing.Request{PageSize: 20}, items)
 	require.Error(t, err)
 }
+
+func TestNullablePresenceSortWithCustomComparator(t *testing.T) {
+	t.Parallel()
+
+	schema := listing.MustSchema([]listing.Field{
+		{Name: "id", Kind: filter.FieldKindString},
+		{Name: "rating", Kind: filter.FieldKindInt, Presence: true},
+	}, []string{"rating"}, listing.NewProfile(listing.WithSortableFields("rating")))
+	l, err := memory.NewListEngine(pagetokentest.Codec(t), schema,
+		func(x presenceItem) string { return x.ID },
+		func(x presenceItem) map[string]any { return map[string]any{"rating": x.Rating} },
+		memory.WithListPositionCodec(reverseCodec{}))
+	require.NoError(t, err)
+
+	items := []presenceItem{{ID: "low", Rating: new(int64(1))}, {ID: "null"}, {ID: "high", Rating: new(int64(2))}}
+
+	req := listing.Request{PageSize: 1}
+	for i, id := range []string{"null", "high", "low"} {
+		page, err := l.List(t.Context(), "items", req, items)
+		require.NoError(t, err)
+		require.Len(t, page.Items, 1)
+		require.Equal(t, id, page.Items[0].ID)
+		require.Equal(t, i < 2, page.NextPageToken != "")
+		req.PageToken = page.NextPageToken
+	}
+}

@@ -43,11 +43,13 @@ func defaultSortFieldValidator(f Field) error {
 	return nil
 }
 
-// sortableField refuses a field of [WithSortableFields] that no order can sort: an array or a kind without order.
+// sortableField refuses a field of [WithSortableFields] that no order can sort: an array, an optional field, or a kind without order.
 func sortableField(f Field) error {
 	switch {
 	case f.Array:
 		return fmt.Errorf("field %q is an array", f.Name)
+	case f.Optional:
+		return fmt.Errorf("field %q is optional", f.Name)
 	case sortClass(f.Kind) == pagetoken.SortClassNone:
 		return fmt.Errorf("field %q of kind %s does not sort", f.Name, f.Kind)
 	}

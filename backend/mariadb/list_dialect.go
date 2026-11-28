@@ -102,7 +102,7 @@ func (ListDialect) Validate(schema *listing.Schema, config sqlbase.ListStorageCo
 		return coreerrs.Wrap(listing.ErrInvalidSchema, "MariaDB requires text ids to preserve listing order")
 	}
 
-	if len(config.UUIDFields) > 0 {
+	if config.HasUUIDFields {
 		return coreerrs.Wrap(listing.ErrInvalidSchema, "MariaDB uuid fields need text columns: its UUID type does not order like the uuid text")
 	}
 

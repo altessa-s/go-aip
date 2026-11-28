@@ -18,6 +18,8 @@ const DefaultArrayAliasPrefix = "_aip_element_"
 //go:generate optgen generate --type=schemaOptions --option-type=SchemaOption --output=schema_options_gen.go
 
 type schemaOptions struct {
+	// narrowIntegers widens stored integer arrays to match the filter's bigint arrays.
+	narrowIntegers bool `opt:"-"`
 	// textCompareSet is written by generated WithSchemaTextCompare to distinguish an explicit callback from the default.
 	textCompareSet bool `opt:"-"`
 	// WithSchemaMaxValueDepth bounds pointer unwrapping and nested JSON values.

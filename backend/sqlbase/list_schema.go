@@ -72,7 +72,7 @@ func (c ListSchemaConfig) KeyColumn(column string) bool {
 		return true
 	}
 
-	return slices.ContainsFunc(c.Schema.SortFields(), func(name string) bool { return c.Column(name) == column })
+	return c.Schema != nil && slices.ContainsFunc(c.Schema.SortFields(), func(name string) bool { return c.Column(name) == column })
 }
 
 // AlignsTimestamps reports whether a column storing digits fractional-second digits is no finer than the configured
@@ -127,6 +127,9 @@ func CheckListColumns[C any](ctx context.Context, db *sql.DB, c ListSchemaConfig
 
 	for _, key := range c.ScopeKeys {
 		col := c.Column(key)
+		if slices.Contains(c.DerivedColumns, col) {
+			continue
+		}
 
 		meta, ok := got[col]
 		if err := c.Check(ctx, db, CheckColumn, col, !ok, "missing scope column %q", col); err != nil {
