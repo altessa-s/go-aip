@@ -182,7 +182,8 @@ across int, float and decimal; a sort value of another class, or a missing one, 
 Fields declared with `Presence` preserve null and follow the default evaluator's null semantics, as the SQL engines do: null differs from
 every value, is in no list and contains no string, so `rating != 1` and `!(rating in [1, 2])` select a null rating; an ordered comparison
 with null is unknown, also under negation, and a filter selects an item only when the full expression is true. `has()` and `size()` are
-two-valued.
+two-valued. A Presence field the schema lets a request sort on (`listing.WithSortableFields`) sorts null before every value, first ascending
+and last descending, as PostgreSQL does; its page token holds the zero `pagetoken.SortValue`.
 
 ### Cursor configuration
 

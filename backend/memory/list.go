@@ -285,6 +285,8 @@ type scanKey struct {
 	field    string
 	kind     filter.FieldKind
 	expected pagetoken.SortClass
+	// nullable marks a Presence field, whose null sorts as the zero SortValue.
+	nullable bool
 }
 
 // scan computes the page positions of a request's items into one reused position.
@@ -308,7 +310,7 @@ func (m *ListEngine[T]) newScan(o listing.Order, reader evaluation.FieldReader, 
 	s := &scan[T]{m: m, reader: reader, work: work, keys: make([]scanKey, len(keys)), pos: pagetoken.Position{Keys: make([]pagetoken.SortValue, len(keys))}}
 	for i, k := range keys {
 		f, _ := m.schema.FieldInfo(k.Field)
-		s.keys[i] = scanKey{field: k.Field, kind: f.Kind, expected: memorySortClass(f.Kind)}
+		s.keys[i] = scanKey{field: k.Field, kind: f.Kind, expected: memorySortClass(f.Kind), nullable: f.Presence}
 	}
 
 	if m.opts.tiebreakField != "" {
@@ -427,6 +429,10 @@ func (s *scan[T]) value(values map[string]any, k scanKey) (pagetoken.SortValue, 
 	raw, _, err := s.reader.Lookup(values, k.field)
 	if err != nil {
 		return pagetoken.SortValue{}, err
+	}
+
+	if k.nullable && nilcheck.IsNil(raw) {
+		return pagetoken.SortValue{}, nil
 	}
 
 	if number, ok := raw.(float64); k.kind == filter.FieldKindFloat && ok && (math.IsNaN(number) || math.IsInf(number, 0)) {
