@@ -7,6 +7,7 @@ package sqlbase
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
@@ -49,11 +50,27 @@ func validateStorageOptions(cfg *listOptions, schema *listing.Schema) error {
 		return invalid("UUID identity requires string kind")
 	}
 
-	if err := cfg.dialect.Validate(schema, ListStorageConfig{cfg.idType, cfg.arrayStorage, cfg.decimalFormat}); err != nil {
+	if len(cfg.derivedColumns) > 0 && strings.TrimSpace(cfg.tableExpression) == "" {
+		return invalid("derived columns require a table expression")
+	}
+
+	for _, name := range cfg.uuidFields {
+		f, ok := schema.FieldInfo(name)
+		if !ok || f.Array || cfg.kindResolver(f.Kind) != Text {
+			return invalid("UUID field %q must be a declared string scalar", name)
+		}
+	}
+
+	if err := cfg.dialect.Validate(schema, cfg.storageConfig()); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (o *listOptions) storageConfig() ListStorageConfig {
+	return ListStorageConfig{IDType: o.idType, ArrayStorage: o.arrayStorage, DecimalFormat: o.decimalFormat, UUIDFields: slices.Clone(o.uuidFields),
+		NarrowIntegers: o.narrowIntegers, ExplicitCollation: o.explicitCollation}
 }
 
 func validateProjection[T any](cfg *listOptions, columns []string, dest func(*T) []any) error {

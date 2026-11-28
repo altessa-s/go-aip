@@ -577,6 +577,18 @@ check the total fits before assigning an int32 response field. The caller's dead
 intervening write can change the total. For agreement, run both calls through the same read-only REPEATABLE READ transaction with the same restriction
 and cutoff instant. The cutoff contributes no token binding. Scope or parent indexes may reduce count work, but an exact MVCC count can visit every qualifying entry and consult the heap.
 
+`WithListTableExpression` reads List and Count from a trusted derived table instead of the table, such as a join adding a
+column of another table: `FROM (<expression>) AS <alias>`. Filters, scope pins and cursors name its columns. `CheckSchema`, `Indexes` and
+`EnsureIndexes` keep naming the table; `WithListDerivedColumns` names the columns only the expression has, which `CheckSchema` then leaves
+unchecked.
+
+Two PostgreSQL storage choices relax the column contract. `WithListNarrowIntegers` accepts `smallint` and `integer` columns (and their
+arrays) for integer fields; filters and cursors still bind 64-bit values, so a literal outside the column's range fails in the database.
+`WithListExplicitCollation` makes filters compare text under the expected collation explicitly (`COLLATE`, `WithListTextCollation` or
+`"C"`), so filter semantics no longer depend on the column; the collation check then covers only the key columns
+(`ListSchemaConfig.KeyColumn`: the identity, the scope columns and the columns of `listing.Schema.SortFields`), whose order the cursors
+rely on. An explicit collation can keep a filter from using an index built under another collation. MariaDB and ClickHouse refuse both.
+
 `MustNewListEngine` takes the same arguments for a configuration fixed in code (a package-level `var`, like `listing.MustSchema`): it returns
 the engine `NewListEngine` builds and panics on a refused one with an error that starts `sqlbase.MustNewListEngine: ` and wraps the
 `NewListEngine` error.
@@ -592,7 +604,10 @@ Filter translators return native placeholders starting at parameter 1; their SQL
 predicates are parenthesized. `WithListTableAlias` defaults to `_listing`. `WithListColumns` maps public fields and scope keys; `WithListIDColumn` only
 changes the physical identity column, so public aliases still need mapping.
 
-Required and Optional scalars use NOT NULL columns; Optional stores its zero value. Presence uses nullable columns. PostgreSQL arrays are NOT NULL
+Required and Optional scalars use NOT NULL columns; Optional stores its zero value. Presence uses nullable columns.
+`WithListUUIDFields` stores string fields in PostgreSQL uuid columns, as `IDUUID` does for
+the identity: filters cast and validate their operands, cursors bind them as uuid and `CheckSchema` expects uuid columns. MariaDB and
+ClickHouse refuse it: their UUID types do not order like the uuid text, so such fields stay in text columns. PostgreSQL arrays are NOT NULL
 without null elements, and text uses COLLATE "C". MariaDB text uses utf8mb4 with utf8mb4_nopad_bin, including private scope and JSON array columns.
 Indexed text must be CHAR or VARCHAR with full-value indexes. MariaDB integers are signed BIGINT, and IDUUID is rejected. Arrays are disabled by default
 on MariaDB; select ArraysJSON for JSON arrays. ClickHouse columns are `String`, `Int64`, `Float64`, `Bool`, `DateTime64(p)` and `Decimal(P, S)`
@@ -768,20 +783,25 @@ the same mapping to schema checks.
 | `WithListArrayStorage`       | `ListEngineOption` | ArraysUnsupported               | Select ArraysUnsupported or ArraysJSON for MariaDB repeated fields.                     |
 | `WithListColumns`            | `ListEngineOption` | empty map                       | Map public field and scope names to physical SQL columns.                               |
 | `WithListDecimalFormat`      | `ListEngineOption` | DefaultDecimalFormat()          | Set the exact decimal precision and scale used by filters and cursors.                  |
+| `WithListDerivedColumns`     | `ListEngineOption` | nil / unset                     | Columns only the table expression has; CheckSchema leaves them unchecked.               |
 | `WithListErrorMapper`        | `ListEngineOption` | nil / unset                     | Overrides query failure classification; see Scope and failure policy.                   |
+| `WithListExplicitCollation`  | `ListEngineOption` | off                             | Filters collate text explicitly; only key columns must store the collation.             |
 | `WithListIDColumn`           | `ListEngineOption` | DefaultIDColumn                 | Select the physical unique identity column; map public aliases separately.              |
 | `WithListIDKind`             | `ListEngineOption` | filter.FieldKindString          | The scalar class of the unique tie-breaker column.                                      |
 | `WithListIDType`             | `ListEngineOption` | IDNative                        | Select IDNative or PostgreSQL IDUUID storage.                                           |
 | `WithListIndexNamer`         | `ListEngineOption` | nil / unset                     | Returns an unquoted index identifier for a table and zero-based pattern number.         |
 | `WithListKindResolver`       | `ListEngineOption` | DefaultSQLKind                  | Maps public kinds to SQL storage classes before the dialect builds its translator.      |
 | `WithListMaxTime`            | `ListEngineOption` | DefaultMaxTime                  | Cap one query; zero uses only the caller context deadline.                              |
+| `WithListNarrowIntegers`     | `ListEngineOption` | off                             | PostgreSQL smallint and integer columns for integer fields.                             |
 | `WithListParentKey`          | `ListEngineOption` | ""                              | Explicitly binds a declared scope key to Request.Parent. Empty disables parent binding. |
 | `WithListPositionCodec`      | `ListEngineOption` | pagetoken.ScalarPositionCodec{} | Replace position normalization, comparison, and wire encoding together.                 |
 | `WithListSchemaCheckPolicy`  | `ListEngineOption` | nil / unset                     | Replaces individual built-in schema checks; nil preserves strict defaults.              |
 | `WithListScopeKeys`          | `ListEngineOption` | nil / unset                     | Require these equality scope keys on every query and bind them into tokens.             |
 | `WithListTableAlias`         | `ListEngineOption` | DefaultTableAlias               | Qualifies sort and cursor columns.                                                      |
 | `WithListTextCollation`      | `ListEngineOption` | ""                              | Overrides the dialect's expected text collation; empty uses its default.                |
+| `WithListTableExpression`    | `ListEngineOption` | ""                              | A trusted derived table List and Count read instead of the table, such as a join.       |
 | `WithListTimestampPrecision` | `ListEngineOption` | listing.TimestampPrecision      | The cursor timestamp resolution; stored timestamps must be aligned.                     |
+| `WithListUUIDFields`         | `ListEngineOption` | nil / unset                     | String fields stored in PostgreSQL uuid columns.                                        |
 
 ### Defaults and limits
 

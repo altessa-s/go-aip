@@ -154,7 +154,7 @@ func (r *renderer) renderArrayStringCall(e *expression, a, c string, negated boo
 	alias := r.arrayAlias()
 
 	element := alias
-	if !r.contract {
+	if r.collated() {
 		element = "(" + alias + " COLLATE " + r.collation() + ")"
 	}
 

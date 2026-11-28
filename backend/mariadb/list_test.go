@@ -24,12 +24,15 @@ func TestMariaDBRejectsUnsupportedIDAndArrays(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name   string
-		fields []listing.Field
-		option sqlbase.ListEngineOption
+		name    string
+		fields  []listing.Field
+		option  sqlbase.ListEngineOption
+		message string
 	}{
 		{name: "uuid", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}}, option: sqlbase.WithListIDType(sqlbase.IDUUID)},
 		{name: "array", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}, {Name: "tags", Kind: filter.FieldKindString, Array: true}}},
+		{name: "uuid fields", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}, {Name: "owner", Kind: filter.FieldKindString}},
+			option: sqlbase.WithListUUIDFields("owner"), message: "UUID type does not order like the uuid text"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -44,6 +47,7 @@ func TestMariaDBRejectsUnsupportedIDAndArrays(t *testing.T) {
 
 			_, err = mariadb.NewListEngine[struct{ ID string }](db, nil, schema, "widgets", []string{"id"}, func(r *struct{ ID string }) []any { return []any{&r.ID} }, options...)
 			require.ErrorIs(t, err, listing.ErrInvalidSchema)
+			require.ErrorContains(t, err, tc.message)
 		})
 	}
 }

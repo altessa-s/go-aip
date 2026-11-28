@@ -117,7 +117,7 @@ func (l *ListEngine[T]) buildSelect(keysOrder []ListOrderKey) *listPlan {
 	}
 
 	sel.WriteString(" FROM ")
-	sel.WriteString(l.quotedTable)
+	sel.WriteString(l.from)
 	sel.WriteString(" AS ")
 	sel.WriteString(alias)
 	sel.WriteString(" WHERE ")
