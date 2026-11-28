@@ -584,6 +584,10 @@ the exact count; when it expires the total is an estimate. It requires a `ListCo
 transaction-local `statement_timeout`, so an expired probe leaves the enclosing transaction usable, and estimates with `EXPLAIN (FORMAT JSON)`.
 Like `Count`, it validates the request, ignores the page token and reads the snapshot of its querier.
 
+`ListHydrated(ctx, engine, subject, req, scope, load, count, countOpts...)` lists a page of keys, loads their rows with `load` in page
+order (not at all for an empty page) and, when `count` is set, adds the `BoundedCount` total. Run it inside one read-only REPEATABLE READ
+transaction the querier joins, so that the rows, the next page token and the total describe the same state.
+
 `WithListTableExpression` reads List, Count and BoundedCount from a trusted derived table instead of the table, such as a join adding a
 column of another table: `FROM (<expression>) AS <alias>`. Filters, scope pins and cursors name its columns. `CheckSchema`, `Indexes` and
 `EnsureIndexes` keep naming the table; `WithListDerivedColumns` names the columns only the expression has, which `CheckSchema` then leaves
