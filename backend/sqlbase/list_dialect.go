@@ -72,6 +72,12 @@ type ListStorageConfig struct {
 	IDType        IDType
 	ArrayStorage  ArrayStorage
 	DecimalFormat DecimalFormat
+	// UUIDFields are the string fields stored in uuid columns ([WithListUUIDFields]).
+	UUIDFields []string
+	// NarrowIntegers accepts narrower signed integer columns ([WithListNarrowIntegers]).
+	NarrowIntegers bool
+	// ExplicitCollation makes filters collate text explicitly ([WithListExplicitCollation]).
+	ExplicitCollation bool
 }
 
 // ListSchemaConfig is an isolated snapshot of the engine's storage expectations.
@@ -89,6 +95,10 @@ type ListSchemaConfig struct {
 	CheckPolicy           ListSchemaCheckPolicy
 	// KindResolver maps logical kinds to their SQL storage representation.
 	KindResolver func(filter.FieldKind) Kind
+	// UUIDFields are the string fields stored in uuid columns.
+	UUIDFields []string
+	// DerivedColumns are the columns only the table expression has; checks skip them.
+	DerivedColumns []string
 }
 
 // IndexNamer returns an unquoted index name for a table and zero-based sort pattern.
@@ -152,4 +162,6 @@ type ListTranslatorConfig struct {
 	TextCollation      string
 	DecimalFormat      DecimalFormat
 	TimestampPrecision time.Duration
+	// ExplicitCollation compares text under TextCollation (the dialect's default when empty) whatever the column's.
+	ExplicitCollation bool
 }
