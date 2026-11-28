@@ -600,6 +600,7 @@ compared under the expected collation explicitly, as outside the contract. With 
 
 | Method                  | Extension                         | Behavior                                                                                                         |
 |-------------------------|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `NullableSortDirection` | `sqlbase.ListNullableSortDialect` | Sorts a Presence key `ASC NULLS FIRST` or `DESC NULLS LAST`, in queries and indexes, with IS NULL cursors        |
 | `SortKeyExpression`     | `sqlbase.ListSortKeyDialect`      | Selects a uuid sort key as text                                                                                  |
 
 ```go

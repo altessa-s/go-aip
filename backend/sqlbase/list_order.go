@@ -25,6 +25,19 @@ func (l *ListEngine[T]) orderKeys(o listing.Order) []ListOrderKey {
 	return orderKeys(l.schema, l.opts.idColumn, l.opts.kindResolver(l.opts.idKind), l.opts.idKind, l.fieldKind, l.column, o)
 }
 
+// direction renders the ORDER BY direction of a key, through the dialect for a Presence key.
+func (l *ListEngine[T]) direction(k ListOrderKey) string {
+	if d, ok := l.opts.dialect.(ListNullableSortDialect); ok && k.Field.Presence {
+		return d.NullableSortDirection(k.Desc)
+	}
+
+	if k.Desc {
+		return "DESC"
+	}
+
+	return "ASC"
+}
+
 // fieldKind returns the SQL storage class of the declared field name of kind k.
 func (l *ListEngine[T]) fieldKind(name string, k filter.FieldKind) Kind {
 	if slices.Contains(l.opts.uuidFields, name) {

@@ -5,6 +5,7 @@
 package sqlbase
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -52,8 +53,40 @@ func sortDestination(kind Kind) any {
 	}
 }
 
+// nullableSortDestination is the scan destination of a Presence sort key.
+func nullableSortDestination(kind Kind) any {
+	switch kind {
+	case Text, UUID, Numeric:
+		return new(sql.Null[string])
+	case Integer:
+		return new(sql.Null[int64])
+	case Boolean:
+		return new(sql.Null[bool])
+	case Float:
+		return new(sql.Null[float64])
+	case Timestamp:
+		return new(sql.Null[time.Time])
+	default:
+		return new(any)
+	}
+}
+
 func deref(v any) any {
 	switch x := v.(type) {
+	case *sql.Null[string]:
+		return nullValue(*x)
+	case *sql.Null[int64]:
+		return nullValue(*x)
+	case *sql.Null[bool]:
+		return nullValue(*x)
+	case *sql.Null[float64]:
+		return nullValue(*x)
+	case *sql.Null[time.Time]:
+		if !x.Valid {
+			return nil
+		}
+
+		return x.V.UTC()
 	case *any:
 		return *x
 	case *string:
@@ -69,6 +102,15 @@ func deref(v any) any {
 	default:
 		return v
 	}
+}
+
+// nullValue returns the value of n, or nil for NULL.
+func nullValue[V any](n sql.Null[V]) any {
+	if !n.Valid {
+		return nil
+	}
+
+	return n.V
 }
 
 func decodeSortValue(v pagetoken.SortValue, kind Kind) (any, error) {

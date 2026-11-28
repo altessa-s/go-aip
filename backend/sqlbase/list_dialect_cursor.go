@@ -17,8 +17,8 @@ type CursorValueCheck func(key ListOrderKey, value any) error
 
 // DecodeCursor decodes the sort values of pos into the bind values of keys, the last of which is the identity, as
 // [ListSyntax.CursorPredicate] receives them. A position that does not match keys, or a value that does not match the
-// storage kind of its key, fails with [pagetoken.ErrInvalidToken]. A non-nil check runs on each value as it is decoded;
-// its error is joined with [pagetoken.ErrInvalidToken].
+// storage kind of its key, fails with [pagetoken.ErrInvalidToken]. The zero SortValue of a Presence key decodes as nil, a
+// NULL. A non-nil check runs on each other value as it is decoded; its error is joined with [pagetoken.ErrInvalidToken].
 func DecodeCursor(keys []ListOrderKey, pos pagetoken.Position, check CursorValueCheck) ([]any, error) {
 	if len(keys) == 0 || len(pos.Keys) != len(keys)-1 {
 		return nil, pagetoken.ErrInvalidToken
@@ -30,6 +30,12 @@ func DecodeCursor(keys []ListOrderKey, pos pagetoken.Position, check CursorValue
 		sv := pos.ID
 		if i < len(pos.Keys) {
 			sv = pos.Keys[i]
+		}
+
+		if !sv.Valid() && key.Field.Presence && i < len(pos.Keys) {
+			vals = append(vals, nil)
+
+			continue
 		}
 
 		v, err := decodeSortValue(sv, key.StorageKind)
@@ -56,7 +62,8 @@ func DecodeCursor(keys []ListOrderKey, pos pagetoken.Position, check CursorValue
 //
 // columns are the qualified, quoted columns of keys, marks their placeholders (such as "?" or a typed cast of it) and
 // values their bind values, one entry per key. Each mark but the last is bound twice, so the returned arguments repeat
-// its value. Without keys the predicate is empty.
+// its value. A Presence key sorts NULL first ascending and last descending ([ListNullableSortDialect]); its nil value is
+// a NULL, which binds no mark. Without keys the predicate is empty.
 func ExpandKeysetPredicate(keys []ListOrderKey, columns, marks []string, values []any) (string, []any) {
 	if len(keys) == 0 {
 		return "", nil
@@ -82,8 +89,20 @@ func ExpandKeysetPredicate(keys []ListOrderKey, columns, marks []string, values 
 			break
 		}
 
-		b.WriteString("(" + columns[i] + op + marks[i] + " OR (" + columns[i] + " = " + marks[i] + " AND ")
-		args = append(args, values[i], values[i])
+		col := columns[i]
+
+		switch {
+		case !key.Field.Presence || (values[i] != nil && !key.Desc):
+			b.WriteString("(" + col + op + marks[i] + " OR (" + col + " = " + marks[i] + " AND ")
+			args = append(args, values[i], values[i])
+		case values[i] != nil:
+			b.WriteString("(" + col + op + marks[i] + " OR " + col + " IS NULL OR (" + col + " = " + marks[i] + " AND ")
+			args = append(args, values[i], values[i])
+		case key.Desc:
+			b.WriteString("((" + col + " IS NULL AND ")
+		default:
+			b.WriteString("(" + col + " IS NOT NULL OR (" + col + " IS NULL AND ")
+		}
 	}
 
 	b.WriteString(strings.Repeat("))", len(keys)-1))
