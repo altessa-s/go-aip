@@ -174,7 +174,7 @@ func TestSortValue_JSONRoundTrip(t *testing.T) {
 		assert.Equal(t, pos.Keys[i].Class(), back.Keys[i].Class())
 	}
 
-	for _, bad := range []string{`{}`, `{"s":"a","n":1}`, `[]`} {
+	for _, bad := range []string{`{"s":"a","n":1}`, `[]`} {
 		var v pagetoken.SortValue
 		require.Error(t, json.Unmarshal([]byte(bad), &v), bad)
 	}

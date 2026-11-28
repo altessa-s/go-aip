@@ -29,7 +29,8 @@ small collections.
 `PayloadCodec`, `ValueComparator`, normalization, and a semantic Name. ScalarPositionCodec is scalar-v2; it orders numbers, strings, booleans, and
 times, normalizing timestamps at positive precision. OpaqueSortValue requires a matching custom codec. Change codec names and bindings when encoding
 or ordering changes. A `SortValue` is an inline tagged value: building, copying and comparing a string, integer, float, bool or timestamp allocates
-nothing; compare values with `Compare`, never with `==`.
+nothing; compare values with `Compare`, never with `==`. The zero `SortValue` holds no value, such as an SQL NULL key: it orders first and encodes
+as the empty object `{}`.
 
 `SlicePager` pages sorted sources with configurable comparison. `ResolvePageSize` applies defaults and clamping and rejects negative requests. Page
 result types live in the sibling page package. The import paths are `github.com/altessa-s/go-aip/pagination/pagetoken` and
@@ -190,7 +191,7 @@ if err != nil {
 | `ErrCodecRequired`    | Token presented to a `Typed`/`Offset`, a slice pager or a list engine without a codec                              |
 | `ErrNegativeOffset`   | `Offset.Issue` called with a negative offset (caller bug)                                                          |
 | `ErrUnencryptedToken` | Signed token resolved under `WithStrictEncryption`; wraps `ErrInvalidToken` (classified `malformed`)               |
-| `ErrUnsortableValue`  | `NewSortValue` given nil or a value that is not a sortable scalar; a decoded sort value without exactly one member |
+| `ErrUnsortableValue`  | `NewSortValue` given nil or a non-scalar; a decoded sort value with several members or a null member               |
 
 ## Payload configuration
 
