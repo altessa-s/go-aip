@@ -115,7 +115,7 @@ func (s listSchemaChecker) CheckScopeColumn(ctx context.Context, db *sql.DB, col
 // or identity column.
 func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name string, f listing.Field, col listColumn, scoped bool) error {
 	c := s.config
-	kind := c.Kind(f.Kind)
+	kind := c.FieldKind(f)
 
 	if f.Array && c.Storage.ArrayStorage == sqlbase.ArraysJSON {
 		if err := c.Check(ctx, db, sqlbase.CheckType, name, col.dataType != listLongText && col.dataType != "json",

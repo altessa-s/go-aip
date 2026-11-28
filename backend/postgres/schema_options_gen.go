@@ -54,6 +54,14 @@ func WithSchemaContractMode(v bool) SchemaOption {
 	}
 }
 
+// WithSchemaExplicitCollation keeps the explicit text collation in contract mode, for listing columns stored in
+// another collation.
+func WithSchemaExplicitCollation(v bool) SchemaOption {
+	return func(o *schemaOptions) {
+		o.explicitCollation = v
+	}
+}
+
 // WithSchemaJSONBStringCompare must reproduce the database's default collation, including
 // deterministic tie-breaking. strings.Compare is suitable for a C-locale database.
 // Without an explicit comparator, ordering whole JSONB values is rejected.
