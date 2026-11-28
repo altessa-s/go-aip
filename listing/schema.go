@@ -59,7 +59,7 @@ type Schema struct {
 // int, float, decimal, bool and timestamp sort), or repeats another pattern
 // or its reversal. A pattern over a Hidden field fails with
 // [ErrUnreadableSortField] too, unless [WithUnreadableSortAllowed] is set. The default order must be a declared pattern or its
-// reversal. [WithServerOnlyFields] must name declared fields.
+// reversal. [WithServerOnlyFields] and [WithSortableFields] must name declared fields, the latter ones that sort.
 // NewSchema needs no context: patterns are parsed by the
 // orderby parser, as request orders are.
 func NewSchema(fields []Field, patterns []string, profile *Profile) (*Schema, error) {
@@ -87,6 +87,17 @@ func NewSchema(fields []Field, patterns []string, profile *Profile) (*Schema, er
 	for _, name := range s.opts.serverOnlyFields {
 		if !s.fields.Contains(name) {
 			return nil, invalid("server-only field %q is not declared", name)
+		}
+	}
+
+	for _, name := range s.opts.sortableFields {
+		f, ok := s.fields.Get(name)
+		if !ok {
+			return nil, invalid("sortable field %q is not declared", name)
+		}
+
+		if err := sortableField(s.fieldMetadata(f)); err != nil {
+			return nil, invalid("sortable field %q: %v", name, err)
 		}
 	}
 
