@@ -577,7 +577,14 @@ check the total fits before assigning an int32 response field. The caller's dead
 intervening write can change the total. For agreement, run both calls through the same read-only REPEATABLE READ transaction with the same restriction
 and cutoff instant. The cutoff contributes no token binding. Scope or parent indexes may reduce count work, but an exact MVCC count can visit every qualifying entry and consult the heap.
 
-`WithListTableExpression` reads List and Count from a trusted derived table instead of the table, such as a join adding a
+For a total that stays cheap on large collections, `BoundedCount(ctx, req, scope, opts...)` counts at most limit+1 matching rows
+(`WithCountLimit`, `DefaultCountLimit` = 1000) and returns a `Total`: exact up to the limit, otherwise the larger of the counted rows and the
+estimate of a `ListCountDialect` with `Exact` false (the counted rows alone when the dialect does not estimate). `WithCountProbeTime` bounds
+the exact count; when it expires the total is an estimate. It requires a `ListCountDialect`: PostgreSQL runs the probe in a savepoint under a
+transaction-local `statement_timeout`, so an expired probe leaves the enclosing transaction usable, and estimates with `EXPLAIN (FORMAT JSON)`.
+Like `Count`, it validates the request, ignores the page token and reads the snapshot of its querier.
+
+`WithListTableExpression` reads List, Count and BoundedCount from a trusted derived table instead of the table, such as a join adding a
 column of another table: `FROM (<expression>) AS <alias>`. Filters, scope pins and cursors name its columns. `CheckSchema`, `Indexes` and
 `EnsureIndexes` keep naming the table; `WithListDerivedColumns` names the columns only the expression has, which `CheckSchema` then leaves
 unchecked.
@@ -804,11 +811,14 @@ the same mapping to schema checks.
 | `WithListTableExpression`    | `ListEngineOption` | ""                              | A trusted derived table List and Count read instead of the table, such as a join.       |
 | `WithListTimestampPrecision` | `ListEngineOption` | listing.TimestampPrecision      | The cursor timestamp resolution; stored timestamps must be aligned.                     |
 | `WithListUUIDFields`         | `ListEngineOption` | nil / unset                     | String fields stored in PostgreSQL uuid columns.                                        |
+| `WithCountLimit`             | `CountOption`      | DefaultCountLimit               | The largest total BoundedCount reports exactly.                                         |
+| `WithCountProbeTime`         | `CountOption`      | 0                               | Bounds the exact count of BoundedCount; requires a ListCountDialect.                    |
 
 ### Defaults and limits
 
 | Constant            | Value              |
 |---------------------|--------------------|
+| `DefaultCountLimit` | `1000`             |
 | `DefaultIDColumn`   | `"id"`             |
 | `DefaultMaxTime`    | `10 * time.Second` |
 | `DefaultTableAlias` | `"_listing"`       |
@@ -853,6 +863,9 @@ the same mapping to schema checks.
 | `CheckListColumns`        | Runs the projection, scope and field column checks every SQL dialect shares and returns the existing scope columns.                                                             |
 | `ListSortKeyDialect`      | Optional dialect extension rendering the SELECT expression of a non-identity sort key.                                                                                          |
 | `ListNullableSortDialect` | Optional dialect extension that sorts on Presence fields, NULL first ascending and last descending.                                                                             |
+| `ListCountDialect`        | Optional dialect extension that bounds the exact count of BoundedCount and estimates larger totals.                                                                             |
+| `Total`                   | The size of a collection from BoundedCount: exact, or a lower bound or estimate when Exact is false.                                                                            |
+| `CountOption`             | Functional option of BoundedCount; every option is named WithCount….                                                                                                            |
 | `DecimalFormat`           | The exact DECIMAL(Precision,Scale) domain of stored decimals, shared with the MariaDB filter translator; `DefaultDecimalFormat` is DECIMAL(65,30).                              |
 | `ListTranslatorConfig`    | ListTranslatorConfig carries storage precision to filter translation.                                                                                                           |
 | `ArrayStorage`            | ArrayStorage selects how array fields are stored by MariaDB.                                                                                                                    |

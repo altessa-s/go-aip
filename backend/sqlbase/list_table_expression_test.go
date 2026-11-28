@@ -51,11 +51,14 @@ func TestListTableExpression(t *testing.T) {
 	_, err = l.Count(t.Context(), listing.Request{Filter: `name == "x"`}, nil)
 	require.NoError(t, err)
 
+	_, err = l.BoundedCount(t.Context(), listing.Request{Filter: `name == "x"`}, nil)
+	require.NoError(t, err)
+
 	from := ` FROM (` + source + `) AS "_listing" WHERE (("name" = ($1)::text))`
 	for _, call := range fake.Calls() {
 		require.Contains(t, call.Query, from)
 	}
 
-	require.Len(t, fake.Calls(), 2)
+	require.Len(t, fake.Calls(), 3)
 	require.Contains(t, l.Indexes()[0], `ON "widgets" ("name" ASC, "id" ASC)`)
 }
