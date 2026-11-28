@@ -65,9 +65,10 @@ type caseInsensitiveContainsSchema interface {
 //
 // It fails with [listing.ErrInvalidSchema] for a nil schema, a schema without declared sort patterns or whose maximum page size
 // exceeds [MaxListPageSize], a field path or sort path that is not a BSON path or names an undeclared field, a sort path or
-// scope key on the id, a scope key that is not a BSON path, an order that sorts on the id anywhere but last, twice on one path
-// or on a scope key, and an index name that is not keyed by a declared pattern, names a pattern twice, is reused, is the
-// built-in [IDIndex] of another order or renames it.
+// scope key on the id, a scope key that is not a BSON path, an order that sorts on a Presence field (which
+// listing.WithSortableFields can allow), on the id anywhere but last, twice on one path or on a scope key, and an index
+// name that is not keyed by a declared pattern, names a pattern twice, is reused, is the built-in [IDIndex] of another
+// order or renames it.
 func NewListEngine[D any](coll *mongo.Collection, codec pagetoken.Signer, schema *listing.Schema, opts ...ListEngineOption) (*ListEngine[D], error) {
 	if schema == nil {
 		return nil, invalid("MongoDB list without a schema")
