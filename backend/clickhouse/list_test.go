@@ -99,14 +99,19 @@ func TestNewListEngine_ClickHouseRejects(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name   string
-		fields []listing.Field
-		option sqlbase.ListEngineOption
+		name    string
+		fields  []listing.Field
+		option  sqlbase.ListEngineOption
+		message string
 	}{
 		{name: "uuid", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}}, option: sqlbase.WithListIDType(sqlbase.IDUUID)},
 		{name: "json arrays", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}}, option: sqlbase.WithListArrayStorage(sqlbase.ArraysJSON)},
 		{name: "collation", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}}, option: sqlbase.WithListTextCollation("utf8mb4_bin")},
 		{name: "decimal format", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}}, option: sqlbase.WithListDecimalFormat(sqlbase.DecimalFormat{Precision: 80})},
+		{name: "uuid fields", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}, {Name: "owner", Kind: filter.FieldKindString}},
+			option: sqlbase.WithListUUIDFields("owner"), message: "UUID type does not order like the uuid text"},
+		{name: "narrow integers", fields: []listing.Field{{Name: "id", Kind: filter.FieldKindString}}, option: sqlbase.WithListNarrowIntegers(),
+			message: "64-bit integers"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -117,6 +122,7 @@ func TestNewListEngine_ClickHouseRejects(t *testing.T) {
 
 			_, err = clickhouse.NewListEngine[widget](db, nil, schema, "widgets", []string{"id"}, func(w *widget) []any { return []any{&w.ID} }, tc.option)
 			require.ErrorIs(t, err, listing.ErrInvalidSchema)
+			require.ErrorContains(t, err, tc.message)
 		})
 	}
 }

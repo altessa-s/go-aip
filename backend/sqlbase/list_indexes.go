@@ -40,12 +40,7 @@ func (l *ListEngine[T]) compileIndexes() error {
 		}
 
 		for _, k := range ks {
-			d := " ASC"
-			if k.Desc {
-				d = " DESC"
-			}
-
-			parts = append(parts, l.quote(k.Column)+d)
+			parts = append(parts, l.quote(k.Column)+" "+l.direction(k))
 		}
 
 		const directionsPerIndex = 2
@@ -85,8 +80,9 @@ func (l *ListEngine[T]) CheckSchema(ctx context.Context, db *sql.DB) error {
 		Schema: l.schema, Table: l.table, Columns: maps.Collect(l.columnMap.All()),
 		Projection: slices.Clone(l.columns), ScopeKeys: slices.Clone(l.opts.scopeKeys),
 		IDColumn: l.opts.idColumn, IDKind: l.opts.idKind,
-		Storage:            ListStorageConfig{l.opts.idType, l.opts.arrayStorage, l.opts.decimalFormat},
+		Storage:            l.opts.storageConfig(),
 		TimestampPrecision: l.opts.timestampPrecision, TextCollation: l.opts.textCollation,
-		CheckPolicy: l.opts.schemaCheckPolicy, KindResolver: l.opts.kindResolver,
+		CheckPolicy: l.opts.schemaCheckPolicy, KindResolver: l.opts.kindResolver, UUIDFields: slices.Clone(l.opts.uuidFields),
+		DerivedColumns: slices.Clone(l.opts.derivedColumns),
 	})
 }

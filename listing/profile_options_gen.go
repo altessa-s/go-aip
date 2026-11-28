@@ -341,6 +341,22 @@ func WithSortFieldValidator(v func(Field) error) ProfileOption {
 	}
 }
 
+// WithSortableFields sets the sortableFields option.
+//
+// sortableFields names the only fields a sort key may use, presence fields included, in place of sortFieldValidator.
+// Arrays and kinds that do not sort stay refused. PostgreSQL and the memory engine sort a null presence key first
+// ascending and last descending; MongoDB and the other SQL dialects refuse it.
+func WithSortableFields(v ...string) ProfileOption {
+	v = slices.Clone(v)
+
+	return func(o *profileOptions) {
+		if len(v) == 0 {
+			return
+		}
+		o.sortableFields = v
+	}
+}
+
 // WithTimestampPrecision sets the timestampPrecision option.
 //
 // timestampPrecision truncates filter literals and defaults; zero preserves nanoseconds.

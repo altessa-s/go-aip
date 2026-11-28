@@ -59,11 +59,23 @@ type listOptions struct {
 	// ended arrives as that context's error, the scan error hidden behind apierror.Classify.
 	errorMapper listing.ErrorMapper
 
-	columns   map[string]string
-	idColumn  string        `optgen:"default=DefaultIDColumn"`
-	idType    IDType        `optgen:"default=IDNative"`
-	scopeKeys []string      `optgen:"strings,unique,trim"`
-	maxTime   time.Duration `optgen:"default=DefaultMaxTime" optval:"nonpositive"`
+	columns map[string]string
+	// uuidFields are string fields stored in uuid columns, as IDUUID stores the identity.
+	uuidFields []string `optgen:"strings,unique,trim"`
+	// tableExpression is a trusted derived table that List and Count read in place of the table, such as a join adding
+	// columns of another table. Schema checks and indexes keep using the table.
+	tableExpression string
+	// derivedColumns are the columns only tableExpression has; schema checks do not look for them in the table.
+	derivedColumns []string `optgen:"strings,unique,trim"`
+	// narrowIntegers accepts narrower signed integer columns for integer fields, such as PostgreSQL smallint and integer.
+	narrowIntegers bool
+	// explicitCollation makes filters compare text under the expected collation explicitly, so only sort, scope and
+	// identity columns must store it.
+	explicitCollation bool
+	idColumn          string        `optgen:"default=DefaultIDColumn"`
+	idType            IDType        `optgen:"default=IDNative"`
+	scopeKeys         []string      `optgen:"strings,unique,trim"`
+	maxTime           time.Duration `optgen:"default=DefaultMaxTime" optval:"nonpositive"`
 	// dialect is the required dialect argument of NewListEngine.
 	dialect      ListDialect  `opt:"-"`
 	arrayStorage ArrayStorage `opt:"ArrayStorage"`

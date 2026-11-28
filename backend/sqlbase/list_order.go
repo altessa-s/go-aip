@@ -5,6 +5,8 @@
 package sqlbase
 
 import (
+	"slices"
+
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
 )
@@ -20,10 +22,32 @@ type ListOrderKey struct {
 }
 
 func (l *ListEngine[T]) orderKeys(o listing.Order) []ListOrderKey {
-	return orderKeys(l.schema, l.opts.idColumn, l.opts.idKind, l.opts.kindResolver, l.column, o)
+	return orderKeys(l.schema, l.opts.idColumn, l.opts.kindResolver(l.opts.idKind), l.opts.idKind, l.fieldKind, l.column, o)
 }
 
-func orderKeys(schema *listing.Schema, idColumn string, idKind filter.FieldKind, kind func(filter.FieldKind) Kind,
+// direction renders the ORDER BY direction of a key, through the dialect for a Presence key.
+func (l *ListEngine[T]) direction(k ListOrderKey) string {
+	if d, ok := l.opts.dialect.(ListNullableSortDialect); ok && k.Field.Presence {
+		return d.NullableSortDirection(k.Desc)
+	}
+
+	if k.Desc {
+		return "DESC"
+	}
+
+	return "ASC"
+}
+
+// fieldKind returns the SQL storage class of the declared field name of kind k.
+func (l *ListEngine[T]) fieldKind(name string, k filter.FieldKind) Kind {
+	if slices.Contains(l.opts.uuidFields, name) {
+		return UUID
+	}
+
+	return l.opts.kindResolver(k)
+}
+
+func orderKeys(schema *listing.Schema, idColumn string, idStorage Kind, idKind filter.FieldKind, kind func(string, filter.FieldKind) Kind,
 	column func(string) string, o listing.Order,
 ) []ListOrderKey {
 	out := make([]ListOrderKey, 0, len(o.Keys())+1)
@@ -44,7 +68,7 @@ func orderKeys(schema *listing.Schema, idColumn string, idKind filter.FieldKind,
 		}
 
 		f, _ := schema.FieldInfo(k.Field)
-		out = append(out, ListOrderKey{Column: col, StorageKind: kind(f.Kind), Field: listing.Field{
+		out = append(out, ListOrderKey{Column: col, StorageKind: kind(f.Name, f.Kind), Field: listing.Field{
 			Name: f.Name, Kind: f.Kind, Array: f.Array, Optional: f.Optional, Presence: f.Presence, Hidden: f.Hidden, EnumZero: f.EnumZero,
 		}, Desc: k.Desc})
 	}
@@ -54,7 +78,7 @@ func orderKeys(schema *listing.Schema, idColumn string, idKind filter.FieldKind,
 		desc = publicKeys[len(publicKeys)-1].Desc
 	}
 
-	out = append(out, ListOrderKey{Column: idColumn, StorageKind: kind(idKind), Field: listing.Field{Kind: idKind}, Desc: desc})
+	out = append(out, ListOrderKey{Column: idColumn, StorageKind: idStorage, Field: listing.Field{Kind: idKind}, Desc: desc})
 
 	return out
 }

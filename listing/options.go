@@ -56,6 +56,10 @@ type profileOptions struct {
 	unrestrictedOrder bool `optval:"param"`
 	// sortFieldValidator replaces scalar/presence restrictions; nil disables them. Hidden-field checks remain separate.
 	sortFieldValidator func(Field) error `optgen:"default=defaultSortFieldValidator"`
+	// sortableFields names the only fields a sort key may use, presence fields included, in place of sortFieldValidator.
+	// Arrays and kinds that do not sort stay refused. PostgreSQL and the memory engine sort a null presence key first
+	// ascending and last descending; MongoDB and the other SQL dialects refuse it.
+	sortableFields []string `optval:"clone=eager,notrim,nodup"`
 	// sizeValidator replaces the size comparison contract; nil disables it.
 	sizeValidator func(filter.Node, *Schema) error `optgen:"default=checkSize"`
 	// presenceValidator replaces required-field null/has checks; nil disables them.

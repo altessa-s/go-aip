@@ -63,7 +63,7 @@ func (s listSchemaChecker) CheckScopeColumn(ctx context.Context, db *sql.DB, col
 // CheckColumn checks the type, decimal domain, nullability and timestamp precision of a field or identity column.
 func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name string, f listing.Field, col listColumn, scoped bool) error {
 	c := s.config
-	kind := c.Kind(f.Kind)
+	kind := c.FieldKind(f)
 
 	if err := c.Check(ctx, db, sqlbase.CheckType, name, col.array != f.Array || !col.matches(kind), "column %q has type %q, expected %q",
 		name, col.base, listTypeName(kind)); err != nil {

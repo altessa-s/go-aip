@@ -475,6 +475,7 @@ compilation.
 |--------------------------------|-----------------------------|----------------------------------------------------------------------------------------------------------|
 | `WithSchemaArrayAliasPrefix`   | `DefaultArrayAliasPrefix`   | Prefix of generated array element aliases, followed by a counter; a plain identifier of at most 55 bytes |
 | `WithSchemaContractMode`       | false                       | Renders against non-null, C-collated listing columns (the only contract switch)                          |
+| `WithSchemaExplicitCollation`  | false                       | Keeps the explicit text collation in contract mode, for columns stored in another collation              |
 | `WithSchemaMaxDataBudget`      | `DefaultMaxDataBudget`      | Work budget for compiling literal values                                                                 |
 | `WithSchemaJSONBStringCompare` | nil                         | Comparator reproducing the database's default collation; required for whole-JSONB ordering               |
 | `WithSchemaMaxArrayDimensions` | `DefaultMaxArrayDimensions` | Bounds nested arrays accepted by the profile                                                             |
@@ -499,7 +500,7 @@ NUMERIC literals are bounded by `sqltype.MaxIntegerDigits` (131072) and `sqltype
 ## Listing contract
 
 `NewFilterTranslatorWithSchema(policy, schema)` over a schema built with `WithSchemaContractMode(true)` renders the listing storage contract: columns
-provide their own `COLLATE "C"`, scalars and arrays are non-null, optional scalars store zero values, and arrays store empty arrays. Presence columns
+provide their own `COLLATE "C"` (or, with `WithSchemaExplicitCollation`, the operands carry it), scalars and arrays are non-null, optional scalars store zero values, and arrays store empty arrays. Presence columns
 are the nullable ones: a NULL presence column follows the default evaluator (`rating != 1` is `("rating" <> $1 OR "rating" IS NULL)`, `!` is pushed down
 to the predicates), as the memory listing engine evaluates it with the [`listing/evaluation`](../../listing/evaluation/README.md) profile.
 
@@ -588,7 +589,19 @@ precision and text collation. Its zero value is ready to use; embed it in a cust
 
 PostgreSQL storage: Required and Optional scalars use NOT NULL columns (Optional stores its zero value), Presence fields use nullable columns, arrays
 are NOT NULL without null elements, text uses `COLLATE "C"`, timestamps are `timestamptz(3)` aligned to the configured precision, and
-`sqlbase.IDUUID` stores string identities as `uuid`. Run `CheckSchema` before deployment; `EnsureIndexes` applies the same checks before DDL.
+`sqlbase.IDUUID` stores string identities as `uuid`, as `sqlbase.WithListUUIDFields` stores other string fields. Run `CheckSchema` before
+deployment; `EnsureIndexes` applies the same checks before DDL.
+
+With `sqlbase.WithListExplicitCollation` the list translator adds `WithSchemaExplicitCollation`: text operands and array elements are
+compared under the expected collation explicitly, as outside the contract. With `sqlbase.WithListNarrowIntegers` `CheckSchema` accepts
+`smallint` and `integer` columns (and their arrays) for integer fields.
+
+`ListDialect` implements the optional listing extensions:
+
+| Method                  | Extension                         | Behavior                                                                                                         |
+|-------------------------|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `NullableSortDirection` | `sqlbase.ListNullableSortDialect` | Sorts a Presence key `ASC NULLS FIRST` or `DESC NULLS LAST`, in queries and indexes, with IS NULL cursors        |
+| `SortKeyExpression`     | `sqlbase.ListSortKeyDialect`      | Selects a uuid sort key as text                                                                                  |
 
 ```go
 list, err := postgres.NewListEngine[Widget](db, codec, widgetSchema, "widgets", []string{"id", "name"},

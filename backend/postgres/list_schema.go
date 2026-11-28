@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 
 	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/listing"
@@ -109,7 +110,7 @@ func (s listSchemaChecker) CheckScopeColumn(ctx context.Context, db *sql.DB, col
 // CheckColumn checks the type, nullability, collation and timestamp precision of a field or identity column.
 func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name string, f listing.Field, col listColumn, scoped bool) error {
 	c := s.config
-	kind := c.Kind(f.Kind)
+	kind := c.FieldKind(f)
 	uuidIdentity := name == c.IDColumn && c.Storage.IDType == sqlbase.IDUUID
 
 	typ := listSQLType(kind, f.Array)
@@ -123,6 +124,10 @@ func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name str
 		typeOK = true
 	}
 
+	if kind == sqlbase.Integer && c.Storage.NarrowIntegers && slices.Contains(narrowIntegers(f.Array), col.udt) {
+		typeOK = true
+	}
+
 	if err := c.Check(ctx, db, sqlbase.CheckType, name, !typeOK, "column %q has type %q, expected %q", name, col.udt, typ); err != nil {
 		return err
 	}
@@ -132,7 +137,8 @@ func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name str
 		return err
 	}
 
-	if err := c.Check(ctx, db, sqlbase.CheckCollation, name, kind == sqlbase.Text && !uuidIdentity && col.collation != s.collation,
+	keyed := !c.Storage.ExplicitCollation || c.KeyColumn(name)
+	if err := c.Check(ctx, db, sqlbase.CheckCollation, name, kind == sqlbase.Text && !uuidIdentity && keyed && col.collation != s.collation,
 		"column %q must use collation %q", name, s.collation); err != nil {
 		return err
 	}
@@ -140,6 +146,15 @@ func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name str
 	// the catalog query reads the element typmod for those columns.
 	return c.Check(ctx, db, sqlbase.CheckTimestampPrecision, name, kind == sqlbase.Timestamp && (!col.precision.Valid ||
 		!c.AlignsTimestamps(int(col.precision.Int64))), "column %q must align to timestamp precision %s", name, c.TimestampPrecision)
+}
+
+// narrowIntegers returns the udt names of the integer columns narrower than bigint.
+func narrowIntegers(array bool) []string {
+	if array {
+		return []string{"_int2", "_int4"}
+	}
+
+	return []string{"int2", "int4"}
 }
 
 // listSQLType returns the PostgreSQL udt name of a storage kind, with the leading underscore of its array type.
