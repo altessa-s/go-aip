@@ -107,6 +107,10 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 		return nil, err
 	}
 
+	if err = validateNullableSorts(schema, cfg); err != nil {
+		return nil, err
+	}
+
 	sqlFields := make(map[string]Field, len(fieldCols))
 
 	for _, name := range schema.Fields() {

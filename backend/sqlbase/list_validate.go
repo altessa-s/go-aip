@@ -73,6 +73,32 @@ func (o *listOptions) storageConfig() ListStorageConfig {
 		NarrowIntegers: o.narrowIntegers, ExplicitCollation: o.explicitCollation}
 }
 
+// validateNullableSorts refuses a declared order with a Presence key unless the dialect sorts nullable keys.
+func validateNullableSorts(schema *listing.Schema, cfg *listOptions) error {
+	if _, ok := cfg.dialect.(ListNullableSortDialect); ok {
+		return nil
+	}
+
+	for _, order := range append(schema.Orders(), schema.Default()) {
+		if name := nullableKey(schema, order); name != "" {
+			return invalid("dialect does not sort on Presence field %q", name)
+		}
+	}
+
+	return nil
+}
+
+// nullableKey returns the first Presence sort field of order, or "".
+func nullableKey(schema *listing.Schema, order listing.Order) string {
+	for _, key := range order.Keys() {
+		if f, _ := schema.FieldInfo(key.Field); f.Presence {
+			return key.Field
+		}
+	}
+
+	return ""
+}
+
 func validateProjection[T any](cfg *listOptions, columns []string, dest func(*T) []any) error {
 	if !cfg.dialect.ValidIdentifier(cfg.idColumn) || cfg.idColumn == "" {
 		return invalid("id column %q", cfg.idColumn)

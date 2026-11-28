@@ -147,6 +147,15 @@ type ListSortKeyDialect interface {
 	SortKeyExpression(quotedColumn string, kind Kind) string
 }
 
+// ListNullableSortDialect is an optional extension of a [ListDialect] that sorts on Presence fields. NULL orders
+// before every value: first ascending and last descending. [ListSyntax.CursorPredicate] then receives a nil value for
+// a NULL key, as [DecodeCursor] decodes it and [ExpandKeysetPredicate] renders it. Without it the engine refuses a
+// Presence sort key.
+type ListNullableSortDialect interface {
+	// NullableSortDirection renders the ORDER BY and index direction of a nullable key, such as "ASC NULLS FIRST".
+	NullableSortDirection(desc bool) string
+}
+
 // sortKeySelect renders the SELECT expression of a non-identity sort key.
 func (l *ListEngine[T]) sortKeySelect(k ListOrderKey) string {
 	col := l.quote(k.Column)
