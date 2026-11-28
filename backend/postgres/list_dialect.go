@@ -22,6 +22,7 @@ import (
 
 var (
 	_ sqlbase.ListDialect             = ListDialect{}
+	_ sqlbase.ListCountDialect        = ListDialect{}
 	_ sqlbase.ListNullableSortDialect = ListDialect{}
 	_ sqlbase.ListSortKeyDialect      = ListDialect{}
 )

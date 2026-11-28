@@ -48,7 +48,8 @@ the engine `NewListEngine` builds and panics on a refused one with an error that
 `sqlbase.MustNewListEngine` with `ListDialect` fixed) and wraps the `NewListEngine` error.
 
 The concrete SQL list engine provides an exact filtered total through `Count(ctx, req, scope)` on every page. See [exact SQL
-totals](../../docs/listing.md#exact-sql-totals).
+totals](../../docs/listing.md#exact-sql-totals). `BoundedCount` reports the rows it counted up to the limit, without a planner estimate, and
+refuses `sqlbase.WithCountProbeTime`: `ListDialect` does not implement `sqlbase.ListCountDialect`.
 
 ## Filter
 

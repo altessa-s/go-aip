@@ -156,6 +156,15 @@ type ListNullableSortDialect interface {
 	NullableSortDirection(desc bool) string
 }
 
+// ListCountDialect is an optional extension of a [ListDialect] used by [ListEngine.BoundedCount].
+type ListCountDialect interface {
+	// ProbeCount runs query, which returns one count, and stops it after maxTime. A probe cut short reports done false
+	// and no error, and leaves an enclosing transaction usable.
+	ProbeCount(ctx context.Context, q Querier, query string, args []any, maxTime time.Duration) (count int64, done bool, err error)
+	// EstimateCount returns the planner's estimate of the number of rows query returns.
+	EstimateCount(ctx context.Context, q Querier, query string, args []any) (int64, error)
+}
+
 // sortKeySelect renders the SELECT expression of a non-identity sort key.
 func (l *ListEngine[T]) sortKeySelect(k ListOrderKey) string {
 	col := l.quote(k.Column)

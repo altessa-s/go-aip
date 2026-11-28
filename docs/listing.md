@@ -224,6 +224,15 @@ Counting may scan every qualifying index entry and visit the heap. Measure plans
 selective scope index can reduce the scan. PostgreSQL `strpos` over `lower` and `unnest` cannot directly use a B-tree on `lower`, a plain trigram index,
 or an array membership GIN index.
 
+### Bounded SQL totals
+
+AIP-158 allows `total_size` to be an estimate. `BoundedCount(ctx, req, scope, opts...)` counts at most `WithCountLimit` + 1 rows (1000 by
+default) and returns a `Total` that is exact up to the limit. Above it, or when `WithCountProbeTime` cuts the exact count short, `Exact` is
+false and `Count` holds the larger of the counted rows and the dialect's planner estimate. On PostgreSQL the probe runs in a savepoint under a
+transaction-local `statement_timeout`, so the page and the total can share one `REPEATABLE READ` snapshot even when the probe expires. A caller
+that knows the page holds more rows than the estimate raises the total to that number. MariaDB and ClickHouse report the counted rows
+without an estimate and refuse `WithCountProbeTime`.
+
 ## SQL dialect and engine setup
 
 ```go

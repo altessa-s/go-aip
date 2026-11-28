@@ -24,7 +24,7 @@ import (
 // joinedSource is a derived table adding the name of each asset's part.
 const joinedSource = `SELECT a.id AS id, a.level AS level, p.name AS part_name FROM assets a JOIN parts p ON p.id = a.part`
 
-// TestTableExpression reads List and Count from a join, while CheckSchema names the base table and skips the
+// TestTableExpression reads List, Count and BoundedCount from a join, while CheckSchema names the base table and skips the
 // derived column.
 func TestTableExpression(t *testing.T) {
 	t.Parallel()
@@ -68,6 +68,10 @@ func TestTableExpression(t *testing.T) {
 	total, err := l.Count(t.Context(), listing.Request{Filter: restrict}, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(len(want)), total)
+
+	bounded, err := l.BoundedCount(t.Context(), listing.Request{Filter: restrict}, nil)
+	require.NoError(t, err)
+	require.Equal(t, sqlbase.Total{Count: int64(len(want)), Exact: true}, bounded)
 
 	strict, err := mariadb.NewListEngine(db, pagetokentest.Codec(t), schema, "assets", []string{"id"}, func(id *string) []any { return []any{id} },
 		options...)

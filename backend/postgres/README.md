@@ -602,6 +602,13 @@ compared under the expected collation explicitly, as outside the contract. With 
 |-------------------------|-----------------------------------|------------------------------------------------------------------------------------------------------------------|
 | `NullableSortDirection` | `sqlbase.ListNullableSortDialect` | Sorts a Presence key `ASC NULLS FIRST` or `DESC NULLS LAST`, in queries and indexes, with IS NULL cursors        |
 | `SortKeyExpression`     | `sqlbase.ListSortKeyDialect`      | Selects a uuid sort key as text                                                                                  |
+| `ProbeCount`            | `sqlbase.ListCountDialect`        | Bounds a count probe with `SET LOCAL statement_timeout` in a savepoint; a context deadline outside a transaction |
+| `EstimateCount`         | `sqlbase.ListCountDialect`        | The `Plan Rows` estimate of `EXPLAIN (FORMAT JSON)`                                                              |
+
+`ProbeCount` rolls the savepoint back after the probe, which restores the previous `statement_timeout` and clears a canceled probe, so the
+enclosing transaction stays usable. On a `*sql.DB`, which runs each statement outside a transaction, a context deadline bounds the probe on its
+own connection and no savepoint is sent. Another querier outside a transaction gets the same deadline once PostgreSQL refuses `SAVEPOINT`
+(SQLSTATE 25P01). It reads SQLSTATE from a driver error with a `SQLState() string` method, as pgx and lib/pq errors have.
 
 ```go
 list, err := postgres.NewListEngine[Widget](db, codec, widgetSchema, "widgets", []string{"id", "name"},
