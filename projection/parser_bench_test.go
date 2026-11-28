@@ -32,7 +32,7 @@ func BenchmarkParseNoCache(b *testing.B) {
 
 func BenchmarkResolve(b *testing.B) {
 	ctx, err := newContext(
-		projection.WithAllowedFields("name", "email", "address.*", "createTime", "author.*"),
+		projection.WithAllowedFields("name", "email", "address.*", "createTime", "author.profile.displayName"),
 		projection.WithDeniedFields("author.profile.secret"),
 		projection.WithFieldMapping(map[string]string{"createTime": "created_at"}),
 		projection.WithRequiredFields("_id"),
@@ -42,6 +42,10 @@ func BenchmarkResolve(b *testing.B) {
 	}
 
 	spec := newParser(b).MustParse(benchExpression)
+	if _, err := ctx.Resolve(spec); err != nil {
+		b.Fatal(err)
+	}
+
 	for b.Loop() {
 		_, _ = ctx.Resolve(spec)
 	}

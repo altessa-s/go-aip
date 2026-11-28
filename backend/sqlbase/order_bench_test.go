@@ -17,7 +17,8 @@ import (
 )
 
 func BenchmarkTranslateOrder(b *testing.B) {
-	cfg := orderContext(b, orderbytest.MustPolicy(b))
+	cfg := orderContext(b, orderbytest.MustPolicy(b),
+		orderby.WithFieldMapping(map[string]string{"address.city": "address.city"}))
 	ob := orderbytest.MustParseOrderBy(b, "create_time desc, organization_id, slug, address.city desc, updated_at")
 	b.ReportAllocs()
 
@@ -31,7 +32,10 @@ func BenchmarkOrderTranslator_Dialects(b *testing.B) {
 	ob := orderbytest.MustParseOrderBy(b, "create_time desc, organization_id asc, slug, address.city desc, updated_at")
 	for _, d := range orderDialects() {
 		b.Run(d.name, func(b *testing.B) {
-			tr := mustOrderTranslator(b, orderbytest.MustPolicy(b), d.dialect)
+			tr := mustOrderTranslator(b, orderbytest.MustPolicy(b), d.dialect,
+				orderby.WithFieldMapping(map[string]string{"address.city": "address.city"}))
+			_, err := tr.Translate(ob)
+			require.NoError(b, err)
 			b.ReportAllocs()
 
 			for b.Loop() {
