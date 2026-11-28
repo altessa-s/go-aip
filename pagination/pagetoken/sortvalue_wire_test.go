@@ -135,6 +135,35 @@ func TestSortValueValid(t *testing.T) {
 	}
 }
 
+// TestZeroSortValueWire checks a key without a value, such as an SQL NULL, round-trips through a position as the empty
+// object, while a member without a value stays invalid.
+func TestZeroSortValueWire(t *testing.T) {
+	t.Parallel()
+
+	name, err := pagetoken.NewSortValue("a")
+	require.NoError(t, err)
+	id, err := pagetoken.NewSortValue(int64(7))
+	require.NoError(t, err)
+
+	data, err := json.Marshal(pagetoken.Position{Keys: []pagetoken.SortValue{{}, name}, ID: id})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"k":[{},{"s":"a"}],"i":{"n":7}}`, string(data))
+
+	var got pagetoken.Position
+	require.NoError(t, json.Unmarshal(data, &got))
+	require.Len(t, got.Keys, 2)
+	require.False(t, got.Keys[0].Valid())
+	require.Zero(t, got.Keys[1].Compare(name))
+	require.Equal(t, -1, got.Keys[0].Compare(name), "the zero value orders first")
+
+	for _, invalid := range []string{`{"s":null}`, `{"x":null,"s":null}`, `null`, `[]`} {
+		var v pagetoken.SortValue
+		require.Error(t, json.Unmarshal([]byte(invalid), &v), invalid)
+	}
+
+	require.ErrorIs(t, json.Unmarshal([]byte(`{"k":[],"i":{}}`), &got), pagetoken.ErrUnsortableValue, "the identity holds a value")
+}
+
 // FuzzSortValueWireMatchesLegacy decodes arbitrary documents with both representations: they must accept and reject the same
 // documents with the same errors, and re-encode an accepted one to the same bytes, which decode again to an equal value.
 func FuzzSortValueWireMatchesLegacy(f *testing.F) {
@@ -160,6 +189,18 @@ func FuzzSortValueWireMatchesLegacy(f *testing.F) {
 
 		legacyErr := json.Unmarshal(data, &legacy)
 		currentErr := json.Unmarshal(data, &current)
+
+		if currentErr == nil && !current.Valid() {
+			// The empty object is the zero SortValue, which the legacy form refused.
+			require.Error(t, legacyErr)
+
+			got, err := json.Marshal(current)
+			require.NoError(t, err)
+			require.JSONEq(t, `{}`, string(got))
+
+			return
+		}
+
 		require.Equal(t, legacyErr == nil, currentErr == nil, "legacy: %v, current: %v", legacyErr, currentErr)
 
 		if currentErr != nil {

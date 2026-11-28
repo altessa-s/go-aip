@@ -61,6 +61,8 @@ func (c SortClass) String() string {
 // representation; PositionCodec can normalize, order and encode other scalars
 // using OpaqueSortValue. JSON uses one type tag per scalar, preserving strings,
 // integers, decimals, booleans, floats and timestamps without type inference.
+// The zero SortValue holds no value, such as an SQL NULL key: it orders first
+// and encodes as the empty object.
 //
 // A SortValue is a small inline value: building, copying and comparing a
 // string, integer, float, bool or timestamp allocates nothing. Compare values
@@ -448,7 +450,15 @@ func nonFiniteValue(name string) (float64, bool) {
 	}
 }
 
-// UnmarshalJSON decodes an object with exactly one member, as [SortValue.MarshalJSON] encodes it.
+// emptyObject reports whether data is a JSON object without members.
+func emptyObject(data []byte) bool {
+	var members map[string]json.RawMessage
+
+	return json.Unmarshal(data, &members) == nil && members != nil && len(members) == 0
+}
+
+// UnmarshalJSON decodes an object with exactly one member, as [SortValue.MarshalJSON] encodes it, or the empty object
+// of the zero SortValue.
 func (v *SortValue) UnmarshalJSON(data []byte) error {
 	var w sortValueJSON
 	if err := json.Unmarshal(data, &w); err != nil {
@@ -461,6 +471,12 @@ func (v *SortValue) UnmarshalJSON(data []byte) error {
 		if isSet {
 			set++
 		}
+	}
+
+	if set == 0 && emptyObject(data) {
+		*v = SortValue{}
+
+		return nil
 	}
 
 	if set != 1 {
