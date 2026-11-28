@@ -116,7 +116,8 @@ func (l *ListEngine[D]) patternIndexNames() (map[string]string, error) {
 }
 
 // sortOf returns the full sort of o: its keys at their sort paths, then the configured tie-breaker in the direction of the last
-// key (unless that key is the id itself). It refuses an order on the id anywhere but last, twice on one path or on a scope key.
+// key (unless that key is the id itself). It refuses an order on a Presence field, on the id anywhere but last, twice on one path
+// or on a scope key.
 func (l *ListEngine[D]) sortOf(o listing.Order) (bson.D, error) {
 	orderKeys := o.Keys()
 	sort := make(bson.D, 0, len(orderKeys)+1)
@@ -127,8 +128,11 @@ func (l *ListEngine[D]) sortOf(o listing.Order) (bson.D, error) {
 		}
 
 		p := l.sortPath(k.Field)
+		f, _ := l.schema.FieldInfo(k.Field)
 
 		switch {
+		case f.Presence:
+			return nil, invalid("pattern %q: field %q is a Presence field; MongoDB pages on non-null sort values only", o, k.Field)
 		case p == l.opts.tiebreakPath && i != len(orderKeys)-1:
 			return nil, invalid("pattern %q: the id may only be the last key", o)
 		case slices.Contains(l.opts.scopeKeys, p):
