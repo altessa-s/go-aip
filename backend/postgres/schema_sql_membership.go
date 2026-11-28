@@ -7,6 +7,7 @@ package postgres
 import (
 	"strings"
 
+	"github.com/altessa-s/go-aip/backend/sqlbase"
 	"github.com/altessa-s/go-aip/filter"
 )
 
@@ -44,6 +45,10 @@ func (r *renderer) renderIn(e *expression, negated bool) (string, error) {
 	}
 
 	if r.contract && left.Array && right.Tag == filter.NodeKindList {
+		if r.options.narrowIntegers && left.Kind == sqlbase.Integer {
+			a += "::bigint[]"
+		}
+
 		sql := "(" + a + " && " + c + ")"
 		if negated {
 			return "(NOT COALESCE(" + sql + ", FALSE))", nil

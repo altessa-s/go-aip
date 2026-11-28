@@ -90,6 +90,10 @@ func checkListSchema(ctx context.Context, db *sql.DB, c sqlbase.ListSchemaConfig
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(indexed)) {
+		if slices.Contains(c.DerivedColumns, name) {
+			continue
+		}
+
 		col := got[name]
 		if err := c.Check(ctx, db, sqlbase.CheckIndexable, name, listTextType(col.dataType) && col.dataType != listVarchar && col.dataType != listChar,
 			"indexed column %q must use VARCHAR or CHAR, not TEXT", name); err != nil {
@@ -115,7 +119,7 @@ func (s listSchemaChecker) CheckScopeColumn(ctx context.Context, db *sql.DB, col
 // or identity column.
 func (s listSchemaChecker) CheckColumn(ctx context.Context, db *sql.DB, name string, f listing.Field, col listColumn, scoped bool) error {
 	c := s.config
-	kind := c.Kind(f.Kind)
+	kind := c.FieldKind(f)
 
 	if f.Array && c.Storage.ArrayStorage == sqlbase.ArraysJSON {
 		if err := c.Check(ctx, db, sqlbase.CheckType, name, col.dataType != listLongText && col.dataType != "json",

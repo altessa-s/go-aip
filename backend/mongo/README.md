@@ -583,7 +583,8 @@ page, err := list.List(ctx, method, req, bson.D{{Key: "owner", Value: req.Parent
 
 `NewListEngine` refuses (`listing.ErrInvalidSchema`) a schema without declared sort patterns or with an unrestricted order, a maximum page size
 above `MaxListPageSize`, a field or sort path that is not a BSON path or names an undeclared field, a sort path or scope key on the tie-breaker, an
-order that sorts on the tie-breaker anywhere but last, twice on one path or on a scope key, null placement or collation in a pattern, a cursor
+order that sorts on the tie-breaker anywhere but last, twice on one path or on a scope key, null placement or collation in a pattern, a pattern
+over a Presence field (which `listing.WithSortableFields` can allow: a page token on a null sort value has no MongoDB range to continue from), a cursor
 precision that is not a positive multiple of a millisecond, a negative time cap, a parent key that is not a scope key, and an index name keyed by
 anything but a declared pattern, given twice, reused, or naming (or renaming) the built-in index. A nil collection plans only: `Sort`, `Index`
 and `Indexes` work without a connection.

@@ -131,7 +131,12 @@ func (s *Schema) checkPatternKeys(pattern string, spec orderby.Spec) error {
 			return fmt.Errorf("%w: %w: pattern %q: field %q is hidden", ErrInvalidSchema, ErrUnreadableSortField, pattern, k.Name)
 		}
 
-		if s.opts.sortFieldValidator != nil {
+		switch {
+		case s.opts.sortableFieldsSet:
+			if !slices.Contains(s.opts.sortableFields, k.Name) {
+				return fmt.Errorf("%w: pattern %q: field %q does not sort", ErrInvalidSchema, pattern, k.Name)
+			}
+		case s.opts.sortFieldValidator != nil:
 			if err := s.opts.sortFieldValidator(s.fieldMetadata(f)); err != nil {
 				return fmt.Errorf("%w: pattern %q: %w", ErrInvalidSchema, pattern, err)
 			}
@@ -241,21 +246,7 @@ func (s *Schema) Order(ctx context.Context, orderBy string) (Order, error) {
 // of an allow-list. Translators bind the policy to their storage mapping (orderby.NewTranslatorContext), so one policy serves
 // every engine of the list.
 func (s *Schema) OrderOptions() []orderby.PolicyOption {
-	sortable := make(map[string]struct{})
-
-	for _, o := range s.orders {
-		for _, k := range o.keys {
-			sortable[k.Field] = struct{}{}
-		}
-	}
-
-	if s.opts.unrestrictedOrder {
-		for name := range s.fields.Keys() {
-			if s.checkPatternKeys("", orderby.Spec{Keys: []orderby.Key{{Name: name}}}) == nil {
-				sortable[name] = struct{}{}
-			}
-		}
-	}
+	sortable := s.SortFields()
 
 	defaults := make([]orderby.Key, 0, len(s.def.keys))
 	for _, k := range s.def.keys {
@@ -273,7 +264,29 @@ func (s *Schema) OrderOptions() []orderby.PolicyOption {
 	}
 
 	return []orderby.PolicyOption{orderby.WithUntrustedInput(true), orderby.WithDefaultOrder(defaults...),
-		orderby.WithAllowedFields(slices.Sorted(maps.Keys(sortable))...)}
+		orderby.WithAllowedFields(sortable...)}
+}
+
+// SortFields returns the sorted names of the fields a request may sort on: the keys of the accepted orders and, under an
+// unrestricted profile, every field that passes the pattern key checks.
+func (s *Schema) SortFields() []string {
+	sortable := make(map[string]struct{})
+
+	for _, o := range s.orders {
+		for _, k := range o.keys {
+			sortable[k.Field] = struct{}{}
+		}
+	}
+
+	if s.opts.unrestrictedOrder {
+		for name := range s.fields.Keys() {
+			if s.checkPatternKeys("", orderby.Spec{Keys: []orderby.Key{{Name: name}}}) == nil {
+				sortable[name] = struct{}{}
+			}
+		}
+	}
+
+	return slices.Sorted(maps.Keys(sortable))
 }
 
 // OrderPolicy returns the order policy built from [Schema.OrderOptions].

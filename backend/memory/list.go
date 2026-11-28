@@ -285,6 +285,8 @@ type scanKey struct {
 	field    string
 	kind     filter.FieldKind
 	expected pagetoken.SortClass
+	// nullable marks a Presence field, whose null sorts as the zero SortValue.
+	nullable bool
 }
 
 // scan computes the page positions of a request's items into one reused position.
@@ -308,7 +310,7 @@ func (m *ListEngine[T]) newScan(o listing.Order, reader evaluation.FieldReader, 
 	s := &scan[T]{m: m, reader: reader, work: work, keys: make([]scanKey, len(keys)), pos: pagetoken.Position{Keys: make([]pagetoken.SortValue, len(keys))}}
 	for i, k := range keys {
 		f, _ := m.schema.FieldInfo(k.Field)
-		s.keys[i] = scanKey{field: k.Field, kind: f.Kind, expected: memorySortClass(f.Kind)}
+		s.keys[i] = scanKey{field: k.Field, kind: f.Kind, expected: memorySortClass(f.Kind), nullable: f.Presence}
 	}
 
 	if m.opts.tiebreakField != "" {
@@ -429,6 +431,10 @@ func (s *scan[T]) value(values map[string]any, k scanKey) (pagetoken.SortValue, 
 		return pagetoken.SortValue{}, err
 	}
 
+	if k.nullable && nilcheck.IsNil(raw) {
+		return pagetoken.SortValue{}, nil
+	}
+
 	if number, ok := raw.(float64); k.kind == filter.FieldKindFloat && ok && (math.IsNaN(number) || math.IsInf(number, 0)) {
 		return pagetoken.SortValue{}, fmt.Errorf("%w: non-finite float", pagetoken.ErrUnsortableValue)
 	}
@@ -474,7 +480,23 @@ func comparePositions(o listing.Order, comparator pagetoken.ValueComparator, opt
 	allKeys := o.Keys()
 	descendingID := len(allKeys) > 0 && allKeys[len(allKeys)-1].Desc
 
-	return pagetoken.ComparePositions(desc, descendingID, comparator)
+	return pagetoken.ComparePositions(desc, descendingID, nullsFirstComparator{comparator})
+}
+
+// nullsFirstComparator keeps the engine's NULL ordering outside the codec's scalar comparison.
+type nullsFirstComparator struct{ pagetoken.ValueComparator }
+
+func (c nullsFirstComparator) Compare(a, b pagetoken.SortValue) int {
+	switch av, bv := a.Valid(), b.Valid(); {
+	case av && bv:
+		return c.ValueComparator.Compare(a, b)
+	case av:
+		return 1
+	case bv:
+		return -1
+	default:
+		return 0
+	}
 }
 
 // RequestProfile binds a custom evaluator to the request-wide scan, read,

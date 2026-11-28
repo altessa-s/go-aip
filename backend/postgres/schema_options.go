@@ -18,6 +18,8 @@ const DefaultArrayAliasPrefix = "_aip_element_"
 //go:generate optgen generate --type=schemaOptions --option-type=SchemaOption --output=schema_options_gen.go
 
 type schemaOptions struct {
+	// narrowIntegers widens stored integer arrays to match the filter's bigint arrays.
+	narrowIntegers bool `opt:"-"`
 	// textCompareSet is written by generated WithSchemaTextCompare to distinguish an explicit callback from the default.
 	textCompareSet bool `opt:"-"`
 	// WithSchemaMaxValueDepth bounds pointer unwrapping and nested JSON values.
@@ -41,6 +43,9 @@ type schemaOptions struct {
 	// WithSchemaContractMode renders against non-null, C-collated listing columns. It is the only contract switch:
 	// [NewFilterTranslatorWithSchema] follows the schema.
 	contract bool `opt:"SchemaContractMode" optval:"param"`
+	// WithSchemaExplicitCollation keeps the explicit text collation in contract mode, for listing columns stored in
+	// another collation.
+	explicitCollation bool `opt:"SchemaExplicitCollation" optval:"param"`
 	// WithSchemaJSONBStringCompare must reproduce the database's default collation, including
 	// deterministic tie-breaking. strings.Compare is suitable for a C-locale database.
 	// Without an explicit comparator, ordering whole JSONB values is rejected.

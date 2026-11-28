@@ -7,6 +7,7 @@ package sqlbase
 import (
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
@@ -49,11 +50,59 @@ func validateStorageOptions(cfg *listOptions, schema *listing.Schema) error {
 		return invalid("UUID identity requires string kind")
 	}
 
-	if err := cfg.dialect.Validate(schema, ListStorageConfig{cfg.idType, cfg.arrayStorage, cfg.decimalFormat}); err != nil {
+	if len(cfg.derivedColumns) > 0 && strings.TrimSpace(cfg.tableExpression) == "" {
+		return invalid("derived columns require a table expression")
+	}
+
+	for _, column := range cfg.derivedColumns {
+		if !cfg.dialect.ValidIdentifier(column) || column == cfg.idColumn {
+			return invalid("derived column %q must be a valid identifier distinct from the identity column", column)
+		}
+	}
+
+	for _, name := range cfg.uuidFields {
+		f, ok := schema.FieldInfo(name)
+		if !ok || f.Array || cfg.kindResolver(f.Kind) != Text {
+			return invalid("UUID field %q must be a declared string scalar", name)
+		}
+	}
+
+	if err := cfg.dialect.Validate(schema, cfg.storageConfig()); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (o *listOptions) storageConfig() ListStorageConfig {
+	return ListStorageConfig{IDType: o.idType, ArrayStorage: o.arrayStorage, DecimalFormat: o.decimalFormat, HasUUIDFields: len(o.uuidFields) > 0,
+		NarrowIntegers: o.narrowIntegers, ExplicitCollation: o.explicitCollation}
+}
+
+// validateNullableSorts refuses a declared order with a Presence key unless the dialect sorts nullable keys.
+func validateNullableSorts(schema *listing.Schema, cfg *listOptions) error {
+	if _, ok := cfg.dialect.(ListNullableSortDialect); ok {
+		return nil
+	}
+
+	for _, order := range append(schema.Orders(), schema.Default()) {
+		if name := nullableKey(schema, order); name != "" {
+			return invalid("dialect does not sort on Presence field %q", name)
+		}
+	}
+
+	return nil
+}
+
+// nullableKey returns the first Presence sort field of order, or "".
+func nullableKey(schema *listing.Schema, order listing.Order) string {
+	for _, key := range order.Keys() {
+		if f, _ := schema.FieldInfo(key.Field); f.Presence {
+			return key.Field
+		}
+	}
+
+	return ""
 }
 
 func validateProjection[T any](cfg *listOptions, columns []string, dest func(*T) []any) error {
@@ -114,6 +163,10 @@ func resolveFieldColumns(schema *listing.Schema, cfg *listOptions) (map[string]s
 
 		usedColumns[column] = name
 		if column == cfg.idColumn {
+			if cfg.idType != IDUUID && slices.Contains(cfg.uuidFields, name) {
+				return nil, invalid("UUID field %q maps to the identity column and requires WithListIDType(IDUUID)", name)
+			}
+
 			field, _ := schema.FieldInfo(name)
 			if field.Kind != cfg.idKind || field.Array || field.Optional || field.Presence {
 				return nil, invalid("field %q mapped to id column must be a required scalar matching idKind", name)
@@ -144,6 +197,10 @@ func validateScopeColumns(schema *listing.Schema, cfg *listOptions, fieldCols ma
 		column := cfg.columns[key]
 		if column == "" {
 			column = key
+		}
+
+		if column == cfg.idColumn {
+			return invalid("scope key %q maps to the identity column %q", key, column)
 		}
 
 		if previous, exists := scopeUsed[column]; exists {

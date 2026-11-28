@@ -55,6 +55,26 @@ func (c ListSchemaConfig) Kind(k filter.FieldKind) Kind {
 	return c.KindResolver(k)
 }
 
+// FieldKind returns the SQL storage class of a declared field: UUID for one of UUIDFields, else [ListSchemaConfig.Kind] of
+// its kind.
+func (c ListSchemaConfig) FieldKind(f listing.Field) Kind {
+	if f.Name != "" && slices.Contains(c.UUIDFields, f.Name) {
+		return UUID
+	}
+
+	return c.Kind(f.Kind)
+}
+
+// KeyColumn reports whether column orders or pins rows: the identity, a scope column or the column of a field a
+// request may sort on ([listing.Schema.SortFields]).
+func (c ListSchemaConfig) KeyColumn(column string) bool {
+	if column == c.IDColumn || slices.ContainsFunc(c.ScopeKeys, func(key string) bool { return c.Column(key) == column }) {
+		return true
+	}
+
+	return c.Schema != nil && slices.ContainsFunc(c.Schema.SortFields(), func(name string) bool { return c.Column(name) == column })
+}
+
 // AlignsTimestamps reports whether a column storing digits fractional-second digits is no finer than the configured
 // TimestampPrecision, so every timestamp it stores is aligned to the cursor resolution.
 func (c ListSchemaConfig) AlignsTimestamps(digits int) bool {
@@ -71,7 +91,9 @@ func (c ListSchemaConfig) FitsDecimal(precision, scale int) bool {
 // OrderKeys returns the physical cursor keys of a declared order, ending with the identity, or nil when the identity
 // is not its last key.
 func (c ListSchemaConfig) OrderKeys(o listing.Order) []ListOrderKey {
-	return orderKeys(c.Schema, c.IDColumn, c.IDKind, c.Kind, c.Column, o)
+	return orderKeys(c.Schema, c.IDColumn, c.Kind(c.IDKind), c.IDKind, func(name string, k filter.FieldKind) Kind {
+		return c.FieldKind(listing.Field{Name: name, Kind: k})
+	}, c.Column, o)
 }
 
 // ListColumnChecker holds the database-specific checks of [CheckListColumns] over the metadata C of one column.
@@ -91,6 +113,10 @@ func CheckListColumns[C any](ctx context.Context, db *sql.DB, c ListSchemaConfig
 	checker ListColumnChecker[C],
 ) (map[string]bool, error) {
 	for _, projection := range c.Projection {
+		if slices.Contains(c.DerivedColumns, projection) {
+			continue
+		}
+
 		_, ok := got[projection]
 		if err := c.Check(ctx, db, CheckColumn, projection, !ok, "missing projection column %q", projection); err != nil {
 			return nil, err
@@ -101,6 +127,9 @@ func CheckListColumns[C any](ctx context.Context, db *sql.DB, c ListSchemaConfig
 
 	for _, key := range c.ScopeKeys {
 		col := c.Column(key)
+		if slices.Contains(c.DerivedColumns, col) {
+			continue
+		}
 
 		meta, ok := got[col]
 		if err := c.Check(ctx, db, CheckColumn, col, !ok, "missing scope column %q", col); err != nil {
@@ -128,6 +157,10 @@ func CheckListColumns[C any](ctx context.Context, db *sql.DB, c ListSchemaConfig
 	want[c.IDColumn] = listing.Field{Kind: c.IDKind}
 
 	for _, name := range slices.Sorted(maps.Keys(want)) {
+		if slices.Contains(c.DerivedColumns, name) {
+			continue
+		}
+
 		meta, ok := got[name]
 		if err := c.Check(ctx, db, CheckColumn, name, !ok, "missing column %q", name); err != nil {
 			return nil, err

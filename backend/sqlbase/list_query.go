@@ -79,6 +79,12 @@ func (l *ListEngine[T]) validateOrder(order listing.Order) ([]ListOrderKey, erro
 		return nil, l.schema.FormatError(listing.FieldOrderBy, "id may only appear as the last sort key", listing.ErrInvalidSchema)
 	}
 
+	if _, ok := l.opts.dialect.(ListNullableSortDialect); !ok {
+		if name := nullableKey(l.schema, order); name != "" {
+			return nil, l.schema.FormatError(listing.FieldOrderBy, "cannot sort on "+name, listing.ErrInvalidSchema)
+		}
+	}
+
 	seenColumns := map[string]bool{}
 
 	for _, key := range l.opts.scopeKeys {
@@ -117,7 +123,7 @@ func (l *ListEngine[T]) buildSelect(keysOrder []ListOrderKey) *listPlan {
 	}
 
 	sel.WriteString(" FROM ")
-	sel.WriteString(l.quotedTable)
+	sel.WriteString(l.from)
 	sel.WriteString(" AS ")
 	sel.WriteString(alias)
 	sel.WriteString(" WHERE ")
@@ -134,12 +140,8 @@ func (l *ListEngine[T]) buildSelect(keysOrder []ListOrderKey) *listPlan {
 		ord.WriteString(alias)
 		ord.WriteByte('.')
 		ord.WriteString(l.quote(k.Column))
-
-		if k.Desc {
-			ord.WriteString(" DESC")
-		} else {
-			ord.WriteString(" ASC")
-		}
+		ord.WriteByte(' ')
+		ord.WriteString(l.direction(k))
 	}
 
 	return &listPlan{keys: keysOrder, selectSQL: sel.String(), orderSQL: ord.String()}
@@ -239,6 +241,12 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 
 	qctx, cancel := corecontext.WithMaxTimeout(ctx, l.opts.maxTime)
 	defer cancel()
+
+	if err = l.tx.acquire(qctx); err != nil {
+		return page.Page[T]{}, l.mapError(ctx, qctx, err, p.query.Filter != nil)
+	}
+
+	defer l.tx.release()
 
 	rows, err := l.q.QueryContext(qctx, query, args...)
 	if err != nil {
@@ -350,7 +358,11 @@ func (l *ListEngine[T]) scanPage(rows *sql.Rows, keysOrder []ListOrderKey, size 
 	sinks[0] = sortDestination(keysOrder[n-1].StorageKind)
 
 	for i, k := range keysOrder[:n-1] {
-		sinks[i+1] = sortDestination(k.StorageKind)
+		if k.Field.Presence {
+			sinks[i+1] = nullableSortDestination(k.StorageKind)
+		} else {
+			sinks[i+1] = sortDestination(k.StorageKind)
+		}
 	}
 
 	items := make([]T, 0, size+1)
@@ -425,6 +437,14 @@ func (l *ListEngine[T]) checkRow(dests []any, keysOrder []ListOrderKey) error {
 
 				return coreerrs.Wrap(err, "decode sort key")
 			}
+		case *sql.Null[time.Time]:
+			if !d.Valid {
+				continue
+			}
+
+			if err := l.alignedTimestamp(d.V.UTC()); err != nil {
+				return coreerrs.Wrap(err, "decode sort key")
+			}
 		case *any:
 			if _, err := l.scannedSortValue(dests, keysOrder, i); err != nil {
 				return err
@@ -447,6 +467,10 @@ func (l *ListEngine[T]) scannedSortValue(dests []any, keysOrder []ListOrderKey, 
 	}
 
 	v := deref(dests[i])
+	if v == nil && keysOrder[i-1].Field.Presence {
+		return pagetoken.SortValue{}, nil // NULL orders first
+	}
+
 	if keysOrder[i-1].StorageKind == Numeric {
 		text, _ := v.(string) // a Numeric sort key is scanned as its decimal text
 

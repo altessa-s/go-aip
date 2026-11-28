@@ -37,6 +37,33 @@ func WithListDecimalFormat(v DecimalFormat) ListEngineOption {
 	}
 }
 
+// WithListDerivedColumns sets the derivedColumns option.
+//
+// derivedColumns are the columns only tableExpression has; schema checks do not look for them in the table.
+func WithListDerivedColumns(v ...string) ListEngineOption {
+	return func(o *listOptions) {
+		if len(v) == 0 {
+			return
+		}
+		transformed := make([]string, len(v))
+		for i, element := range v {
+			transformed[i] = strings.TrimSpace(element)
+		}
+		deduped := make([]string, 0, len(transformed))
+		{
+			seen := make(map[string]struct{}, len(transformed))
+			for _, item := range transformed {
+				if _, ok := seen[item]; ok {
+					continue
+				}
+				seen[item] = struct{}{}
+				deduped = append(deduped, item)
+			}
+		}
+		o.derivedColumns = deduped
+	}
+}
+
 // WithListErrorMapper sets the errorMapper option.
 //
 // errorMapper overrides query failure classification. It receives the query error; a Scan failing after the query context
@@ -44,6 +71,17 @@ func WithListDecimalFormat(v DecimalFormat) ListEngineOption {
 func WithListErrorMapper(v listing.ErrorMapper) ListEngineOption {
 	return func(o *listOptions) {
 		o.errorMapper = v
+	}
+}
+
+// WithListExplicitCollation enables the explicitCollation option.
+//
+// explicitCollation makes filters compare text under the expected collation explicitly, so only sort, scope and
+// identity columns must store it.
+func WithListExplicitCollation() ListEngineOption {
+	return func(o *listOptions) {
+		value := true
+		o.explicitCollation = value
 	}
 }
 
@@ -107,6 +145,16 @@ func WithListKindResolver(v func(filter.FieldKind) Kind) ListEngineOption {
 func WithListMaxTime(v time.Duration) ListEngineOption {
 	return func(o *listOptions) {
 		o.maxTime = v
+	}
+}
+
+// WithListNarrowIntegers enables the narrowIntegers option.
+//
+// narrowIntegers accepts narrower signed integer columns for integer fields, such as PostgreSQL smallint and integer.
+func WithListNarrowIntegers() ListEngineOption {
+	return func(o *listOptions) {
+		value := true
+		o.narrowIntegers = value
 	}
 }
 
@@ -192,6 +240,31 @@ func WithListTableAlias[T interface{ string | *string }](v T) ListEngineOption {
 	}
 }
 
+// WithListTableExpression sets the tableExpression option.
+//
+// tableExpression is a trusted derived table that List and Count read in place of the table, such as a join adding
+// columns of another table. Schema checks and indexes keep using the table.
+func WithListTableExpression[T interface{ string | *string }](v T) ListEngineOption {
+	return func(o *listOptions) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.tableExpression = transformedValue
+	}
+}
+
 // WithListTextCollation sets the textCollation option.
 //
 // textCollation overrides the dialect's expected text collation; empty uses its default.
@@ -225,6 +298,45 @@ func WithListTimestampPrecision(v time.Duration) ListEngineOption {
 			return
 		}
 		o.timestampPrecision = v
+	}
+}
+
+// WithListTransaction sets the transaction option.
+//
+// transaction shares a ListTransaction across engines or with other transaction operations.
+func WithListTransaction(v *ListTransaction) ListEngineOption {
+	return func(o *listOptions) {
+		if v == nil {
+			return
+		}
+		o.transaction = v
+	}
+}
+
+// WithListUUIDFields sets the uuidFields option.
+//
+// uuidFields are string fields stored in uuid columns, as IDUUID stores the identity.
+func WithListUUIDFields(v ...string) ListEngineOption {
+	return func(o *listOptions) {
+		if len(v) == 0 {
+			return
+		}
+		transformed := make([]string, len(v))
+		for i, element := range v {
+			transformed[i] = strings.TrimSpace(element)
+		}
+		deduped := make([]string, 0, len(transformed))
+		{
+			seen := make(map[string]struct{}, len(transformed))
+			for _, item := range transformed {
+				if _, ok := seen[item]; ok {
+					continue
+				}
+				seen[item] = struct{}{}
+				deduped = append(deduped, item)
+			}
+		}
+		o.uuidFields = deduped
 	}
 }
 

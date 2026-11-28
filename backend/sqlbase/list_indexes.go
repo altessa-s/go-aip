@@ -11,11 +11,15 @@ import (
 	"slices"
 )
 
-// Indexes returns CREATE INDEX statements for the schema's sort patterns.
+// Indexes returns CREATE INDEX statements for sort patterns whose keys and scope columns are in the base table.
 func (l *ListEngine[T]) Indexes() []string { return slices.Clone(l.indexes) }
 
 func (l *ListEngine[T]) compileIndexes() error {
 	seen := map[string]bool{}
+
+	derivedScope := slices.ContainsFunc(l.opts.scopeKeys, func(key string) bool {
+		return slices.Contains(l.opts.derivedColumns, l.column(key))
+	})
 
 	orders := l.schema.Orders()
 	for i := 0; i < len(orders); i += 2 {
@@ -24,6 +28,12 @@ func (l *ListEngine[T]) compileIndexes() error {
 		ks := l.orderKeys(o)
 		if ks == nil {
 			return invalid("id may only appear as the last sort key")
+		}
+
+		if derivedScope || slices.ContainsFunc(ks, func(key ListOrderKey) bool {
+			return slices.Contains(l.opts.derivedColumns, key.Column)
+		}) {
+			continue
 		}
 
 		parts := make([]string, 0, len(l.opts.scopeKeys)+len(ks))
@@ -40,12 +50,7 @@ func (l *ListEngine[T]) compileIndexes() error {
 		}
 
 		for _, k := range ks {
-			d := " ASC"
-			if k.Desc {
-				d = " DESC"
-			}
-
-			parts = append(parts, l.quote(k.Column)+d)
+			parts = append(parts, l.quote(k.Column)+" "+l.direction(k))
 		}
 
 		const directionsPerIndex = 2
@@ -85,8 +90,9 @@ func (l *ListEngine[T]) CheckSchema(ctx context.Context, db *sql.DB) error {
 		Schema: l.schema, Table: l.table, Columns: maps.Collect(l.columnMap.All()),
 		Projection: slices.Clone(l.columns), ScopeKeys: slices.Clone(l.opts.scopeKeys),
 		IDColumn: l.opts.idColumn, IDKind: l.opts.idKind,
-		Storage:            ListStorageConfig{l.opts.idType, l.opts.arrayStorage, l.opts.decimalFormat},
+		Storage:            l.opts.storageConfig(),
 		TimestampPrecision: l.opts.timestampPrecision, TextCollation: l.opts.textCollation,
-		CheckPolicy: l.opts.schemaCheckPolicy, KindResolver: l.opts.kindResolver,
+		CheckPolicy: l.opts.schemaCheckPolicy, KindResolver: l.opts.kindResolver, UUIDFields: slices.Clone(l.opts.uuidFields),
+		DerivedColumns: slices.Clone(l.opts.derivedColumns),
 	})
 }

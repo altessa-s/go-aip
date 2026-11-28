@@ -52,8 +52,10 @@ func TestNewRejects(t *testing.T) {
 		{Name: "name", Kind: str},
 		{Name: "owner", Kind: str},
 		{Name: "rank", Kind: filter.FieldKindInt},
+		{Name: "rating", Kind: filter.FieldKindInt, Presence: true},
 	}
 	idPath := mongo.WithListFieldPaths(map[string]string{"id": "_id"})
+	sortable := listing.WithSortableFields("name", "rank", "rating")
 
 	tests := []struct {
 		name     string
@@ -62,6 +64,8 @@ func TestNewRejects(t *testing.T) {
 		opts     []mongo.ListEngineOption
 		want     string
 	}{
+		{name: "presence key", patterns: []string{"rating"}, schema: []listing.ProfileOption{sortable}, want: `field "rating" is a Presence field`},
+		{name: "presence key after another", patterns: []string{"name", "rank, rating desc"}, schema: []listing.ProfileOption{sortable}, want: "Presence field"},
 		{name: "page ceiling", patterns: []string{"name"}, schema: []listing.ProfileOption{listing.WithMaxPageSize(mongo.MaxListPageSize + 1)}, want: "largest page"},
 		{name: "scope key on the id", patterns: []string{"name"}, opts: []mongo.ListEngineOption{mongo.WithListScopeKeys("_id"), mongo.WithListParentKey("_id")}, want: "scope key"},
 		{name: "scope key not a path", patterns: []string{"name"}, opts: []mongo.ListEngineOption{mongo.WithListScopeKeys("a b"), mongo.WithListParentKey("a b")}, want: "scope key"},

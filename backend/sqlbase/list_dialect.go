@@ -72,6 +72,12 @@ type ListStorageConfig struct {
 	IDType        IDType
 	ArrayStorage  ArrayStorage
 	DecimalFormat DecimalFormat
+	// HasUUIDFields reports whether any string fields use uuid storage ([WithListUUIDFields]).
+	HasUUIDFields bool
+	// NarrowIntegers accepts narrower signed integer columns ([WithListNarrowIntegers]).
+	NarrowIntegers bool
+	// ExplicitCollation makes filters collate text explicitly ([WithListExplicitCollation]).
+	ExplicitCollation bool
 }
 
 // ListSchemaConfig is an isolated snapshot of the engine's storage expectations.
@@ -89,6 +95,10 @@ type ListSchemaConfig struct {
 	CheckPolicy           ListSchemaCheckPolicy
 	// KindResolver maps logical kinds to their SQL storage representation.
 	KindResolver func(filter.FieldKind) Kind
+	// UUIDFields are the string fields stored in uuid columns.
+	UUIDFields []string
+	// DerivedColumns are the columns only the table expression has; checks skip them.
+	DerivedColumns []string
 }
 
 // IndexNamer returns an unquoted index name for a table and zero-based sort pattern.
@@ -137,6 +147,24 @@ type ListSortKeyDialect interface {
 	SortKeyExpression(quotedColumn string, kind Kind) string
 }
 
+// ListNullableSortDialect is an optional extension of a [ListDialect] that sorts on Presence fields. NULL orders
+// before every value: first ascending and last descending. [ListSyntax.CursorPredicate] then receives a nil value for
+// a NULL key, as [DecodeCursor] decodes it and [ExpandKeysetPredicate] renders it. Without it the engine refuses a
+// Presence sort key.
+type ListNullableSortDialect interface {
+	// NullableSortDirection renders the ORDER BY and index direction of a nullable key, such as "ASC NULLS FIRST".
+	NullableSortDirection(desc bool) string
+}
+
+// ListCountDialect is an optional extension of a [ListDialect] used by [ListEngine.BoundedCount].
+type ListCountDialect interface {
+	// ProbeCount runs query, which returns one count, and stops it after maxTime. A probe cut short reports done false
+	// and no error, and leaves an enclosing transaction usable.
+	ProbeCount(ctx context.Context, q Querier, query string, args []any, maxTime time.Duration) (count int64, done bool, err error)
+	// EstimateCount returns the planner's estimate of the number of rows query returns.
+	EstimateCount(ctx context.Context, q Querier, query string, args []any) (int64, error)
+}
+
 // sortKeySelect renders the SELECT expression of a non-identity sort key.
 func (l *ListEngine[T]) sortKeySelect(k ListOrderKey) string {
 	col := l.quote(k.Column)
@@ -152,4 +180,8 @@ type ListTranslatorConfig struct {
 	TextCollation      string
 	DecimalFormat      DecimalFormat
 	TimestampPrecision time.Duration
+	// NarrowIntegers accepts signed integer columns narrower than the filter's 64-bit operands.
+	NarrowIntegers bool
+	// ExplicitCollation compares text under TextCollation (the dialect's default when empty) whatever the column's.
+	ExplicitCollation bool
 }
