@@ -40,12 +40,7 @@ func (l *ListEngine[T]) compileIndexes() error {
 		}
 
 		for _, k := range ks {
-			d := " ASC"
-			if k.Desc {
-				d = " DESC"
-			}
-
-			parts = append(parts, l.quote(k.Column)+d)
+			parts = append(parts, l.quote(k.Column)+" "+l.direction(k))
 		}
 
 		const directionsPerIndex = 2
