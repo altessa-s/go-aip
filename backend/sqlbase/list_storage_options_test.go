@@ -200,3 +200,17 @@ func TestListStorageConfigComparable(t *testing.T) {
 	config := sqlbase.ListStorageConfig{IDType: sqlbase.IDUUID}
 	require.True(t, config == (sqlbase.ListStorageConfig{IDType: sqlbase.IDUUID}))
 }
+
+func TestDerivedSortRejectsScopeMappedToIdentity(t *testing.T) {
+	t.Parallel()
+
+	db, fake := sqlbasetest.NewFakeDB(t, nil)
+	_, err := postgres.NewListEngine(db, nil, countSchema(t), "items", []string{"id"},
+		func(id *string) []any { return []any{id} },
+		sqlbase.WithListTableExpression("SELECT id, derived_name FROM items_view"),
+		sqlbase.WithListDerivedColumns("derived_name"),
+		sqlbase.WithListColumns(map[string]string{"name": "derived_name", "tenant": "id"}),
+		sqlbase.WithListScopeKeys("tenant"))
+	require.ErrorIs(t, err, sqlbase.ErrInvalidSchema)
+	require.Empty(t, fake.Calls())
+}

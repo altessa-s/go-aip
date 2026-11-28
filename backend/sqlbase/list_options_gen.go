@@ -301,6 +301,18 @@ func WithListTimestampPrecision(v time.Duration) ListEngineOption {
 	}
 }
 
+// WithListTransaction sets the transaction option.
+//
+// transaction shares a ListTransaction across engines or with other transaction operations.
+func WithListTransaction(v *ListTransaction) ListEngineOption {
+	return func(o *listOptions) {
+		if v == nil {
+			return
+		}
+		o.transaction = v
+	}
+}
+
 // WithListUUIDFields sets the uuidFields option.
 //
 // uuidFields are string fields stored in uuid columns, as IDUUID stores the identity.

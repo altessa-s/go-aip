@@ -33,6 +33,12 @@ func (l *ListEngine[T]) Count(ctx context.Context, req listing.Request, scope Sc
 	qctx, cancel := corecontext.WithMaxTimeout(ctx, l.opts.maxTime)
 	defer cancel()
 
+	if err = l.tx.acquire(qctx); err != nil {
+		return 0, l.mapError(ctx, qctx, err, p.query.Filter != nil)
+	}
+
+	defer l.tx.release()
+
 	return l.count(ctx, qctx, query, args, p.query.Filter != nil)
 }
 
@@ -92,6 +98,12 @@ func (l *ListEngine[T]) boundedCount(ctx context.Context, req listing.Request, s
 
 	qctx, cancel := corecontext.WithMaxTimeout(ctx, l.opts.maxTime)
 	defer cancel()
+
+	if err = l.tx.acquire(qctx); err != nil {
+		return Total{}, l.mapError(ctx, qctx, err, p.query.Filter != nil)
+	}
+
+	defer l.tx.release()
 
 	filtered := p.query.Filter != nil
 

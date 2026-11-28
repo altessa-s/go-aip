@@ -242,6 +242,12 @@ func (l *ListEngine[T]) List(ctx context.Context, subject string, req listing.Re
 	qctx, cancel := corecontext.WithMaxTimeout(ctx, l.opts.maxTime)
 	defer cancel()
 
+	if err = l.tx.acquire(qctx); err != nil {
+		return page.Page[T]{}, l.mapError(ctx, qctx, err, p.query.Filter != nil)
+	}
+
+	defer l.tx.release()
+
 	rows, err := l.q.QueryContext(qctx, query, args...)
 	if err != nil {
 		return page.Page[T]{}, l.mapError(ctx, qctx, err, q.Filter != nil)

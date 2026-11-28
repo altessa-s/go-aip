@@ -487,11 +487,16 @@ func comparePositions(o listing.Order, comparator pagetoken.ValueComparator, opt
 type nullsFirstComparator struct{ pagetoken.ValueComparator }
 
 func (c nullsFirstComparator) Compare(a, b pagetoken.SortValue) int {
-	if !a.Valid() || !b.Valid() {
-		return a.Compare(b)
+	switch av, bv := a.Valid(), b.Valid(); {
+	case av && bv:
+		return c.ValueComparator.Compare(a, b)
+	case av:
+		return 1
+	case bv:
+		return -1
+	default:
+		return 0
 	}
-
-	return c.ValueComparator.Compare(a, b)
 }
 
 // RequestProfile binds a custom evaluator to the request-wide scan, read,

@@ -650,9 +650,20 @@ ordering, cursor codec, precision, or identity requires new compatible token bin
 
 | Type      | Meaning                                                                    |
 |-----------|----------------------------------------------------------------------------|
-| `Querier` | Runs the parameterized SELECT; accepts `*sql.DB` and compatible test fakes |
+| `Querier` | Runs the parameterized SELECT. Accepts `*sql.DB`, `*sql.Tx`, and compatible test fakes. |
 | `Scope`   | Values pinned to the configured scope columns                              |
+| `ListTransaction` | Coordinates operations on one `*sql.Tx`. |
 | `IDType`  | Selects native scalar or PostgreSQL UUID storage                           |
+
+### Shared transactions
+
+Passing a raw `*sql.Tx` as the querier coordinates operations on that engine. To share the transaction across engines, wrap it once with
+`NewListTransaction(tx)` and pass the same `WithListTransaction(coordinator)` option to each engine. The querier argument can be nil when you
+supply the option. Use `coordinator.Run` for other statements on that transaction, and close their rows before the callback returns.
+
+The coordinator serializes list and count statements through result-set closure. A timed PostgreSQL count holds exclusive access through
+`SAVEPOINT`, the timeout setting and probe, and `ROLLBACK TO SAVEPOINT` and `RELEASE SAVEPOINT`. Statements issued directly on the raw
+transaction outside the coordinator are outside its control. The caller owns the transaction and must finish it after coordinated operations return.
 
 ### Storage contract
 

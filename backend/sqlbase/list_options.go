@@ -35,6 +35,9 @@ const (
 )
 
 type listOptions struct {
+	// transaction shares a ListTransaction across engines or with other transaction operations.
+	transaction *ListTransaction
+
 	// kindResolver maps public kinds to SQL storage classes before the dialect builds its translator.
 	kindResolver func(filter.FieldKind) Kind `optgen:"default=DefaultSQLKind"`
 

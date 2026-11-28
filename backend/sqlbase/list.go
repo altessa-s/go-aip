@@ -44,6 +44,7 @@ const (
 // table and share it between concurrent requests.
 type ListEngine[T any] struct {
 	q                  Querier
+	tx                 *ListTransaction
 	codec              pagetoken.Signer
 	schema             *listing.Schema
 	table, quotedTable string
@@ -64,16 +65,23 @@ type ListEngine[T any] struct {
 // the same order as columns. A nil codec serves a single page only. A nil dialect fails with
 // [listing.ErrInvalidSchema]; the PostgreSQL, MariaDB and ClickHouse dialects are postgres.ListDialect,
 // mariadb.ListDialect and clickhouse.ListDialect, whose NewListEngine constructors fix the dialect.
+// A *sql.Tx querier gets a coordinator private to this engine. Use [WithListTransaction] to share a coordinator
+// across engines or with other operations on the same transaction. With that option, q may be nil or the wrapped transaction.
 func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Schema, table string, columns []string, dest func(*T) []any,
 	dialect ListDialect, opts ...ListEngineOption) (*ListEngine[T], error) {
+	cfg := newListOptions(opts...)
+	cfg.dialect = dialect
+
+	q, tx, err := resolveListTransaction(q, cfg.transaction)
+	if err != nil {
+		return nil, err
+	}
+
 	if schema == nil || nilcheck.IsNil(q) || dest == nil {
 		return nil, invalid("nil schema, querier, or destination")
 	}
 
-	cfg := newListOptions(opts...)
-	cfg.dialect = dialect
-
-	if err := validateStorageOptions(cfg, schema); err != nil {
+	if err = validateStorageOptions(cfg, schema); err != nil {
 		return nil, err
 	}
 
@@ -91,7 +99,7 @@ func NewListEngine[T any](q Querier, codec pagetoken.Signer, schema *listing.Sch
 		return nil, err
 	}
 
-	l := &ListEngine[T]{q: q, codec: codec, schema: schema, table: table, quotedTable: quotedTable, from: from, columns: slices.Clone(columns),
+	l := &ListEngine[T]{q: q, tx: tx, codec: codec, schema: schema, table: table, quotedTable: quotedTable, from: from, columns: slices.Clone(columns),
 		dest: dest, opts: cfg}
 
 	fieldCols, err := resolveFieldColumns(schema, cfg)

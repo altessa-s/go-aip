@@ -8,12 +8,14 @@ import (
 	"cmp"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-aip/backend/memory"
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/listing"
+	"github.com/altessa-s/go-aip/pagination/pagetoken"
 	"github.com/altessa-s/go-aip/pagination/pagetoken/pagetokentest"
 )
 
@@ -134,5 +136,89 @@ func TestNullablePresenceSortWithCustomComparator(t *testing.T) {
 		require.Equal(t, id, page.Items[0].ID)
 		require.Equal(t, i < 2, page.NextPageToken != "")
 		req.PageToken = page.NextPageToken
+	}
+}
+
+type opaqueRatingCodec struct{ pagetoken.ScalarPositionCodec }
+
+func (opaqueRatingCodec) Name() string { return "opaque-rating-v1" }
+
+func (c opaqueRatingCodec) Normalize(v any, precision time.Duration) (pagetoken.SortValue, error) {
+	if rating, ok := v.(int64); ok {
+		return pagetoken.OpaqueSortValue(rating), nil
+	}
+
+	return c.ScalarPositionCodec.Normalize(v, precision)
+}
+
+func (opaqueRatingCodec) Compare(a, b pagetoken.SortValue) int {
+	if a.Class() != pagetoken.SortClassNone {
+		return a.Compare(b)
+	}
+
+	av, _ := a.Value()
+	bv, _ := b.Value()
+
+	return cmp.Compare(av.(int64), bv.(int64))
+}
+
+func (c opaqueRatingCodec) Marshal(v any) ([]byte, error) {
+	p := v.(pagetoken.Position)
+	if raw, ok := p.Keys[0].Value(); ok {
+		key, err := pagetoken.NewSortValue(raw)
+		if err != nil {
+			return nil, err
+		}
+
+		p.Keys = []pagetoken.SortValue{key}
+	}
+
+	return c.ScalarPositionCodec.Marshal(p)
+}
+
+func (c opaqueRatingCodec) Unmarshal(b []byte, v any) error {
+	if err := c.ScalarPositionCodec.Unmarshal(b, v); err != nil {
+		return err
+	}
+
+	p := v.(*pagetoken.Position)
+	if raw, ok := p.Keys[0].Value(); ok {
+		p.Keys[0] = pagetoken.OpaqueSortValue(raw)
+	}
+
+	return nil
+}
+
+func TestNullablePresenceSortWithOpaqueValues(t *testing.T) {
+	t.Parallel()
+
+	schema := listing.MustSchema([]listing.Field{
+		{Name: "id", Kind: filter.FieldKindString},
+		{Name: "rating", Kind: filter.FieldKindInt, Presence: true},
+	}, []string{"rating"}, listing.NewProfile(listing.WithSortableFields("rating")))
+	l, err := memory.NewListEngine(pagetokentest.Codec(t), schema,
+		func(x presenceItem) string { return x.ID },
+		func(x presenceItem) map[string]any { return map[string]any{"rating": x.Rating} },
+		memory.WithListPositionCodec(opaqueRatingCodec{}))
+	require.NoError(t, err)
+
+	items := []presenceItem{{ID: "low", Rating: new(int64(1))}, {ID: "null"}, {ID: "high", Rating: new(int64(2))}}
+
+	for _, tc := range []struct {
+		order string
+		ids   []string
+	}{
+		{"rating", []string{"null", "low", "high"}},
+		{"rating desc", []string{"high", "low", "null"}},
+	} {
+		req := listing.Request{OrderBy: tc.order, PageSize: 1}
+		for i, id := range tc.ids {
+			page, err := l.List(t.Context(), "items", req, items)
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			require.Equal(t, id, page.Items[0].ID, "%s, page %d", tc.order, i+1)
+			require.Equal(t, i+1 < len(tc.ids), page.NextPageToken != "")
+			req.PageToken = page.NextPageToken
+		}
 	}
 }

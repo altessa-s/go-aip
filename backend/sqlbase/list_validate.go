@@ -199,6 +199,10 @@ func validateScopeColumns(schema *listing.Schema, cfg *listOptions, fieldCols ma
 			column = key
 		}
 
+		if column == cfg.idColumn {
+			return invalid("scope key %q maps to the identity column %q", key, column)
+		}
+
 		if previous, exists := scopeUsed[column]; exists {
 			return invalid("scope keys %q and %q map to the same column %q", previous, key, column)
 		}
